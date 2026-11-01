@@ -119,26 +119,24 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
             } catch (_) {}
           }
         } catch (e) {
-          final isNetworkError = ConnectivityHelper.isNetworkException(e);
           final err = e.toString().toLowerCase();
 
-          // 🛡️ قائمة الحالات النهائية الصريحة التي يرفض السيرفر تسليمها قطعياً
-          final bool isTerminalRejection = !isNetworkError ||
-              err.contains('already-delivered') ||
+          // 🔒 القائمة البيضاء الحصرية للأخطاء القطعية غير القابلة للإعادة (Strict Terminal Whitelist)
+          // لا نحذف التوقيع إلا إذا أكد السيرفر قطيعاً أن الطلب إما تم تسليمه مسبقاً، أو غير موجود، أو مسند لمندوب آخر
+          final bool isAlreadyDelivered = err.contains('already-delivered') ||
               err.contains('already_delivered') ||
-              err.contains('تم تسجيل تسليم الطلب مسبقاً') ||
-              err.contains('order-not-found') ||
-              err.contains('not-found') ||
-              err.contains('not_found') ||
-              err.contains('الطلب غير موجود') ||
-              err.contains('permission-denied') ||
-              err.contains('غير مسند إليك') ||
-              err.contains('سائق آخر') ||
-              err.contains('failed-precondition') ||
-              err.contains('invalid-argument');
+              err.contains('تم تسجيل تسليم الطلب مسبقاً');
 
-          if (isTerminalRejection) {
-            // كسر الحلقة التكرارية نهائياً وحذف المهمة والتوقيع العالقين
+          final bool isUnassignableOrCancelled =
+              err.contains('order-not-found') ||
+                  err.contains('not-found') ||
+                  err.contains('الطلب غير موجود') ||
+                  err.contains('غير مسند إليك') ||
+                  err.contains('سائق آخر') ||
+                  err.contains('تم تسليمه لسائق آخر');
+
+          if (isAlreadyDelivered || isUnassignableOrCancelled) {
+            // نجاح قطعي مسبق أو رفض إداري حتمي: تنظيف المهمة والتوقيع بأمان
             await AppStorage.removePendingDriverDelivery(orderId, driverId);
             if (!kIsWeb) {
               try {
@@ -148,11 +146,11 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
               } catch (_) {}
             }
 
-            if (mounted && !err.contains('already')) {
+            if (mounted && isUnassignableOrCancelled) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    '⚠️ تم إسقاط مزامنة الطلب #${orderId.length > 6 ? orderId.substring(0, 6) : orderId} لرفضه نهائياً من السيرفر (مسند لسائق آخر أو ملغي)',
+                    '⚠️ تعذر تسليم الطلب #${orderId.length > 6 ? orderId.substring(0, 6) : orderId} (مسند لسائق آخر أو ملغي بالسيرفر)',
                     style: const TextStyle(fontFamily: 'Cairo'),
                   ),
                   backgroundColor: Colors.deepOrange,
@@ -161,9 +159,10 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
               );
             }
           } else {
-            // خطأ شبكة مؤقت بحت: تأجيل الطلب للمحاولة القادمة دون استنزاف
-            debugPrint('⚠️ ضعف اتصال مؤقت: تأجيل تسليم الطلب $orderId: $e');
-            break; // التوقف عن الدوران لحماية البطارية والباقة لحين استقرار الشبكة
+            // 🛡️ أي خطأ آخر (شبكة، سيرفر 500، عطل تخزين، تعليق): نتمسك بالتوقيع والطلب ونوقف الحلقة للمحاولة لاحقاً
+            debugPrint(
+                '⚠️ تعثر مؤقت أثناء مزامنة تسليم الطلب $orderId - تم تأمين التوقيع لإعادة المحاولة: $e');
+            break;
           }
         }
       }

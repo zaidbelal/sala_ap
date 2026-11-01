@@ -20,6 +20,7 @@ import 'features/auth/signup/services/signup_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'features/auth/login/services/auth_service.dart';
 import 'features/merchant/cart/providers/cart_provider.dart';
+import 'dart:async';
 
 class AppRoutes {
   static const splash = '/';
@@ -43,16 +44,37 @@ const _protectedMerchantRoutes = [
 const _protectedAdminRoutes = [AppRoutes.adminHome];
 const _protectedDriverRoutes = [AppRoutes.driverHome];
 
+/// مراقب استباقي يربط أحداث مصادقة Firebase بـ GoRouter لإعادة تقييم المسارات لحظياً
+class _RouterAuthListener extends ChangeNotifier {
+  late final StreamSubscription<User?> _sub;
+
+  _RouterAuthListener() {
+    _sub = FirebaseAuth.instance.userChanges().listen((_) {
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final authListener = _RouterAuthListener();
+  ref.onDispose(authListener.dispose);
+
   final goRouter = GoRouter(
     navigatorKey: NotificationService.navigatorKey,
+    refreshListenable:
+        authListener, // 👈 تفعيل الاستجابة التلقائية لطرد الحسابات المحظورة والمنتهية
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: false,
 
     // ══ حماية المسارات ══
     redirect: (context, state) {
       final path = state.matchedLocation;
-
 // المسارات العامة — لا حماية (تم حماية pending خلف تسجيل الدخول)
       const publicRoutes = [
         AppRoutes.splash,

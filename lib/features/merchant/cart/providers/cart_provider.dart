@@ -40,36 +40,55 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   Future<void> _load() async {
     if (kIsWeb) return;
     try {
-      // 🔒 مزامنة خطية: انتظار اكتمال تسوية الـ WAL أولاً بمهلة آمنة لمنع تصادم مسح ملف السلة
-      await WalService.waitForReconciliation.timeout(
-        const Duration(milliseconds: 1500),
-        onTimeout: () => null,
-      );
+      // 🔒 انتظار كامل وحتمي لتسوية قيود الـ WAL دون مهلة قصيرة مجتزأة تسبب سباق الذاكرة
+      await WalService.waitForReconciliation;
 
       final revision = await _repository.readRevision(_key);
       if (revision != null) _cartRevision = revision;
       _cartRevision ??= _newCartRevision();
 
       var loaded = await _repository.readCart(_key);
-      // 🔒 تحفة الترحيل التلقائي: إذا سجل التاجر دخوله وسلته فارغة، ننقل بضائع سلة الزائر السابقة لحسابه فوراً
+
+      // 🛡️ فحص عدم الإحياء: إذا كان معرف السلة يطابق طلباً معلقاً أو منفذاً مسبقاً، نمنع تحميلها
+      final uid = AppStorage.userId;
+      if (uid != null && _cartRevision != null) {
+        final pendingQueue = AppStorage.getPendingOrders(uid);
+        final matchesPending = pendingQueue
+            .any((o) => o['cart_revision']?.toString() == _cartRevision);
+        if (matchesPending) {
+          // السلة أُرسلت كطلب مسبقاً، تفريغها فوراً لمنع الشحنات المزدوجة
+          await _repository.deleteCart(_key);
+          state = {};
+          return;
+        }
+      }
+      // 🔒 دمج سلة الزائر التلقائي مع سلة التاجر إن وجدت بدلاً من تجاهلها أو حذفها
       final currentUid = AppStorage.userId;
-      if ((loaded == null || loaded.isEmpty) &&
-          currentUid != null &&
-          currentUid.isNotEmpty) {
+      if (currentUid != null && currentUid.isNotEmpty) {
         const guestKey = 'sala_cart_v2_guest';
         final guestCart = await _repository.readCart(guestKey);
         if (guestCart != null && guestCart.isNotEmpty) {
-          loaded = guestCart;
-          // ترحيل السلة وحفظها باسم التاجر المسجل وتطهير سلة الزائر
+          final mergedCart = Map<String, CartItem>.from(loaded ?? {});
+          guestCart.forEach((key, guestItem) {
+            if (mergedCart.containsKey(key)) {
+              final existing = mergedCart[key]!;
+              mergedCart[key] = existing.copyWith(
+                quantity: (existing.quantity + guestItem.quantity)
+                    .clamp(1, _maxQuantity),
+              );
+            } else {
+              mergedCart[key] = guestItem;
+            }
+          });
+          loaded = mergedCart;
           await _repository.saveCart(
             key: _key,
             revision: _cartRevision!,
-            items: guestCart,
+            items: mergedCart,
           );
           await _repository.deleteCart(guestKey);
         }
       }
-
       if (loaded == null || loaded.isEmpty) return;
 
       final merged = _ignoreLoadedCart

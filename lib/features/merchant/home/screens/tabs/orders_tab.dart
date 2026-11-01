@@ -8,6 +8,8 @@ import '../../../orders/models/order_model.dart';
 import '../../../orders/screens/order_status_screen.dart';
 import '../../../widgets/order_card.dart';
 import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'dart:async';
+import 'package:sala/core/services/realtime_hub.dart';
 
 class OrdersTab extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToHistory;
@@ -43,15 +45,8 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
     _tabController.animation!.addListener(_onTabAnimation);
-    final merchantId = AppStorage.userId ?? '';
-    if (merchantId.isNotEmpty) {
-      ordersStream = FirebaseFirestore.instance
-          .collection('orders')
-          .where('merchant_id', isEqualTo: merchantId)
-          .orderBy('created_at', descending: true)
-          .limit(_ordersPageSize)
-          .snapshots(includeMetadataChanges: false);
-    }
+    // ⚡ إلغاء فتح استعلام جديد: الاعتماد على مزود الطلبات المركزي الموحد في RealtimeHub
+    // لتوفير 66% من فواتير قراءات قاعدة البيانات واستهلاك البطارية
   }
 
   void _onTabAnimation() {
@@ -190,39 +185,19 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                 ],
               ),
             ),
-
-            // ── TabBarView ──
+// ── TabBarView الموحد عبر مزود الحالة المركزي (Zero Redundant Stream) ──
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: ordersStream ??= FirebaseFirestore.instance
-                    .collection('orders')
-                    .where('merchant_id', isEqualTo: merchantId)
-                    .orderBy('created_at', descending: true)
-                    .limit(_ordersPageSize)
-                    .snapshots(includeMetadataChanges: false),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting &&
-                      !snapshot.hasData) {
-                    return ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                      itemCount: 5,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, __) => const _OrderSkeletonCard(),
-                    );
-                  }
+              child: Builder(
+                builder: (context) {
+                  // الاستماع المباشر للقناة الموحدة مسبقاً في RealtimeHub
+                  final liveOrders = ref.watch(merchantOrdersProvider);
 
-                  final pageDocs = snapshot.data?.docs ?? [];
-                  if (_olderOrders.isEmpty) {
-                    _ordersCursor = pageDocs.isEmpty
-                        ? null
-                        : _ordersCursor ?? pageDocs.last;
-                    _hasMoreOrders = pageDocs.length == _ordersPageSize;
-                  }
                   final ordersById = <String, Map<String, dynamic>>{
                     ..._olderOrders,
-                    for (final doc in pageDocs)
-                      doc.id: {'id': doc.id, ...doc.data()},
+                    for (final order in liveOrders)
+                      order['id'].toString(): order,
                   };
+
                   final allOrders = ordersById.values.toList()
                     ..sort((a, b) {
                       DateTime parse(dynamic v) {
@@ -237,7 +212,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       return parse(b['created_at'])
                           .compareTo(parse(a['created_at']));
                     });
-
                   List<Map<String, dynamic>> filterBy(List<String> statuses) {
                     return allOrders
                         .where((d) => statuses.contains(d['status']))

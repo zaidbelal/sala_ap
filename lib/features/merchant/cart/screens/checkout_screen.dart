@@ -337,19 +337,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         chunks.add(productIds.sublist(
             i, i + 30 > productIds.length ? productIds.length : i + 30));
       }
-      final futures = chunks.map((chunk) => FirebaseFirestore.instance
-          .collection('products')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 4)));
-      final results = await Future.wait(futures);
       final liveDocs = <Map<String, dynamic>>[];
-      for (final snap in results) {
-        liveDocs.addAll(snap.docs.map((d) => {'id': d.id, ...d.data()}));
-      }
+      final successfullyQueriedIds = <String>{};
 
-      return ref.read(cartProvider.notifier).validateAndUpdatePrices(liveDocs,
-          queriedBatchIds: productIds.toSet());
+      await Future.wait(
+        chunks.map((chunk) async {
+          try {
+            final snap = await FirebaseFirestore.instance
+                .collection('products')
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 4));
+            liveDocs.addAll(snap.docs.map((d) => {'id': d.id, ...d.data()}));
+            successfullyQueriedIds.addAll(chunk);
+          } catch (_) {}
+        }),
+      );
+
+      if (successfullyQueriedIds.isEmpty) return false;
+
+      return ref.read(cartProvider.notifier).validateAndUpdatePrices(
+            liveDocs,
+            queriedBatchIds: successfullyQueriedIds,
+          );
     } catch (_) {
       // 🛡️ عند تعذر الاتصال بالسيرفر نتجاوز فحص السعر بنجاح لنسمح بحفظ الطلب أوفلاين
       return false;
@@ -474,7 +484,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               },
             })
         .toList();
-
     final String? notesString =
         _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
 
@@ -489,18 +498,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       'longitude': _location!.longitude,
       'payment_method': _paymentMethod,
     };
-    // 🔒 مطابقة بصمة محتوى الطلب: إذا عدّل التاجر أي بند أو مبلغ أو ملاحظة أو موقع يُلغى المفتاح القديم فوراً
+
+    // 🔒 بصمة رقمية عميقة وحتمية (Deep Payload Hashing) تفحص هوية كل صنف ووحدته وسعره وكميته
+    // لمنع أي تضارب إذا استبدل التاجر سلعة بأخرى لها نفس السعر والإجمالي
+    final itemsDetailedFingerprint = itemsList.map((item) {
+      final pId = item['product_id'] ?? '';
+      final uLabel = item['unit_label'] ?? 'كرتون';
+      final qty = item['quantity'] ?? 1;
+      final price = item['price'] ?? 0;
+      return '$pId:$uLabel:$qty:$price';
+    }).join(';');
+
     final currentPayloadSignature =
-        '$merchantId|${itemsList.length}|$total|$notesString|$_paymentMethod|${_location?.latitude},${_location?.longitude}|$cartRevision';
+        '$merchantId|$itemsDetailedFingerprint|$total|$notesString|$_paymentMethod|${_location?.latitude},${_location?.longitude}|$cartRevision';
+
     if (_lastSubmittedPayloadSignature != currentPayloadSignature) {
-      _orderIdempotencyKey = null;
+      _orderIdempotencyKey =
+          null; // إعادة توليد معرف فريد جديد كلياً عند أي تغيير في محتوى السلة
       _lastSubmittedPayloadSignature = currentPayloadSignature;
     }
 
     _orderIdempotencyKey ??=
         FirebaseFirestore.instance.collection('orders').doc().id;
     final String generatedOrderId = _orderIdempotencyKey!;
-
     final orderData = {
       'orderId': generatedOrderId,
       'merchantId': merchantId,
@@ -565,20 +585,37 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             'تعذر التحقق من مخزون المستودع أوفلاين؛ افتح التطبيق مع توفر الإنترنت مرة واحدة لتحديث الكتالوج');
         return;
       }
+// 🔒 بناء قائمتين مستقلتين: الأصناف النشطة المعتمدة، والأصناف المحذوفة أو المعطلة صراحة
+      final Map<String, Map<String, dynamic>> verifiedActiveMap = {};
+      final Set<String> explicitlyDeletedOrInactiveIds = {};
 
-      final verifiedActiveMap = {
-        for (final p in allLocalProducts)
-          if (p['is_deleted'] != true && p['is_active'] != false)
-            p['id']?.toString(): p
-      };
-      final List<String> unverifiedOrStaleKeys = [];
-      String? stockExceededError;
+      for (final p in allLocalProducts) {
+        final id = p['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        if (p['is_deleted'] == true || p['is_active'] == false) {
+          explicitlyDeletedOrInactiveIds.add(id);
+        } else {
+          verifiedActiveMap[id] = p;
+        }
+      }
+
       for (final item in cart.values) {
         final pId = item.product.id;
+
+        // ❌ رفض قاطع: إذا كان الصنف محذوفاً أو معطلاً صراحة في الكاش نمنع تمرير الطلب نهائياً
+        if (explicitlyDeletedOrInactiveIds.contains(pId)) {
+          safeDismissLoading();
+          _showError(
+              'الصنف (${item.product.name}) تم إيقافه أو حذفه من المستودع. يرجى حذفه من السلة لإتمام الطلب.');
+          return;
+        }
+
         final liveP = verifiedActiveMap[pId];
         if (liveP == null) {
-          unverifiedOrStaleKeys.add(item.cartKey);
-          continue;
+          safeDismissLoading();
+          _showError(
+              'الصنف (${item.product.name}) غير موجود في سجلات الكتالوج المحلي. يرجى الاتصال بالإنترنت لتحديث البيانات.');
+          return;
         }
 
         // 🛡️ فحص حاسم للمخزون: منع حفظ الطلب أوفلاين إذا كانت الكمية المطلوبة تتجاوز المخزون المتوفر
@@ -589,37 +626,25 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             (item.quantity * unitQty) / (capacity > 0 ? capacity : 1);
 
         if (requestedCartons > availableStock) {
-          stockExceededError =
-              'الكمية المطلوبة من (${item.product.name}) تتجاوز المخزون المتوفر بالمستودع (${availableStock.toInt()} كرتون)';
-          break;
+          safeDismissLoading();
+          _showError(
+              'الكمية المطلوبة من (${item.product.name}) تتجاوز المخزون المتوفر بالمستودع (${availableStock.toInt()} كرتون)');
+          return;
         }
 
-        // التحقق من توفر الوحدة المحددة وسعرها
+        // التحقق من توفر الوحدة المحددة
         final unitLabel = item.unitLabel;
         if (unitLabel != 'كرتون') {
           final unitsList = liveP['units'] as List<dynamic>? ?? [];
           final unitExists = unitsList
               .any((u) => u['label']?.toString().trim() == unitLabel.trim());
           if (!unitExists) {
-            unverifiedOrStaleKeys.add(item.cartKey);
+            safeDismissLoading();
+            _showError(
+                'وحدة البيع ($unitLabel) للصنف (${item.product.name}) لم تعد متوفرة في المستودع.');
+            return;
           }
         }
-      }
-
-      if (stockExceededError != null) {
-        safeDismissLoading();
-        _showError(stockExceededError);
-        return;
-      }
-
-      if (unverifiedOrStaleKeys.isNotEmpty) {
-        safeDismissLoading();
-        for (final k in unverifiedOrStaleKeys) {
-          ref.read(cartProvider.notifier).removeItem(k);
-        }
-        _showError(
-            'تم استبعاد أصناف غير متوفرة أو تغيرت وحداتها في الكتالوج، راجع سلتك');
-        return;
       }
       try {
         await AppStorage.savePendingOrder(orderData);

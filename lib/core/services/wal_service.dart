@@ -232,7 +232,14 @@ class WalService {
   static Future<void> get waitForReconciliation =>
       _reconciliationCompleter.isCompleted
           ? Future.value()
-          : _reconciliationCompleter.future;
+          : _reconciliationCompleter.future
+              .timeout(const Duration(seconds: 4), onTimeout: () => null);
+
+  void completeReconciliationFallback() {
+    if (!_reconciliationCompleter.isCompleted) {
+      _reconciliationCompleter.complete();
+    }
+  }
 
   Future<void> reconcilePendingEntries() async {
     if (kIsWeb) {
@@ -253,7 +260,6 @@ class WalService {
       }
       final db = FirebaseFirestore.instance;
       final verifiedIds = <String>[];
-      final verifiedVoidedLedgerIds = <String>{};
       final verifiedOrderUids = <String>{};
 
       // 🔒 الخطوة 1: فحص السيرفر أولاً قبل لمس التخزين المحلي لمنع إحياء الطلبات الملغاة
@@ -266,7 +272,7 @@ class WalService {
                   .collection('orders')
                   .doc(entry.id)
                   .get(const GetOptions(source: Source.server))
-                  .timeout(const Duration(seconds: 3));
+                  .timeout(const Duration(seconds: 12));
               final merchantId =
                   entry.payload['merchant_id']?.toString() ?? AppStorage.userId;
               final orderNumber = doc.data()?['order_number']?.toString() ?? '';
@@ -275,40 +281,6 @@ class WalService {
                   orderNumber.isNotEmpty;
               if (verifiedOnServer) {
                 if (merchantId != null) verifiedOrderUids.add(merchantId);
-              }
-            } else if (entry.type == WalOperationType.ledgerTransaction) {
-              final doc = await db
-                  .collection('merchant_ledger_entries')
-                  .doc(entry.id)
-                  .get(const GetOptions(source: Source.server))
-                  .timeout(const Duration(seconds: 3));
-              final data = doc.data();
-              final matchesIntent = doc.exists &&
-                  data?['merchant_id'] == entry.payload['merchant_id'] &&
-                  data?['customer_id'] == entry.payload['customer_id'];
-              if (matchesIntent && data?['is_voided'] == true) {
-                verifiedVoidedLedgerIds.add(entry.id);
-              }
-              if (entry.payload['action'] == 'void') {
-                verifiedOnServer = matchesIntent && data?['is_voided'] == true;
-              } else {
-                final docAmtCents =
-                    (((data?['amount'] as num?)?.toDouble() ?? 0.0) * 100)
-                        .round();
-                final intentAmtCents =
-                    (((entry.payload['amount'] as num?)?.toDouble() ?? 0.0) *
-                            100)
-                        .round();
-                final persistedNotes = data?['notes'] ?? '';
-                final intentNotes = entry.payload['notes'] ?? '';
-                final persistedItems = data?['items'] ?? const [];
-                final intentItems = entry.payload['items'] ?? const [];
-
-                verifiedOnServer = matchesIntent &&
-                    data?['type'] == entry.payload['type'] &&
-                    docAmtCents == intentAmtCents &&
-                    _matchesJsonValue(persistedNotes, intentNotes) &&
-                    _matchesJsonValue(persistedItems, intentItems);
               }
             }
             if (verifiedOnServer) {
@@ -335,12 +307,7 @@ class WalService {
               continue;
             }
 
-            // استرجاع الطلب فقط إذا كان حديثاً (أقل من 12 ساعة)
-            if (DateTime.now().difference(entry.timestamp).inHours > 12) {
-              await markAborted(entry.id);
-              continue;
-            }
-
+            // 🔒 حماية مطلقة لأموال وطلبات التاجر: لا يتم إبطال أي طلب معلق أوفلاين بناءً على عامل الزمن إطلاقاً
             final items = entry.payload['items'];
             final expectedTotal = entry.payload['expectedTotal'] ??
                 entry.payload['expected_total'];
@@ -360,23 +327,6 @@ class WalService {
                 if (entry.payload['cart_revision'] != null)
                   'cart_revision': entry.payload['cart_revision'],
               });
-            }
-          } else {
-            final payload = Map<String, dynamic>.from(entry.payload);
-            if (payload['action'] == 'void') {
-              await AppStorage.savePendingLedgerTx({
-                'id': 'void_${entry.id}',
-                'merchant_id': merchantId,
-                'customer_id': payload['customer_id'],
-                'type': 'void_request',
-                'target_entry_id': entry.id,
-                'amount': payload['amount'],
-                'is_debt': payload['is_debt'],
-                'created_at': entry.timestamp.toIso8601String(),
-              });
-            } else {
-              payload['id'] = entry.id;
-              await AppStorage.savePendingLedgerTx(payload);
             }
           }
         } catch (e, st) {
@@ -468,7 +418,13 @@ class WalService {
 
                 if (isAssociatedWithPending) {
                   await file.delete();
+                  final revFile =
+                      File('${dir.path}/sala_cart_v2_$uid.revision');
+                  if (await revFile.exists()) await revFile.delete();
                   await AppStorage.remove('sala_cart_v2_$uid');
+                  // 🔒 تدمير النسخ الاحتياطية لتفادي قيامتها إطلاقاً
+                  final bak = File('${dir.path}/sala_cart_v2_$uid.json.bak');
+                  if (await bak.exists()) await bak.delete();
                 }
               }
             } catch (_) {}
@@ -488,12 +444,6 @@ class WalService {
           if (entry.type == WalOperationType.placeOrder) {
             if (targetMerchantId != null) {
               await AppStorage.removePendingOrder(entry.id, targetMerchantId);
-            }
-          } else if (entry.type == WalOperationType.ledgerTransaction) {
-            await AppStorage.removePendingLedgerTx(entry.id, targetMerchantId);
-            if (verifiedVoidedLedgerIds.contains(entry.id)) {
-              await AppStorage.removePendingLedgerTx(
-                  'void_${entry.id}', targetMerchantId);
             }
           }
         }

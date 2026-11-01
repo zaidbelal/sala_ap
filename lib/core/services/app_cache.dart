@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // لـ compute()
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:sala/core/services/local_storage.dart';
 
 // ══════════════════════════════════════════════════════════
 // AppCache — نظام كاش ثلاثي الطبقات بسرعة الضوء
@@ -307,10 +308,11 @@ class AppCache {
     }
   }
 
-  /// جلب كافة المنتجات المخزنة محلياً من ذاكرة RAM فائقة السرعة دون تعليق الـ UI Thread
+  /// جلب كافة المنتجات المخزنة محلياً مع قراءة شمولية متزامنة لجميع ملفات الأقسام عند الإقلاع البارد أوفلاين
   List<Map<String, dynamic>> getAllCachedProducts() {
     final Map<String, Map<String, dynamic>> byId = {};
 
+    // 1. القراءة من ذاكرة RAM أولاً
     for (final entry in _ram.entries) {
       if (entry.key == _keyProducts ||
           entry.key.startsWith('${_keyProducts}_')) {
@@ -318,18 +320,42 @@ class AppCache {
           for (final p in (entry.value.data as List)) {
             if (p is Map<String, dynamic>) {
               final id = p['id']?.toString();
-              if (id != null && id.isNotEmpty) {
-                byId[id] = p;
-              }
+              if (id != null && id.isNotEmpty) byId[id] = p;
             }
           }
         }
       }
     }
 
-    // 🔒 إذا كانت الذاكرة غير محملة بعد، يتم جدولتها بالخلفية بدلاً من قراءة ملفات ضخمة متزامنة على شاشة المستخدم
+    // 2. إذا كانت الذاكرة باردة عند فتح التطبيق أوفلاين، نقرأ القرص مباشرة بشكل حتمي
     if (byId.isEmpty && !kIsWeb) {
-      Future.microtask(() => _loadFromDisk(_keyProducts));
+      try {
+        final appPath = AppStorage.appDocsPath;
+        if (appPath != null) {
+          final dir = Directory(appPath);
+          if (dir.existsSync()) {
+            final productFiles = dir.listSync().whereType<File>().where(
+                  (f) =>
+                      f.path.contains('cache_products') &&
+                      f.path.endsWith('.json') &&
+                      !f.path.contains('.tmp') &&
+                      !f.path.contains('.bak'),
+                );
+            for (final file in productFiles) {
+              try {
+                final content = file.readAsStringSync();
+                final decoded = _decodeJson(content);
+                if (decoded != null) {
+                  for (final p in decoded) {
+                    final id = p['id']?.toString();
+                    if (id != null && id.isNotEmpty) byId[id] = p;
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
     }
 
     return byId.values.toList();

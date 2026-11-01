@@ -392,8 +392,6 @@ class AuthService {
       }
     }
     await AppStorage.clearUserData();
-    await AppStorage.remove(
-        'ledger_deleted_cust_ids_set'); // 👈 تطهير شواهد الدفتر لمنع تسريبها بين الحسابات
     await AppCache.instance.clearAll();
     FirebaseService.clearCache();
     SearchService.clearCache();

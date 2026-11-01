@@ -45,17 +45,12 @@ class ConnectivityHelper {
   static bool isNetworkException(Object? error) {
     if (error == null) return false;
 
-    // 1. استثناءات الدفتر المؤمّنة أوفلاين
-    if (error.runtimeType.toString().contains('LedgerQueuedException'))
-      return true;
-
-    // 2. استثناءات الإدخال/الإخراج والمهلة الصريحة
+    // 1. استثناءات الإدخال/الإخراج والمهلة الصريحة
     if (error is SocketException ||
         error is TimeoutException ||
         error is HttpException) {
       return true;
     }
-
     final errStr = error.toString().toLowerCase();
 
     // 3. استثناءات Firebase Cloud Functions و Firestore

@@ -17,8 +17,6 @@ import 'tabs/home_tab.dart';
 import 'tabs/history_tab.dart';
 import 'tabs/orders_tab.dart';
 import 'tabs/profile_tab.dart';
-import '../../ledger/screens/ledger_tab.dart';
-import '../../ledger/services/ledger_service.dart';
 import 'package:sala/core/services/wal_service.dart';
 
 final _activeTabProvider = StateProvider<int>((ref) => 0);
@@ -41,7 +39,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
-
 // 🚀 انتظار اكتمال تسوية قيود WAL المالية أولاً قبل إطلاق المزامنة المتوازية
     Connectivity().checkConnectivity().then((results) async {
       if (!results.every((r) => r == ConnectivityResult.none)) {
@@ -49,7 +46,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
         if (!mounted) return;
         _syncPendingOrder();
         _syncPendingReturns();
-        _syncPendingLedger();
       }
     });
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
@@ -66,10 +62,9 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
         _reconnectedTimer = Timer(const Duration(seconds: 2), () {
           if (mounted) setState(() => _justReconnected = false);
         });
-// 🚀 فور عودة الإنترنت: مزامنة الطلبات والمرتجعات وديون الدفتر
+// 🚀 فور عودة الإنترنت: مزامنة الطلبات والمرتجعات
         _syncPendingOrder();
         _syncPendingReturns();
-        _syncPendingLedger(); // ✅ مزامنة حركات الدفتر فور عودة الإنترنت
       } else if (offline) {
         setState(() {
           _isOffline = true;
@@ -104,7 +99,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
       // مزامنة الطلبات في حال ضغط المستخدم على إعاد المحاولة ونجح الاتصال
       _syncPendingOrder();
       _syncPendingReturns(); // 👈 تشغيل مزامنة المرتجعات
-      _syncPendingLedger();
     } else {
       // اهتزاز خفيف للإشارة أن النت لا يزال منقطعاً
       HapticFeedback.heavyImpact();
@@ -190,34 +184,35 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
             continue; // الحفاظ على الطلب في الطابور دون حذفه
           } else {
             await WalService.instance.markAborted(orderId);
-// 🛡️ استخراج معرّفات الأصناف المرفوضة بتجزئة رمزية شاملة (Tokenized Parsing)
+// 🛡️ استخراج معرّفات الأصناف المرفوضة بدعم كامل للنصوص والوحدات العربية داخل وخارج الأقواس
             final failedIds = <String>{};
             final exp = RegExp(
-              r'(?:PRODUCT_UNAVAILABLE_|OUT_OF_STOCK_)(?:\[|\b)([\w\-\:,\s]+)(?:\]|\b)',
+              r'(?:PRODUCT_UNAVAILABLE_|OUT_OF_STOCK_)\[([^\]]+)\]',
               caseSensitive: false,
             );
 
             for (final match in exp.allMatches(e.toString())) {
               final raw = match.group(1);
               if (raw != null && raw.trim().isNotEmpty) {
-                // تقسيم السلسلة على الفواصل والمسافات لالتقاط كل معرف منتج منفرد بدقة
-                final tokens = raw.split(RegExp(r'[,;\s]+'));
+                final tokens = raw.split(RegExp(r'[,;]+'));
                 for (final token in tokens) {
                   final clean = token.trim();
                   if (clean.isEmpty) continue;
-                  // فصل معرّف الصنف عن لاحقة الوحدة (مثل prod_123:حبة)
                   failedIds.add(
                       clean.contains(':') ? clean.split(':')[0].trim() : clean);
                 }
               }
             }
+// 🔒 الحماية الذرية: حذف الطلب ووسمه كمنتهٍ أولاً لضمان عدم تكرار الإضافة إذا انهار التطبيق
+            AppStorage.markOrderIdTerminal(orderId, currentUserId);
+            await AppStorage.removePendingOrder(orderId, currentUserId);
 
-            // 🔒 استعادة الأصناف المتوفرة فقط وتجريد المنتجات المنتهية أو المحذوفة تماماً من السلة
+            // استعادة الأصناف المتوفرة فقط إلى سلة التاجر بأمان
             final notifier = ref.read(cartProvider.notifier);
             for (final item in pending['items']) {
               final productId = item['product_id']?.toString() ?? '';
               if (productId.isEmpty || failedIds.contains(productId)) {
-                continue; // استبعاد قطعي للأصناف المنتهية
+                continue;
               }
 
               final rawUnitLabel = item['unit_label']?.toString().trim();
@@ -245,7 +240,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
               );
             }
             await notifier.forceSave();
-            await AppStorage.removePendingOrder(orderId, currentUserId);
             failCount++;
           }
         }
@@ -342,7 +336,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
           }
         }
       }
-
       if (successCount > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Row(children: [
@@ -359,49 +352,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
       }
     } finally {
       _isSyncingReturns = false;
-    }
-  }
-
-  bool _isSyncingLedger = false;
-
-  Future<void> _syncPendingLedger() async {
-    if (_isSyncingLedger) return;
-    final currentUserId = AppStorage.userId;
-    if (currentUserId == null || currentUserId.isEmpty) return;
-
-    _isSyncingLedger = true;
-    try {
-      final result =
-          await LedgerService.instance.syncPendingLedgerQueue(currentUserId);
-
-      if ((result.syncedCount > 0 || result.unresolvedCount > 0) && mounted) {
-        final hasUnresolved = result.unresolvedCount > 0;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Row(children: [
-            Icon(
-              hasUnresolved
-                  ? Icons.warning_amber_rounded
-                  : Icons.cloud_done_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                hasUnresolved
-                    ? 'تمت مزامنة ${result.syncedCount} حركة، وتحتاج ${result.unresolvedCount} عملية إلى مراجعة. بقيت محفوظة ولم تُحذف.'
-                    : 'تمت مزامنة ${result.syncedCount} حركات ديون مع السيرفر بنجاح 📒✅',
-                style: const TextStyle(fontFamily: 'Cairo'),
-              ),
-            ),
-          ]),
-          backgroundColor:
-              hasUnresolved ? Colors.deepOrange.shade700 : AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    } finally {
-      _isSyncingLedger = false;
     }
   }
 
@@ -432,7 +382,6 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
                     ref.read(_activeTabProvider.notifier).state = 1;
                   },
                 ),
-                const LedgerTab(),
                 const ProfileTab(),
               ],
             ),
@@ -544,22 +493,13 @@ class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
                         ref.read(_activeTabProvider.notifier).state = 2,
                   ),
                   _NavItem(
-                    icon: Icons.menu_book_rounded,
-                    iconOutlined: Icons.menu_book_outlined,
-                    label: 'الدفتر',
+                    icon: Icons.person_rounded,
+                    iconOutlined: Icons.person_outline_rounded,
+                    label: 'حسابي',
                     index: 3,
                     activeTab: activeTab,
                     onTap: () =>
                         ref.read(_activeTabProvider.notifier).state = 3,
-                  ),
-                  _NavItem(
-                    icon: Icons.person_rounded,
-                    iconOutlined: Icons.person_outline_rounded,
-                    label: 'حسابي',
-                    index: 4,
-                    activeTab: activeTab,
-                    onTap: () =>
-                        ref.read(_activeTabProvider.notifier).state = 4,
                   ),
                 ],
               ),

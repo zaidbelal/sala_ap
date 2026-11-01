@@ -166,9 +166,9 @@ void main() async {
   try {
     await AppCache.instance.init();
     await WalService.instance.init();
-    // 🔒 تشغيل تسوية القيود المالية في الخلفية بشكل آمن بدون مهلة قصيرة تعطل فتح التطبيق
     unawaited(WalService.instance.reconcilePendingEntries());
   } catch (e) {
+    WalService.instance.completeReconciliationFallback();
     debugPrint('❌ Cache/WAL Initialization Warning: $e');
   }
   if (isFirebaseReady) {

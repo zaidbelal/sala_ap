@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -113,8 +112,8 @@ class QuickConnectOtpService {
       throw StateError('رقم الهاتف غير صحيح');
     }
 
-    // ── 1. إذا كان رقم اختبار تجريبي: استخدم Firebase مباشرة بكوده الثابت ──
-    if (!kReleaseMode && isFirebaseTestPhone(cleanPhone)) {
+    // ── 1. إذا كان رقم اختبار تجريبي معتمد: استخدم Firebase مباشرة في وضع الإنتاج والتطوير لمراجعي المتاجر ──
+    if (isFirebaseTestPhone(cleanPhone)) {
       final completer = Completer<String>();
       try {
         await FirebaseAuth.instance.verifyPhoneNumber(

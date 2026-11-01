@@ -16,11 +16,21 @@ import '../../products/widgets/product_details_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:sala/core/constants/app_adaptive_colors.dart';
 
-class CartItemCard extends ConsumerWidget {
+class CartItemCard extends ConsumerStatefulWidget {
   final CartItem item;
   final VoidCallback? onDelete;
 
   const CartItemCard({super.key, required this.item, this.onDelete});
+
+  @override
+  ConsumerState<CartItemCard> createState() => _CartItemCardState();
+}
+
+class _CartItemCardState extends ConsumerState<CartItemCard> {
+  bool _isDialogActive = false;
+
+  CartItem get item => widget.item;
+  VoidCallback? get onDelete => widget.onDelete;
 
   ProductModel _resolveFullProduct() {
     final cached = AppCache.instance.getProducts();
@@ -49,11 +59,9 @@ class CartItemCard extends ConsumerWidget {
     );
   }
 
-  static bool _isDialogActive = false;
-
   Future<void> _showManualQtyDialog(BuildContext context, WidgetRef ref) async {
-    if (_isDialogActive) return; // حماية ضد النقر المزدوج المتكرر
-    _isDialogActive = true;
+    if (_isDialogActive) return;
+    setState(() => _isDialogActive = true);
     HapticFeedback.mediumImpact();
 
     try {
@@ -74,12 +82,16 @@ class CartItemCard extends ConsumerWidget {
         }
       }
     } finally {
-      _isDialogActive = false;
+      if (mounted) {
+        setState(() => _isDialogActive = false);
+      } else {
+        _isDialogActive = false;
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final notifier = ref.read(cartProvider.notifier);
     final resolvedProduct = _resolveFullProduct();
 
