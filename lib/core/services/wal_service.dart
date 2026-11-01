@@ -459,12 +459,12 @@ class WalService {
     }
   }
 
-  bool _matchesJsonValue(Object? first, Object? second) {
+  bool matchesJsonValue(Object? first, Object? second) {
     if (first is num && second is num) return first == second;
     if (first is List && second is List) {
       if (first.length != second.length) return false;
       for (var i = 0; i < first.length; i++) {
-        if (!_matchesJsonValue(first[i], second[i])) return false;
+        if (!matchesJsonValue(first[i], second[i])) return false;
       }
       return true;
     }
@@ -472,7 +472,7 @@ class WalService {
       if (first.length != second.length) return false;
       for (final key in first.keys) {
         if (!second.containsKey(key) ||
-            !_matchesJsonValue(first[key], second[key])) {
+            !matchesJsonValue(first[key], second[key])) {
           return false;
         }
       }
