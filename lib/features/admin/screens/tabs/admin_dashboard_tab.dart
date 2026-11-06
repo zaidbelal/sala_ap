@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../services/admin_service.dart';
 import '../../../auth/login/services/auth_service.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 // ══ Providers ══
 final _statsProvider = FutureProvider<AdminStats>((ref) async {
@@ -21,13 +21,20 @@ final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
   final now = DateTime.now();
   final startOfDay = DateTime(now.year, now.month, now.day);
 
+  // الاستعلام المرتب تنازلياً لضمان احتواء أحدث طلبات اليوم داخل الـ limit
   return FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'pending')
-      .where('created_at',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+      .orderBy('created_at', descending: true)
+      .limit(100)
       .snapshots(includeMetadataChanges: false)
-      .map((snap) => snap.docs.length);
+      .map((snap) {
+    return snap.docs.where((d) {
+      final ts = d.data()['created_at'];
+      final date = ts is Timestamp ? ts.toDate() : (ts is DateTime ? ts : null);
+      return date != null && date.isAfter(startOfDay);
+    }).length;
+  });
 });
 // صافي الربح الدائم من Firestore (يُفرغ تلقائياً عند إغلاق الشاشة لمنع تسريب الذاكرة)
 final _permanentProfitProvider = StreamProvider.autoDispose<double>((ref) {

@@ -1,13 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/order_model.dart';
-import 'package:sala/core/services/app_cache.dart';
-import 'package:sala/core/services/wal_service.dart';
+import 'package:wamd/core/services/app_cache.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:sala/core/services/local_storage.dart';
-import 'package:sala/core/services/connectivity_service.dart';
+import 'package:wamd/core/services/local_storage.dart';
 
 class OrdersService {
   static final _db = FirebaseFirestore.instance;
@@ -80,8 +78,6 @@ class OrdersService {
     String? notes,
     Map<String, dynamic>? extraData,
     String? orderId,
-    String? cartRevision,
-    bool markWalCommitted = true,
   }) async {
     final cleanMerchantId = merchantId.trim();
     _assertMerchantSession(cleanMerchantId);
@@ -90,75 +86,28 @@ class OrdersService {
         ? orderId.trim()
         : _db.collection('orders').doc().id;
 
-    // تسجيل نية المعاملة في WAL محلياً كضمان أمني
-    await WalService.instance.writeIntent(
-      transactionId: resolvedOrderId,
-      type: WalOperationType.placeOrder,
-      payload: {
-        'merchant_id': cleanMerchantId,
-        'items': items,
-        'expectedTotal': expectedTotal,
-        if (notes != null) 'notes': notes.trim(),
-        if (extraData != null) 'extraData': extraData,
-        if (cartRevision != null) 'cart_revision': cartRevision,
-      },
-    );
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('placeOrder',
+            options:
+                HttpsCallableOptions(timeout: const Duration(seconds: 25)));
 
-    OrderModel? createdOrder;
+    final response = await callable.call({
+      'orderId': resolvedOrderId,
+      'items': items,
+      'expectedTotal': expectedTotal,
+      'notes': notes?.trim(),
+      'extraData': extraData,
+    });
+
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final orderMap = Map<String, dynamic>.from(data['order'] as Map);
+    final createdOrder = OrderModel.fromJson(orderMap);
+
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('placeOrder',
-              options:
-                  HttpsCallableOptions(timeout: const Duration(seconds: 25)));
+      await AppCache.instance.invalidateProducts();
+    } catch (_) {}
 
-      final response = await callable.call({
-        'orderId': resolvedOrderId,
-        'items': items,
-        'notes': notes?.trim(),
-        'extraData': extraData,
-      });
-
-      final data = Map<String, dynamic>.from(response.data as Map);
-      final orderMap = Map<String, dynamic>.from(data['order'] as Map);
-      createdOrder = OrderModel.fromJson(orderMap);
-
-      if (markWalCommitted) {
-        try {
-          await WalService.instance.markCommitted(resolvedOrderId);
-        } catch (error, stackTrace) {
-          debugPrint('Order exists but its WAL marker could not be written: '
-              '$error\n$stackTrace');
-        }
-      }
-      try {
-        await AppCache.instance.invalidateProducts();
-      } catch (error, stackTrace) {
-        debugPrint('Order exists but product cache invalidation failed: '
-            '$error\n$stackTrace');
-      }
-
-      return createdOrder;
-    } catch (e) {
-      if (createdOrder != null) {
-        return createdOrder;
-      }
-      final err = e.toString().toLowerCase();
-
-      // تمييز أخطاء نفاد المخزون وعدم توفر الأصناف
-      final bool isStockOrProductIssue = err.contains('product_unavailable') ||
-          err.contains('out_of_stock') ||
-          err.contains('resource-exhausted') ||
-          err.contains('failed-precondition');
-
-      final bool isNetworkIssue =
-          !isStockOrProductIssue && ConnectivityHelper.isNetworkException(e);
-
-      // 🔒 لا يتم شطب المعاملة من WAL إذا كان الخطأ مجرد انقطاع في الشبكة للحفاظ على حق التاجر
-      if (!isNetworkIssue) {
-        await WalService.instance.markAborted(resolvedOrderId);
-      }
-      rethrow;
-    }
+    return createdOrder;
   }
 
   // ════════════════════════════════════════
@@ -189,31 +138,33 @@ class OrdersService {
   }
 
   // ════════════════════════════════════════
-  // مراقبة طلبات التاجر بحالات محددة (مطلوبة لشاشة السجل)
+  // مراقبة طلبات التاجر بحالات محددة (محمية معمارياً من انهيار الفهارس)
   // ════════════════════════════════════════
   static Stream<List<OrderModel>> watchMerchantOrdersByStatuses(
     String merchantId,
     List<String> statuses,
   ) {
     if (statuses.isEmpty) return const Stream.empty();
-    if (statuses.length > 30) {
-      throw ArgumentError.value(
-          statuses.length, 'statuses', 'Firestore supports at most 30 values');
-    }
+    final statusSet = statuses.toSet();
 
     return _db
         .collection('orders')
         .where('merchant_id', isEqualTo: merchantId)
-        .where('status', whereIn: statuses)
         .orderBy('created_at', descending: true)
         .limit(200)
         .snapshots(includeMetadataChanges: false)
         .map((snap) {
-      final list = snap.docs
+      return snap.docs
           .map((d) => OrderModel.fromJson({'id': d.id, ...d.data()}))
-          .toList();
-      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return list;
+          .where((order) {
+        final rawStatus = order.status.name.toLowerCase();
+        return statusSet.contains(rawStatus) ||
+            (rawStatus == 'ontheway' &&
+                (statusSet.contains('shipped') ||
+                    statusSet.contains('on_the_way'))) ||
+            (rawStatus == 'returnrequested' &&
+                statusSet.contains('return_requested'));
+      }).toList();
     });
   }
 

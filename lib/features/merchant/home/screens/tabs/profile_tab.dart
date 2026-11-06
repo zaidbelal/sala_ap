@@ -6,8 +6,8 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/services/local_storage.dart';
 import '../../../../auth/login/services/auth_service.dart';
 import '../../../cart/providers/cart_provider.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
-import 'package:sala/core/constants/app_theme.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_theme.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});

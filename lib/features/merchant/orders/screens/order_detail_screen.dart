@@ -8,7 +8,7 @@ import '../../../../../core/services/local_storage.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -304,38 +304,43 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
       ),
       bottomNavigationBar: _canReturn
-          ? Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              decoration: BoxDecoration(
-                color: context.bgCard,
-                boxShadow: [
-                  BoxShadow(
-                    color: context.shadowColor.withValues(alpha: 0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _openReturnSheet,
-                  icon: const Icon(Icons.assignment_return_rounded, size: 20),
-                  label: const Text(
-                    'طلب إرجاع أصناف',
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
+          ? SafeArea(
+              top: false,
+              maintainBottomViewPadding: true,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                decoration: BoxDecoration(
+                  color: context.bgCard,
+                  border: Border(top: BorderSide(color: context.borderColor)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: context.shadowColor,
+                      blurRadius: 12,
+                      offset: const Offset(0, -4),
                     ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEA580C),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  ],
+                ),
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: _openReturnSheet,
+                    icon: const Icon(Icons.assignment_return_rounded, size: 20),
+                    label: const Text(
+                      'طلب إرجاع أصناف',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    elevation: 0,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEA580C),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
                   ),
                 ),
               ),
@@ -766,11 +771,18 @@ class _ReturnCard extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('$qty كرتون',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: Colors.grey[500])),
+                Builder(
+                  builder: (_) {
+                    final unit = data['unit_label']?.toString().trim();
+                    final unitText =
+                        unit != null && unit.isNotEmpty ? unit : 'كرتون';
+                    return Text('$qty $unitText',
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: Colors.grey[500]));
+                  },
+                ),
                 if (reason.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(reason,
@@ -927,98 +939,31 @@ class _ReturnSheetState extends State<_ReturnSheet> {
         'longitude': widget.order.longitude,
         'reason': _reasonCtrl.text.trim(),
       };
+      await OrdersService.submitReturns(
+        orderId: widget.order.id,
+        itemsToReturn: itemsToReturn,
+        merchantId: uid,
+        storeName: _storeCtrl.text.trim(),
+        contact: _contactCtrl.text.trim(),
+        latitude: widget.order.latitude,
+        longitude: widget.order.longitude,
+        reason: _reasonCtrl.text.trim(),
+      ).timeout(const Duration(seconds: 10));
 
-      // 🚀 فحص سريع للإنترنت
-      final netResults = await Connectivity().checkConnectivity();
-      final bool isOffline =
-          netResults.every((r) => r == ConnectivityResult.none);
-
-      if (isOffline) {
-        await AppStorage.savePendingReturn(returnData);
-        if (!mounted) return;
-        Navigator.of(context).pop();
-        widget.onSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Row(children: [
-            Icon(Icons.cloud_done_rounded, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Expanded(
-                child: Text(
-                    'أنت غير متصل. تم حفظ طلب الإرجاع وسيُرسل تلقائياً فور توفر الإنترنت 📡',
-                    style: TextStyle(
-                        fontFamily: 'Cairo', fontWeight: FontWeight.w700))),
-          ]),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 4),
-        ));
-        return;
-      }
-      try {
-        await OrdersService.submitReturns(
-          orderId: widget.order.id,
-          itemsToReturn: itemsToReturn,
-          merchantId: uid,
-          storeName: _storeCtrl.text.trim(),
-          contact: _contactCtrl.text.trim(),
-          latitude: widget.order.latitude,
-          longitude: widget.order.longitude,
-          reason: _reasonCtrl.text.trim(),
-        ).timeout(const Duration(seconds: 10));
-
-        if (!mounted) return;
-        final messenger = ScaffoldMessenger.of(context);
-        Navigator.of(context).pop();
-        widget.onSuccess();
-        messenger.showSnackBar(SnackBar(
-          content: Text(
-            'تم إرسال طلب إرجاع $_totalSelectedQty كرتون بنجاح ✓',
-            style: const TextStyle(fontFamily: 'Cairo'),
-          ),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
-        ));
-      } catch (e) {
-        final errorStr = e.toString().toLowerCase();
-        final isNetworkError = errorStr.contains('network') ||
-            errorStr.contains('unavailable') ||
-            errorStr.contains('timeout') ||
-            errorStr.contains('socket');
-
-        if (isNetworkError) {
-          final alreadyQueued = AppStorage.getPendingReturns(uid)
-              .any((r) => r['orderId'] == widget.order.id);
-          if (!alreadyQueued) {
-            await AppStorage.savePendingReturn(returnData);
-          }
-          if (!mounted) return;
-          Navigator.of(context).pop();
-          widget.onSuccess();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Row(children: [
-              Icon(Icons.cloud_done_rounded, color: Colors.white, size: 20),
-              SizedBox(width: 8),
-              Expanded(
-                  child: Text(
-                      'ضعف في الشبكة. تم حفظ الطلب وسيُرسل تلقائياً فور استقرار الإنترنت 📡',
-                      style: TextStyle(
-                          fontFamily: 'Cairo', fontWeight: FontWeight.w700))),
-            ]),
-            backgroundColor: AppColors.primary,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            duration: const Duration(seconds: 4),
-          ));
-        } else {
-          rethrow;
-        }
-      }
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      widget.onSuccess();
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+          'تم إرسال طلب إرجاع $_totalSelectedQty كرتون بنجاح ✓',
+          style: const TextStyle(fontFamily: 'Cairo'),
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ));
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
@@ -1039,31 +984,33 @@ class _ReturnSheetState extends State<_ReturnSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final navBarPadding = MediaQuery.of(context).padding.bottom;
+
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
         decoration: BoxDecoration(
-          color:
-              context.bgPage, // 👈 استبدال اللون الثابت F5F7FA باللون المتكيف
+          color: context.bgPage,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // مقبض
+            // مقبض السحب المتكيف
             Container(
               margin: const EdgeInsets.only(top: 12, bottom: 4),
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2)),
+                color: context.borderColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
 
             // رأس الشيت
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
               child: Row(children: [
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -1079,18 +1026,23 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('طلب إرجاع',
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800)),
+                      Text(
+                        'طلب إرجاع',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: context.textPrimary,
+                        ),
+                      ),
                       Text(
                         widget.order.orderNumber ??
                             '#${widget.order.id.length >= 6 ? widget.order.id.substring(0, 6).toUpperCase() : widget.order.id.toUpperCase()}',
                         style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 12,
-                            color: Colors.grey[500]),
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          color: context.textSecondary,
+                        ),
                       ),
                     ],
                   ),
@@ -1100,26 +1052,27 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEA580C).withValues(alpha: 0.1),
+                      color: const Color(0xFFEA580C).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       '$_totalSelectedQty كرتون',
                       style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFFEA580C)),
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFEA580C),
+                      ),
                     ),
                   ),
               ]),
             ),
-            const Divider(height: 20),
+            Divider(height: 16, color: context.borderColor),
 
-            // المحتوى
+            // المحتوى القابل للتمرير
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: Column(
                   children: [
                     // بيانات التاجر
@@ -1148,22 +1101,23 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                       title: 'اختر المنتجات المرتجعة',
                       icon: Icons.inventory_2_rounded,
                       child: _returnableItems.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(8),
+                          ? Padding(
+                              padding: const EdgeInsets.all(8),
                               child: Text(
                                 'لا توجد كميات متبقية للإرجاع',
                                 style: TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13,
-                                    color: Colors.grey),
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13,
+                                  color: context.textSecondary,
+                                ),
                               ),
                             )
                           : ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: _returnableItems.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 16),
+                              separatorBuilder: (_, __) => Divider(
+                                  height: 16, color: context.borderColor),
                               itemBuilder: (_, i) {
                                 final item = _returnableItems[i];
                                 final name = item['product_name']?.toString() ??
@@ -1181,33 +1135,51 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(name,
-                                            style: const TextStyle(
-                                                fontFamily: 'Cairo',
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700)),
                                         Text(
-                                          'متبقي: $maxQty من $ordered كرتون',
+                                          name,
                                           style: TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: maxQty < ordered
-                                                  ? Colors.orange[700]
-                                                  : Colors.grey[500]),
+                                            fontFamily: 'Cairo',
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: context.textPrimary,
+                                          ),
+                                        ),
+                                        Builder(
+                                          builder: (_) {
+                                            final unit = item['unit_label']
+                                                ?.toString()
+                                                .trim();
+                                            final unitText =
+                                                unit != null && unit.isNotEmpty
+                                                    ? unit
+                                                    : 'كرتون';
+                                            return Text(
+                                              'متبقي: $maxQty من $ordered $unitText',
+                                              style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 11,
+                                                color: maxQty < ordered
+                                                    ? Colors.orange
+                                                    : context.textSecondary,
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ],
                                     ),
                                   ),
+                                  // 👈 صندوق العداد المتكيف بالكامل مع الثيم الداكن والفاتح
                                   Container(
                                     decoration: BoxDecoration(
                                       color: current > 0
-                                          ? const Color(0xFFFFF7ED)
-                                          : const Color(0xFFF5F7FA),
+                                          ? const Color(0xFFEA580C)
+                                              .withValues(alpha: 0.12)
+                                          : context.bgInput,
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: current > 0
                                             ? const Color(0xFFEA580C)
-                                            : Colors.grey[300]!,
+                                            : context.borderColor,
                                       ),
                                     ),
                                     child: Row(
@@ -1225,12 +1197,13 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                                             '$current',
                                             textAlign: TextAlign.center,
                                             style: TextStyle(
-                                                fontFamily: 'Cairo',
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w800,
-                                                color: current > 0
-                                                    ? const Color(0xFFEA580C)
-                                                    : Colors.grey[600]),
+                                              fontFamily: 'Cairo',
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w800,
+                                              color: current > 0
+                                                  ? const Color(0xFFEA580C)
+                                                  : context.textPrimary,
+                                            ),
                                           ),
                                         ),
                                         _CounterBtn(
@@ -1248,7 +1221,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                     ),
                     const SizedBox(height: 12),
 
-                    // ── سبب الإرجاع ──
+                    // سبب الإرجاع
                     _Card(
                       title: 'سبب الإرجاع *',
                       icon: Icons.notes_rounded,
@@ -1258,101 +1231,118 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                         maxLines: 3,
                         textDirection: TextDirection.rtl,
                         style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 14,
-                            color: context.textPrimary), // 👈 نص واضح
+                          fontFamily: 'Cairo',
+                          fontSize: 14,
+                          color: context.textPrimary,
+                        ),
                         decoration: InputDecoration(
                           hintText:
                               'مثال: منتج تالف / كمية خاطئة / منتهي الصلاحية...',
                           hintStyle: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 12,
-                              color: context.textHint),
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            color: context.textHint,
+                          ),
                           filled: true,
-                          fillColor: context.isDark
-                              ? Colors.red.withValues(alpha: 0.08)
-                              : const Color(
-                                  0xFFFFF5F5), // 👈 يتكيف مع الثيم الداكن
+                          fillColor: context.bgInput,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: Colors.red.withValues(alpha: 0.3)),
+                            borderSide: BorderSide(color: context.borderColor),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: Colors.red.withValues(alpha: 0.2)),
+                            borderSide: BorderSide(color: context.borderColor),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: const BorderSide(
-                                color: Colors.redAccent, width: 1.5),
+                              color: Color(0xFFEA580C),
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // أزرار
-                    Row(children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            side: const BorderSide(color: Color(0xFFDDDDDD)),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: const Text('إلغاء',
-                              style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton(
-                          onPressed:
-                              (_loading || !_hasSelection) ? null : _submit,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEA580C),
-                            foregroundColor: Colors.white,
-                            disabledBackgroundColor: context.isDark
-                                ? Colors.grey[800]
-                                : Colors.grey[300], // 👈 لون تعطيل واضح للثيمين
-                            disabledForegroundColor: context.isDark
-                                ? Colors.grey[400]
-                                : Colors.grey[600], // 👈 لون نص التعطيل
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      color: Colors.white, strokeWidth: 2),
-                                )
-                              : Text(
-                                  _hasSelection
-                                      ? 'تأكيد إرجاع $_totalSelectedQty كرتون'
-                                      : 'اختر كمية أولاً',
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo',
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800),
-                                ),
-                        ),
-                      ),
-                    ]),
                   ],
                 ),
               ),
+            ),
+
+            // 👈 شريط الأزرار مع احتساب مسافة أمان أزرار أندرويد بالكامل
+            Container(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                navBarPadding > 0 ? navBarPadding + 8 : 16,
+              ),
+              decoration: BoxDecoration(
+                color: context.bgCard,
+                border: Border(top: BorderSide(color: context.borderColor)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      side: BorderSide(color: context.borderColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'إلغاء',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        color: context.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: (_loading || !_hasSelection) ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEA580C),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: context.isDark
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.grey.shade300,
+                      disabledForegroundColor: context.isDark
+                          ? Colors.grey.shade600
+                          : Colors.grey.shade500,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _hasSelection
+                                ? 'تأكيد إرجاع $_totalSelectedQty كرتون'
+                                : 'اختر كمية أولاً',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                  ),
+                ),
+              ]),
             ),
           ],
         ),
@@ -1563,16 +1553,20 @@ class _OrderProgressStepper extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.bgCard, // 👈 متكيف تلقائياً مع الثيم
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
+          BoxShadow(
+            color: context.shadowColor,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
         children: List.generate(_steps.length * 2 - 1, (i) {
           if (i.isOdd) {
-            // الخط الواصل
             final lineIndex = i ~/ 2;
             final filled = lineIndex < current;
             return Expanded(
@@ -1580,7 +1574,7 @@ class _OrderProgressStepper extends StatelessWidget {
                 duration: const Duration(milliseconds: 400),
                 height: 3,
                 decoration: BoxDecoration(
-                  color: filled ? AppColors.primary : const Color(0xFFE0E0E0),
+                  color: filled ? AppColors.primary : context.borderColor,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1600,17 +1594,21 @@ class _OrderProgressStepper extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: isDone ? AppColors.primary : const Color(0xFFF0F0F0),
+                  color: isDone
+                      ? AppColors.primary
+                      : isActive
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : context.bgInput,
                   shape: BoxShape.circle,
                   border: isActive
-                      ? Border.all(color: AppColors.primary, width: 2.5)
-                      : null,
+                      ? Border.all(color: AppColors.primary, width: 2.2)
+                      : Border.all(color: context.borderColor),
                   boxShadow: isDone
                       ? [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.35),
                             blurRadius: 8,
-                            offset: const Offset(0, 3),
+                            offset: const Offset(0, 2),
                           )
                         ]
                       : null,
@@ -1618,17 +1616,25 @@ class _OrderProgressStepper extends StatelessWidget {
                 child: Icon(
                   isDone && !isActive ? Icons.check_rounded : step.icon,
                   size: 16,
-                  color: isDone ? Colors.white : Colors.grey[400],
+                  color: isDone
+                      ? Colors.white
+                      : isActive
+                          ? AppColors.primary
+                          : context.iconSecondary,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 5),
               Text(
                 step.label,
                 style: TextStyle(
                   fontFamily: 'Cairo',
-                  fontSize: 9,
-                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-                  color: isDone ? AppColors.primary : Colors.grey[400],
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                  color: isDone
+                      ? AppColors.primary
+                      : isActive
+                          ? context.textPrimary
+                          : context.textSecondary,
                 ),
               ),
             ],

@@ -365,11 +365,15 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     );
     if (_unmatchedCodesCooldown.length < 128) return;
 
-    final oldest = _unmatchedCodesCooldown.entries
-        .where((entry) => entry.key != protectedCode)
-        .reduce(
-          (a, b) => a.value.isBefore(b.value) ? a : b,
-        );
+    final candidates = _unmatchedCodesCooldown.entries
+        .where((entry) => entry.key != protectedCode);
+    if (candidates.isEmpty) {
+      _unmatchedCodesCooldown.clear();
+      return;
+    }
+    final oldest = candidates.reduce(
+      (a, b) => a.value.isBefore(b.value) ? a : b,
+    );
     _unmatchedCodesCooldown.remove(oldest.key);
   }
 

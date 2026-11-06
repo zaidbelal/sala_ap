@@ -6,21 +6,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:sala/core/services/firebase_service.dart';
-import 'package:sala/core/services/local_storage.dart';
-import 'package:sala/core/services/realtime_hub.dart';
-import 'package:sala/core/services/notification_service.dart';
-import 'package:sala/core/services/app_cache.dart';
-import 'package:sala/core/services/catalog_service.dart';
+import 'package:wamd/core/services/firebase_service.dart';
+import 'package:wamd/core/services/local_storage.dart';
+import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wamd/core/services/notification_service.dart';
+import 'package:wamd/core/services/app_cache.dart';
+import 'package:wamd/core/services/catalog_service.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:sala/core/constants/app_colors.dart';
-import 'package:sala/core/constants/app_theme.dart';
-import 'package:sala/app_router.dart';
-import 'package:sala/core/services/image_precache_service.dart';
+import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wamd/core/constants/app_theme.dart';
+import 'package:wamd/app_router.dart';
+import 'package:wamd/core/services/image_precache_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sala/core/services/wal_service.dart';
-import 'package:sala/core/services/delta_sync_service.dart';
 
 String _clean(String val) => val.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
 
@@ -56,7 +54,7 @@ const iosFirebaseOptions = FirebaseOptions(
   messagingSenderId: '846679653389',
   projectId: 'app-sala-b42dd',
   storageBucket: 'app-sala-b42dd.firebasestorage.app',
-  iosBundleId: 'com.example.sala',
+  iosBundleId: 'com.zaidsalaapp.sala',
 );
 
 // تحديد الإعداد المناسب لكل منصة
@@ -75,7 +73,11 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(options: platformFirebaseOptions);
     }
-    // تهيئة القنوات وعرض الإشعار فوراً في النظام حتى لو كان التطبيق مغلقاً تماماً
+    // إذا كانت الرسالة تحتوي notification فإن نظام Android يعرضها تلقائياً، فلا نكررها محلياً
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        message.notification != null) {
+      return;
+    }
     await NotificationService.instance
         .initLocalNotifications(isBackground: true);
     await NotificationService.instance.showNotification(message);
@@ -162,21 +164,15 @@ void main() async {
     debugPrint('❌ AppStorage Error: $e');
   }
 
-// 5. تهيئة الكاش وسجل العمليات ومطابقة السلة قبل بدء الـ ProviderContainer
+// 5. تهيئة الكاش المحلي قبل بدء الـ ProviderContainer
   try {
     await AppCache.instance.init();
-    await WalService.instance.init();
-    unawaited(WalService.instance.reconcilePendingEntries());
   } catch (e) {
-    WalService.instance.completeReconciliationFallback();
-    debugPrint('❌ Cache/WAL Initialization Warning: $e');
+    debugPrint('❌ Cache Initialization Warning: $e');
   }
   if (isFirebaseReady) {
     FirebaseService.initialize();
-    unawaited(DeltaSyncService.instance.syncProductsDelta());
-    unawaited(DeltaSyncService.instance.syncCategoriesDelta());
   }
-
   final container = ProviderContainer();
 
   // 6. تشغيل واجهة التطبيق فوراً لمنع الشاشة البيضاء
@@ -185,10 +181,9 @@ void main() async {
       container: container,
       child: initError != null
           ? _CriticalErrorApp(error: initError)
-          : const SalaApp(),
+          : const WamdApp(),
     ),
   );
-
   if (isFirebaseReady) {
     RealtimeHub().init(container);
     _warmUpCache(container);
@@ -208,6 +203,9 @@ class _CriticalErrorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      locale: const Locale('ar'),
+      builder: (context, child) =>
+          Directionality(textDirection: TextDirection.rtl, child: child!),
       home: Scaffold(
         backgroundColor: const Color(0xFF121212),
         body: SafeArea(
@@ -302,14 +300,14 @@ void _warmUpCache(ProviderContainer container) {
   });
 }
 
-class SalaApp extends ConsumerStatefulWidget {
-  const SalaApp({super.key});
+class WamdApp extends ConsumerStatefulWidget {
+  const WamdApp({super.key});
 
   @override
-  ConsumerState<SalaApp> createState() => _SalaAppState();
+  ConsumerState<WamdApp> createState() => _WamdAppState();
 }
 
-class _SalaAppState extends ConsumerState<SalaApp> with WidgetsBindingObserver {
+class _WamdAppState extends ConsumerState<WamdApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -325,11 +323,6 @@ class _SalaAppState extends ConsumerState<SalaApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && AppStorage.isLoggedIn) {
-      final firstLogin = AppStorage.getString('first_login_at');
-      final started = firstLogin == null ? null : DateTime.tryParse(firstLogin);
-      if (started != null && DateTime.now().difference(started).inDays > 90) {
-        return;
-      }
       AppStorage.setString('last_login_at', DateTime.now().toIso8601String());
     }
   }
@@ -340,7 +333,7 @@ class _SalaAppState extends ConsumerState<SalaApp> with WidgetsBindingObserver {
     final currentTheme = ref.watch(themeProvider);
 
     return MaterialApp.router(
-      title: 'سلة',
+      title: 'وَمْض',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

@@ -64,4 +64,17 @@ class ProductUnit {
         if (expiryDate != null) 'expiry_date': Timestamp.fromDate(expiryDate!),
         if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'qty': qty,
+        'price': price,
+        if (costPrice != null) 'cost_price': costPrice,
+        if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
+        if (sizeMl != null) 'size_ml': sizeMl,
+        if (productionDate != null)
+          'production_date': productionDate!.toIso8601String(),
+        if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
+      };
 }

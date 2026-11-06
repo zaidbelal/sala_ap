@@ -7,7 +7,7 @@ import 'tabs/admin_catalog_tab.dart';
 import 'tabs/admin_notifications_tab.dart';
 import 'tabs/admin_returns_tab.dart';
 import 'tabs/admin_merchants_tab.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 
 class AdminHomeScreen extends ConsumerStatefulWidget {

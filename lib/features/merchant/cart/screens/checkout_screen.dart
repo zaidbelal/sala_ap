@@ -13,13 +13,13 @@ import '../../orders/services/orders_service.dart';
 import '../../orders/screens/order_status_screen.dart';
 import '../providers/cart_provider.dart';
 import 'location_picker_screen.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/local_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sala/features/auth/login/services/auth_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:wamd/features/auth/login/services/auth_service.dart';
 import '../../../../core/services/connectivity_service.dart';
-import 'package:sala/core/services/wal_service.dart';
-import 'package:sala/core/services/app_cache.dart';
+import 'package:wamd/core/services/app_cache.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   final String merchantId;
@@ -41,7 +41,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String _paymentMethod = 'cash';
   bool _isLoading = false;
   String? _orderIdempotencyKey;
-  String? _lastSubmittedPayloadSignature; // 🔒 بصمة التحقق من ثبات محتوى الطلب
+  String? lastSubmittedPayloadSignature; // 🔒 بصمة التحقق من ثبات محتوى الطلب
   @override
   void initState() {
     super.initState();
@@ -316,6 +316,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     } catch (_) {
       _showError('تعذر التحقق من أحدث الأسعار والمخزون، يرجى المحاولة مجدداً');
     } finally {
+      _isLoading = false;
       if (mounted) {
         setState(() => _isPlacingOrder = false);
       } else {
@@ -361,13 +362,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             queriedBatchIds: successfullyQueriedIds,
           );
     } catch (_) {
-      // 🛡️ عند تعذر الاتصال بالسيرفر نتجاوز فحص السعر بنجاح لنسمح بحفظ الطلب أوفلاين
       return false;
     }
   }
 
   Future<void> _placeOrderInternal() async {
-    // ── 1. التحقق من السلة والخروج الآمن إن فرغت ──
+    // ── 1. فحص الاتصال بالإنترنت أولاً ──
+    final bool hasNet = await ConnectivityHelper.hasActiveInternet();
+    if (!hasNet) {
+      _showError(
+          'يتطلب إرسال الطلب اتصالاً نشطاً بالإنترنت لمطابقة المخزون الفعلي');
+      return;
+    }
+
+    // ── 2. التحقق من السلة ──
     final cart = ref.read(cartProvider);
     if (cart.isEmpty) {
       _showError('السلة فارغة، أضف منتجات أولاً');
@@ -381,7 +389,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           'عذراً، لا يمكن أن يحتوي الطلب الواحد على أكثر من ${AppConfig.maxOrderItems} صنفاً مختلفاً. يرجى تقسيم الطلب.');
       return;
     }
-// ── 2. التحقق الموحد والقطعي من الحد الأدنى للطلب المحدث ديناميكياً ──
+
+    // ── 3. التحقق من الحد الأدنى ──
     final double serverMinOrder = AppConfig.minOrderValue;
     final total = ref.read(cartTotalProvider);
     if (total < serverMinOrder) {
@@ -389,7 +398,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           'الحد الأدنى للطلب هو ${serverMinOrder.toStringAsFixed(0)} ر.ي');
       return;
     }
-    // ── 3. فحص طريقة الدفع ──
+
+    // ── 4. فحص طريقة الدفع ──
     if (_paymentMethod == 'deferred') {
       showDialog(
         context: context,
@@ -425,7 +435,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
 
-    // ── 4. التحقق الصارم من كافة المدخلات والموقع قبل إظهار أي نافذة لمنع الـ Deadlock ──
     if (!_formKey.currentState!.validate()) return;
 
     if (_location == null) {
@@ -446,25 +455,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
 
-    final cartNotifier = ref.read(cartProvider.notifier);
-    final cartRevision = cartNotifier.cartRevision;
-    await cartNotifier.forceSave();
-    if (!identical(ref.read(cartProvider), cart) ||
-        cartNotifier.cartRevision != cartRevision) {
-      _showError(
-          'تغيرت السلة أثناء إتمام الطلب، يرجى مراجعتها والمحاولة مجدداً');
-      return;
-    }
-    final hasPendingOrderForCart =
-        AppStorage.getPendingOrders(widget.merchantId)
-            .any((order) => order['cart_revision']?.toString() == cartRevision);
-    if (hasPendingOrderForCart) {
-      _showError(
-          'هذا الطلب محفوظ بالفعل بانتظار الإرسال. لن يتم إنشاء طلب مكرر.');
-      return;
-    }
-
-    // ── 5. إغلاق لوحة المفاتيح وبدء حالة التحميل ──
     FocusScope.of(context).unfocus();
     setState(() => _isLoading = true);
     HapticFeedback.heavyImpact();
@@ -484,6 +474,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               },
             })
         .toList();
+
     final String? notesString =
         _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
 
@@ -497,38 +488,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       'latitude': _location!.latitude,
       'longitude': _location!.longitude,
       'payment_method': _paymentMethod,
-    };
-
-    // 🔒 بصمة رقمية عميقة وحتمية (Deep Payload Hashing) تفحص هوية كل صنف ووحدته وسعره وكميته
-    // لمنع أي تضارب إذا استبدل التاجر سلعة بأخرى لها نفس السعر والإجمالي
-    final itemsDetailedFingerprint = itemsList.map((item) {
-      final pId = item['product_id'] ?? '';
-      final uLabel = item['unit_label'] ?? 'كرتون';
-      final qty = item['quantity'] ?? 1;
-      final price = item['price'] ?? 0;
-      return '$pId:$uLabel:$qty:$price';
-    }).join(';');
-
-    final currentPayloadSignature =
-        '$merchantId|$itemsDetailedFingerprint|$total|$notesString|$_paymentMethod|${_location?.latitude},${_location?.longitude}|$cartRevision';
-
-    if (_lastSubmittedPayloadSignature != currentPayloadSignature) {
-      _orderIdempotencyKey =
-          null; // إعادة توليد معرف فريد جديد كلياً عند أي تغيير في محتوى السلة
-      _lastSubmittedPayloadSignature = currentPayloadSignature;
-    }
-
-    _orderIdempotencyKey ??=
-        FirebaseFirestore.instance.collection('orders').doc().id;
-    final String generatedOrderId = _orderIdempotencyKey!;
-    final orderData = {
-      'orderId': generatedOrderId,
-      'merchantId': merchantId,
-      'expectedTotal': total,
-      'items': itemsList,
-      'cart_revision': cartRevision,
-      'notes': notesString,
-      'extraData': extraDataMap,
     };
 
     void safeDismissLoading() {
@@ -547,176 +506,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _dismissLoadingAfterBuild = false;
     }
 
-    bool isOffline = !(await ConnectivityHelper.hasActiveInternet());
-    if (isOffline) {
-      // 🔒 فحص الحد الأدنى للطلب المعتمد أوفلاين وسحب السعر من الكاش
-      if (total < serverMinOrder) {
-        safeDismissLoading();
-        _showError(
-            'الحد الأدنى للطلب هو ${serverMinOrder.toStringAsFixed(0)} ر.ي');
-        return;
-      }
-// 🛡️ استرجاع الكتالوج المعتمد من الذاكرة والقرص الصلب مع حظر فحص السلة لنفسها
-      var allLocalProducts = AppCache.instance.getAllCachedProducts();
-
-      // إذا كانت الذاكرة باردة بعد فتح التطبيق أوفلاين، نقرأ الكتالوج مباشرة من ملف القرص
-      if (allLocalProducts.isEmpty && !kIsWeb) {
-        try {
-          final appPath = AppStorage.appDocsPath;
-          if (appPath != null) {
-            final catalogFile = File('$appPath/cache_products.json');
-            if (catalogFile.existsSync()) {
-              final rawContent = catalogFile.readAsStringSync();
-              final decoded = jsonDecode(rawContent);
-              if (decoded is List) {
-                allLocalProducts = List<Map<String, dynamic>>.from(
-                  decoded.map((e) => Map<String, dynamic>.from(e as Map)),
-                );
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      // إذا لم يتوفر كتالوج على القرص، نمنع الاعتماد الذاتي المضلل ونوجه التاجر للتأكد
-      if (allLocalProducts.isEmpty) {
-        safeDismissLoading();
-        _showError(
-            'تعذر التحقق من مخزون المستودع أوفلاين؛ افتح التطبيق مع توفر الإنترنت مرة واحدة لتحديث الكتالوج');
-        return;
-      }
-// 🔒 بناء قائمتين مستقلتين: الأصناف النشطة المعتمدة، والأصناف المحذوفة أو المعطلة صراحة
-      final Map<String, Map<String, dynamic>> verifiedActiveMap = {};
-      final Set<String> explicitlyDeletedOrInactiveIds = {};
-
-      for (final p in allLocalProducts) {
-        final id = p['id']?.toString();
-        if (id == null || id.isEmpty) continue;
-        if (p['is_deleted'] == true || p['is_active'] == false) {
-          explicitlyDeletedOrInactiveIds.add(id);
-        } else {
-          verifiedActiveMap[id] = p;
-        }
-      }
-
-      for (final item in cart.values) {
-        final pId = item.product.id;
-
-        // ❌ رفض قاطع: إذا كان الصنف محذوفاً أو معطلاً صراحة في الكاش نمنع تمرير الطلب نهائياً
-        if (explicitlyDeletedOrInactiveIds.contains(pId)) {
-          safeDismissLoading();
-          _showError(
-              'الصنف (${item.product.name}) تم إيقافه أو حذفه من المستودع. يرجى حذفه من السلة لإتمام الطلب.');
-          return;
-        }
-
-        final liveP = verifiedActiveMap[pId];
-        if (liveP == null) {
-          safeDismissLoading();
-          _showError(
-              'الصنف (${item.product.name}) غير موجود في سجلات الكتالوج المحلي. يرجى الاتصال بالإنترنت لتحديث البيانات.');
-          return;
-        }
-
-        // 🛡️ فحص حاسم للمخزون: منع حفظ الطلب أوفلاين إذا كانت الكمية المطلوبة تتجاوز المخزون المتوفر
-        final availableStock = (liveP['stock'] as num?)?.toDouble() ?? 0.0;
-        final capacity = (liveP['items_per_carton'] as num?)?.toInt() ?? 1;
-        final unitQty = item.selectedUnit?.qty ?? capacity;
-        final requestedCartons =
-            (item.quantity * unitQty) / (capacity > 0 ? capacity : 1);
-
-        if (requestedCartons > availableStock) {
-          safeDismissLoading();
-          _showError(
-              'الكمية المطلوبة من (${item.product.name}) تتجاوز المخزون المتوفر بالمستودع (${availableStock.toInt()} كرتون)');
-          return;
-        }
-
-        // التحقق من توفر الوحدة المحددة
-        final unitLabel = item.unitLabel;
-        if (unitLabel != 'كرتون') {
-          final unitsList = liveP['units'] as List<dynamic>? ?? [];
-          final unitExists = unitsList
-              .any((u) => u['label']?.toString().trim() == unitLabel.trim());
-          if (!unitExists) {
-            safeDismissLoading();
-            _showError(
-                'وحدة البيع ($unitLabel) للصنف (${item.product.name}) لم تعد متوفرة في المستودع.');
-            return;
-          }
-        }
-      }
-      try {
-        await AppStorage.savePendingOrder(orderData);
-        await WalService.instance.writeIntent(
-          transactionId: generatedOrderId,
-          type: WalOperationType.placeOrder,
-          payload: {
-            'merchant_id': merchantId,
-            'items': itemsList,
-            'expectedTotal': total,
-            'notes': notesString,
-            'extraData': extraDataMap,
-            'cart_revision': cartRevision,
-          },
-        );
-        await cartNotifier.clearIfRevision(cartRevision);
-      } catch (storageErr) {
-        safeDismissLoading();
-        _showError('تعذر حفظ الطلب محلياً في الذاكرة، حاول ثانية');
-        return;
-      }
-      _orderIdempotencyKey = null;
-      if (!mounted) return;
-      safeDismissLoading();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Row(children: [
-          Icon(Icons.cloud_done_rounded, color: Colors.white, size: 20),
-          SizedBox(width: 8),
-          Expanded(
-              child: Text(
-                  'أنت غير متصل بالإنترنت، تم حفظ طلبك بأمان وسيتم إرساله تلقائياً فور عودة الشبكة 📡',
-                  style: TextStyle(
-                      fontFamily: 'Cairo', fontWeight: FontWeight.w700))),
-        ]),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
-      ));
-
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
-      return;
-    }
     try {
+      _orderIdempotencyKey ??=
+          FirebaseFirestore.instance.collection('orders').doc().id;
+
       final order = await OrdersService.placeOrder(
         merchantId: merchantId,
         items: itemsList,
         expectedTotal: total,
         notes: notesString,
         extraData: extraDataMap,
-        orderId: generatedOrderId,
-        cartRevision: cartRevision,
-        markWalCommitted: false,
+        orderId: _orderIdempotencyKey,
       ).timeout(const Duration(seconds: 30));
-      _orderIdempotencyKey = null;
-      try {
-        await cartNotifier.clearIfRevision(cartRevision);
-      } catch (error, stackTrace) {
-        debugPrint('Order placed but cart cleanup failed: $error\n$stackTrace');
-      }
-      try {
-        await WalService.instance.markCommitted(generatedOrderId);
-      } catch (error, stackTrace) {
-        debugPrint('Order placed but WAL commit marker failed: '
-            '$error\n$stackTrace');
-      }
 
+      // ✅ تصفير المفتاح فقط وفقط عند النجاح القطعي للتنفيذ
+      _orderIdempotencyKey = null;
+      ref.read(cartProvider.notifier).clear();
       if (!mounted) return;
       safeDismissLoading();
+
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).popUntil(
+            (route) => route.isFirst || route.settings.name == '/checkout');
+      }
 
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
@@ -730,52 +542,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     } catch (e) {
       safeDismissLoading();
-      final errorStr = e.toString().toLowerCase();
-
-      final bool isStockOrProductIssue =
-          errorStr.contains('product_unavailable') ||
-              errorStr.contains('out_of_stock') ||
-              errorStr.contains('resource-exhausted') ||
-              errorStr.contains('failed-precondition');
-
-      // 🔒 فحص احترافي يعتمد على المصنف المركزي ويشمل كافة سيناريوهات انقطاع الإنترنت اللحظي
-      final isNetworkError =
-          !isStockOrProductIssue && ConnectivityHelper.isNetworkException(e);
-      if (isNetworkError) {
-        await AppStorage.savePendingOrder(orderData);
-        await cartNotifier.clearIfRevision(cartRevision);
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Row(children: [
-            Icon(Icons.cloud_done_rounded, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Expanded(
-                child: Text(
-                    'تعذر الاتصال بالخادم، تم حفظ طلبك بأمان وسيُرسل تلقائياً فور توفر الشبكة 📡',
-                    style: TextStyle(
-                        fontFamily: 'Cairo', fontWeight: FontWeight.w700))),
-          ]),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 4),
-        ));
-
-        await Future.delayed(const Duration(milliseconds: 600));
-        _orderIdempotencyKey =
-            null; // 🔒 لا يُصفّر المفتاح إلا بعد تمام التأكيد والتأمين
-        if (mounted) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        }
-        return;
-      }
       HapticFeedback.vibrate();
 
       final err = e.toString();
-      // استخراج مرن وشامل يدعم JSON والمعرّفات النصية والمفصولة بفواصل
-      // 🔒 تعبير نمطي يونيكود شامل يدعم كافة المحارف والوحدات العربية داخل وخارج الأقواس
       final RegExp exp = RegExp(
         r'(?:PRODUCT_UNAVAILABLE_|OUT_OF_STOCK_)\[([^\]]+)\]',
         caseSensitive: false,
@@ -789,7 +558,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           final rawContent = m.group(1);
           if (rawContent == null || rawContent.trim().isEmpty) continue;
 
-          // تقسيم العناصر في حال إرجاع عدة أصناف غير متوفرة
           final tokens = rawContent.split(RegExp(r'[,;]+'));
           for (final token in tokens) {
             final cleanToken = token.trim();
@@ -800,17 +568,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               final badProdId = cleanToken.substring(0, splitIndex).trim();
               final badUnit = cleanToken.substring(splitIndex + 1).trim();
 
-              for (final e in cart.entries) {
-                final itemUnit = e.value.unitLabel.trim();
-                if (e.value.product.id == badProdId &&
+              for (final entry in cart.entries) {
+                final itemUnit = entry.value.unitLabel.trim();
+                if (entry.value.product.id == badProdId &&
                     (itemUnit == badUnit || badUnit.isEmpty)) {
-                  keysToRemove.add(e.key);
+                  keysToRemove.add(entry.key);
                 }
               }
             } else {
-              for (final e in cart.entries) {
-                if (e.value.product.id == cleanToken) {
-                  keysToRemove.add(e.key);
+              for (final entry in cart.entries) {
+                if (entry.value.product.id == cleanToken) {
+                  keysToRemove.add(entry.key);
                 }
               }
             }
@@ -820,34 +588,42 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           for (final k in keysToRemove) {
             cartNotifier.removeItem(k);
           }
-          // 🔒 إغلاق قطعي للطلب في سجل WAL ووسمه كمنتهٍ لمنع قيامته الشبحية عند إعادة تشغيل التطبيق
-          AppStorage.markOrderIdTerminal(generatedOrderId, merchantId);
-          await AppStorage.removePendingOrder(generatedOrderId, merchantId);
-          await WalService.instance.markAborted(generatedOrderId);
           _orderIdempotencyKey = null;
-
           _showError(
               'نعتذر، تم استبعاد (${keysToRemove.length}) من الأصناف غير المتوفرة حالياً في المستودع من سلتك.');
-          Future.delayed(const Duration(milliseconds: 1400), () {
-            if (mounted) Navigator.of(context).pop();
-          });
           return;
         }
       }
-      // 🔒 تصفير المفتاح القديم حتماً عند فشل المعاملة لتمكين التاجر من تصحيح مدخلاته والمحاولة بمعرّف جديد
-      _orderIdempotencyKey = null;
-      _lastSubmittedPayloadSignature = null;
 
-      final lowerErr = err.toLowerCase();
-      final friendlyMessage = (lowerErr.contains('network') ||
-              lowerErr.contains('timeout') ||
-              lowerErr.contains('socket'))
-          ? 'تعذر الاتصال بالخادم، يرجى التحقق من اتصال الإنترنت'
-          : (lowerErr.contains('permission') ||
-                  lowerErr.contains('banned') ||
-                  lowerErr.contains('inactive'))
-              ? 'حسابك بانتظار التفعيل أو معطل من قبل الإدارة'
-              : 'تعذر إتمام الطلب حالياً، يرجى المحاولة بعد لحظات';
+      // 🔒 الحفاظ على _orderIdempotencyKey في حالات انقطاع النت/المهلة لضمان Idempotent Retry
+      if (matches.isNotEmpty) {
+        _orderIdempotencyKey =
+            null; // تصفيره فقط إذا تغيرت محتويات السلة لاستبعاد أصناف
+      }
+
+      String friendlyMessage;
+      if (e is FirebaseFunctionsException &&
+          e.message != null &&
+          e.message!.isNotEmpty) {
+        if (e.message!.contains('PRICE_DIVERGENCE')) {
+          await _validateCartBeforeCheckout();
+          friendlyMessage =
+              'تغيرت أسعار بعض الأصناف، تم تحديث سلتك بالأسعار الجديدة. يرجى مراجعتها وتأكيد الطلب.';
+        } else {
+          friendlyMessage = e.message!;
+        }
+      } else {
+        final lowerErr = err.toLowerCase();
+        friendlyMessage = (lowerErr.contains('network') ||
+                lowerErr.contains('timeout') ||
+                lowerErr.contains('socket'))
+            ? 'تعذر الاتصال بالخادم، يرجى التحقق من اتصال الإنترنت والمحاولة مجدداً'
+            : (lowerErr.contains('permission') ||
+                    lowerErr.contains('banned') ||
+                    lowerErr.contains('inactive'))
+                ? 'حسابك بانتظار التفعيل أو معطل من قبل الإدارة'
+                : 'تعذر إتمام الطلب حالياً، يرجى المحاولة بعد لحظات';
+      }
 
       _showError(friendlyMessage);
     } finally {

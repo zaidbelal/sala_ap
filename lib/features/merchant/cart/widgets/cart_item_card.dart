@@ -14,7 +14,7 @@ import '../models/cart_item_model.dart';
 import '../../products/services/products_service.dart';
 import '../../products/widgets/product_details_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class CartItemCard extends ConsumerStatefulWidget {
   final CartItem item;

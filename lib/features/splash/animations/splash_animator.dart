@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../controllers/session_checker.dart';
 
@@ -23,23 +24,21 @@ class SplashAnimator extends StatefulWidget {
 
 class _SplashAnimatorState extends State<SplashAnimator>
     with TickerProviderStateMixin {
-  // ── Controllers ──
-  late AnimationController _logoController;
-  late AnimationController _nameController;
-  late AnimationController _nameFallController;
+  // ── محركات الحركة السينمائية الأربعة ──
+  late AnimationController _ambientGlowCtrl;
+  late AnimationController _logoSpringCtrl;
+  late AnimationController _sparkleFlashCtrl;
+  late AnimationController _textRevealCtrl;
 
-  // ── Logo Animations ──
-  late Animation<double> _logoSlideY; // يصعد من الأسفل
-  late Animation<double> _logoOpacity; // يظهر تدريجياً
-  late Animation<double> _logoScale; // يكبر قليلاً
-
-  // ── Name Animations (الصعود السريع) ──
-  late Animation<double> _nameSlideY; // يصعد بسرعة
-  late Animation<double> _nameOpacity; // يظهر
-
-  // ── Name Fall (السقوط) ──
-  late Animation<double> _nameFallY; // يسقط للأسفل
-  late Animation<double> _nameBounce; // ارتداد خفيف
+  late Animation<double> _ambientScale;
+  late Animation<double> _ambientOpacity;
+  late Animation<double> _logoScale;
+  late Animation<double> _logoOpacity;
+  late Animation<double> _sparkleRotation;
+  late Animation<double> _sparkleScale;
+  late Animation<double> _textSlideY;
+  late Animation<double> _textOpacity;
+  late Animation<double> _shimmerWave;
 
   SessionResult? _sessionResult;
   bool _animationDone = false;
@@ -48,251 +47,201 @@ class _SplashAnimatorState extends State<SplashAnimator>
   @override
   void initState() {
     super.initState();
-    _setupControllers();
     _setupAnimations();
-    _startSequence();
-    _listenToSession();
+    _startCinematicSequence();
+    _awaitSession();
   }
 
-  @override
-  void dispose() {
-    _disposed = true;
-    _logoController.stop();
-    _nameController.stop();
-    _nameFallController.stop();
-    _logoController.dispose();
-    _nameController.dispose();
-    _nameFallController.dispose();
-    super.dispose();
-  }
-
-  // ══════════════════════════════════════════
-  // إعداد الـ Controllers
-  // ══════════════════════════════════════════
-  void _setupControllers() {
-    // 🚀 تسريع الأنيميشنات نفسها مع الحفاظ على الإحساس البصري
-    _logoController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 420),
-    );
-
-    _nameController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    );
-
-    _nameFallController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 320),
-    );
-  }
-
-  // ══════════════════════════════════════════
-  // إعداد الأنيميشنات
-  // ══════════════════════════════════════════
   void _setupAnimations() {
-    // ── اللوجو يصعد ──
-    _logoSlideY = Tween<double>(begin: 120, end: 0).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeOutCubic),
+    // 1. هالة النور الزمردية الخلفية الناعمة
+    _ambientGlowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
     );
-
-    _logoOpacity = Tween<double>(begin: 0, end: 1).animate(
+    _ambientScale = Tween<double>(begin: 0.3, end: 1.6).animate(
+      CurvedAnimation(parent: _ambientGlowCtrl, curve: Curves.easeOutCubic),
+    );
+    _ambientOpacity = Tween<double>(begin: 0.0, end: 0.5).animate(
       CurvedAnimation(
-        parent: _logoController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-      ),
+          parent: _ambientGlowCtrl, curve: const Interval(0.0, 0.7)),
     );
 
-    _logoScale = Tween<double>(begin: 0.7, end: 1.0).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeOutBack),
+    // 2. انبثاق وانطلاق حرف الواو الأبيض بحركة ارتدادية ناعمة (Spring Elastic)
+    _logoSpringCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
     );
-
-    // ── الاسم يصعد بسرعة ──
-    _nameSlideY = Tween<double>(begin: 180, end: 0).animate(
-      CurvedAnimation(parent: _nameController, curve: Curves.easeOutExpo),
+    _logoScale = Tween<double>(begin: 0.25, end: 1.0).animate(
+      CurvedAnimation(parent: _logoSpringCtrl, curve: Curves.elasticOut),
     );
-
-    _nameOpacity = Tween<double>(begin: 0, end: 1).animate(
+    _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
-        parent: _nameController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
+          parent: _logoSpringCtrl, curve: const Interval(0.0, 0.45)),
     );
 
-    // ── الاسم يسقط ──
-    _nameFallY = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _nameFallController, curve: Curves.easeInCubic),
+    // 3. لمعان وميض النجوم الذهبية وتوهجها اللحظي
+    _sparkleFlashCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat();
+    _sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
+      CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.linear),
+    );
+    _sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
+      CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
     );
 
-    _nameBounce = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0, end: -8).chain(
-          CurveTween(curve: Curves.easeOut),
-        ),
-        weight: 30,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: -8, end: 3).chain(
-          CurveTween(curve: Curves.easeIn),
-        ),
-        weight: 30,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 3, end: 0).chain(
-          CurveTween(curve: Curves.easeOut),
-        ),
-        weight: 40,
-      ),
-    ]).animate(
-      CurvedAnimation(parent: _nameController, curve: Curves.easeOut),
+    // 4. انزلاق وبزوغ الاسم "وَمْـــــض" مع تموج ضوئي ذهبي
+    _textRevealCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _textSlideY = Tween<double>(begin: 30.0, end: 0.0).animate(
+      CurvedAnimation(parent: _textRevealCtrl, curve: Curves.easeOutCubic),
+    );
+    _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _textRevealCtrl, curve: Curves.easeIn),
+    );
+    _shimmerWave = Tween<double>(begin: -1.2, end: 2.2).animate(
+      CurvedAnimation(parent: _textRevealCtrl, curve: Curves.easeInOut),
     );
   }
 
-  Future<void> _startSequence() async {
+  Future<void> _startCinematicSequence() async {
     try {
       if (_disposed || !mounted) return;
-      await Future.delayed(const Duration(milliseconds: 80));
-      if (_disposed || !mounted) return;
-      if (_logoController.isAnimating || _logoController.isCompleted) return;
-      await _logoController.forward();
+      _ambientGlowCtrl.forward();
+      await Future.delayed(const Duration(milliseconds: 120));
 
       if (_disposed || !mounted) return;
-      await Future.delayed(const Duration(milliseconds: 80));
-      if (_disposed || !mounted) return;
-      if (_nameController.isAnimating || _nameController.isCompleted) return;
-      await _nameController.forward();
+      _logoSpringCtrl.forward();
+      await Future.delayed(const Duration(milliseconds: 400));
 
       if (_disposed || !mounted) return;
-      await Future.delayed(const Duration(milliseconds: 180));
-      if (_disposed || !mounted) return;
-      if (_nameFallController.isAnimating || _nameFallController.isCompleted)
-        return;
-      await _nameFallController.forward();
+      await _textRevealCtrl.forward();
 
-      if (_disposed || !mounted) return;
       await Future.delayed(const Duration(milliseconds: 350));
-      if (_disposed || !mounted) return;
-
       _animationDone = true;
-      _tryNavigate();
+      _navigateIfReady();
     } catch (_) {}
   }
 
-  // ══════════════════════════════════════════
-  // انتظار نتيجة الجلسة
-  // ══════════════════════════════════════════
-  Future<void> _listenToSession() async {
+  Future<void> _awaitSession() async {
     try {
-      _sessionResult = await widget.sessionFuture.timeout(
-        const Duration(seconds: 6),
-      );
+      _sessionResult =
+          await widget.sessionFuture.timeout(const Duration(seconds: 4));
     } catch (_) {
-      // عند بطء الإنترنت نستخدم الجلسة المحفوظة محلياً
       _sessionResult = SessionChecker.localSessionResult();
     }
-    _tryNavigate();
+    _navigateIfReady();
   }
 
-  void _tryNavigate() {
+  void _navigateIfReady() {
     if (_animationDone && _sessionResult != null && mounted) {
       widget.onAnimationComplete(_sessionResult!);
     }
   }
 
-  // ══════════════════════════════════════════
-  // الـ Build
-  // ══════════════════════════════════════════
+  @override
+  void dispose() {
+    _disposed = true;
+    _ambientGlowCtrl.dispose();
+    _logoSpringCtrl.dispose();
+    _sparkleFlashCtrl.dispose();
+    _textRevealCtrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge([
-        _logoController,
-        _nameController,
-        _nameFallController,
+        _ambientGlowCtrl,
+        _logoSpringCtrl,
+        _sparkleFlashCtrl,
+        _textRevealCtrl,
       ]),
-      builder: (context, child) {
-        // حساب موضع السقوط النهائي للاسم
-        // يبدأ فوق اللوجو (offset سالب) وينتهي تحته (offset موجب)
-        const nameAboveLogo = -70.0; // فوق اللوجو
-        const nameBelowLogo = 74.0; // تحت اللوجو
-        final currentNameY = nameAboveLogo +
-            (_nameFallY.value * (nameBelowLogo - nameAboveLogo));
-
-        return Stack(
-          alignment: Alignment.center,
+      builder: (context, _) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // ── اللوجو ──
-            Transform.translate(
-              offset: Offset(0, _logoSlideY.value),
-              child: Opacity(
-                opacity: _logoOpacity.value.clamp(0.0, 1.0),
-                child: Transform.scale(
-                  scale: _logoScale.value,
-                  child: widget.logo,
+            // ── هالة النور وشعار الواو ──
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                // هالة التوهج الزمردي المشع
+                Transform.scale(
+                  scale: _ambientScale.value,
+                  child: Opacity(
+                    opacity: _ambientOpacity.value,
+                    child: Container(
+                      width: 150,
+                      height: 150,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            Color(0xFF2BD87E),
+                            Color(0xFF10B981),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+
+                // مجسم الشعار بانبثاق مطاطي
+                Transform.scale(
+                  scale: _logoScale.value,
+                  child: Opacity(
+                    opacity: _logoOpacity.value.clamp(0.0, 1.0),
+                    child: widget.logo,
+                  ),
+                ),
+              ],
             ),
 
-            // ── الاسم ──
+            const SizedBox(height: 28),
+
+            // ── كتابة اسم "وَمْـــــض" مع لمعان شعاع ذهبي زمردي ──
             Transform.translate(
-              offset: Offset(
-                0,
-                _nameController.isAnimating || _nameController.isCompleted
-                    ? currentNameY + _nameBounce.value
-                    : _nameSlideY.value + nameAboveLogo,
-              ),
+              offset: Offset(0, _textSlideY.value),
               child: Opacity(
-                opacity: _nameOpacity.value.clamp(0.0, 1.0),
-                child: _AppNameText(
-                  name: widget.appName,
-                  color: widget.textColor,
+                opacity: _textOpacity.value.clamp(0.0, 1.0),
+                child: ShaderMask(
+                  shaderCallback: (bounds) {
+                    return LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: const [
+                        Colors.white,
+                        Color(0xFFFFDF79),
+                        Colors.white,
+                      ],
+                      stops: [
+                        (_shimmerWave.value - 0.25).clamp(0.0, 1.0),
+                        _shimmerWave.value.clamp(0.0, 1.0),
+                        (_shimmerWave.value + 0.25).clamp(0.0, 1.0),
+                      ],
+                    ).createShader(bounds);
+                  },
+                  child: Text(
+                    widget.appName,
+                    style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 44,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 4.5,
+                    ),
+                  ),
                 ),
               ),
             ),
           ],
         );
       },
-    );
-  }
-}
-
-// ══════════════════════════════════════════
-// ويدجت اسم التطبيق
-// ══════════════════════════════════════════
-class _AppNameText extends StatelessWidget {
-  final String name;
-  final Color color;
-
-  const _AppNameText({required this.name, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (bounds) => LinearGradient(
-        colors: [
-          color,
-          color.withValues(alpha: 0.85),
-        ],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(bounds),
-      child: Text(
-        name,
-        style: TextStyle(
-          fontSize: 38,
-          fontWeight: FontWeight.w800,
-          color: Colors.white,
-          letterSpacing: 2.0,
-          height: 1.0,
-          shadows: [
-            Shadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

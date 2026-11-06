@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:wamd/core/utils/arabic_normalizer.dart';
 
 /// مسار معالجة خلفي (Isolate) لتنفيذ مهام فك وتشفير الـ JSON والفرز لمنع تعليق الشاشة تماماً (120 FPS)
 class BackgroundWorker {
@@ -49,20 +50,13 @@ class BackgroundWorker {
         List<Map<String, dynamic>>.from(args['items'] as List);
     final String q = (args['query'] as String? ?? '').trim().toLowerCase();
 
-    String normalize(String t) => t
-        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
-        .replaceAll('ة', 'ه')
-        .replaceAll('ى', 'ي')
-        .replaceAll('ـ', '')
-        .toLowerCase()
-        .trim();
-
-    final normQ = normalize(q);
+    final normQ = ArabicNormalizer.normalize(q);
 
     final filtered = normQ.isEmpty
         ? rawItems
         : rawItems.where((item) {
-            final name = normalize(item['name']?.toString() ?? '');
+            final name =
+                ArabicNormalizer.normalize(item['name']?.toString() ?? '');
             final barcode = item['barcode']?.toString() ?? '';
             return name.contains(normQ) || barcode.contains(normQ);
           }).toList();

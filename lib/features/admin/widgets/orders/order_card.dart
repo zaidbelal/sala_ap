@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 import 'order_detail_sheet.dart';
 import 'order_widgets.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class OrderCard extends StatelessWidget {
   final AdminOrder order;

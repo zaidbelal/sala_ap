@@ -1,7 +1,4 @@
-// ==================================================
-// FILE: lib\features\admin\screens\tabs\admin_merchants_tab.dart
-// ==================================================
-
+import 'package:wamd/core/utils/arabic_normalizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,7 +7,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../services/admin_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:sala/core/widgets/app_map.dart';
+import 'package:wamd/core/widgets/app_map.dart';
 import 'dart:async';
 
 // ══════════════════════════════════════════
@@ -364,27 +361,19 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
       };
     }).toList();
 
-    // ✅ بحث فوري محلي مطبّع لغوياً يدعم كافة أشكال الهمزات والتطابق الجزئي
     if (_search.trim().isNotEmpty) {
-      String normalize(String text) => text
-          .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
-          .replaceAll('ة', 'ه')
-          .replaceAll('ى', 'ي')
-          .replaceAll('ـ', '')
-          .toLowerCase()
-          .trim();
-
-      final normQuery = normalize(_search);
+      final normQuery = ArabicNormalizer.normalize(_search);
       result = result.where((m) {
-        final name = normalize(m['full_name']?.toString() ?? '');
-        final store = normalize(m['store_name']?.toString() ?? '');
+        final name =
+            ArabicNormalizer.normalize(m['full_name']?.toString() ?? '');
+        final store =
+            ArabicNormalizer.normalize(m['store_name']?.toString() ?? '');
         final phone = (m['phone_number']?.toString() ?? '');
         return name.contains(normQuery) ||
             store.contains(normQuery) ||
             phone.contains(_search.trim());
       }).toList();
     }
-
     return result;
   }
 

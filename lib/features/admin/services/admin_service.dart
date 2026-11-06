@@ -173,17 +173,22 @@ class AdminService {
   ) async {
     final financialsById = <String, Map<String, dynamic>>{};
     final ids = products.map((product) => product['id'].toString()).toList();
+    final queryFutures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
     for (var i = 0; i < ids.length; i += 30) {
       final chunk = ids.sublist(i, i + 30 > ids.length ? ids.length : i + 30);
-      final snapshots = await _db
-          .collection('product_financials')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get(const GetOptions(source: Source.server));
+      queryFutures.add(
+        _db
+            .collection('product_financials')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get(const GetOptions(source: Source.server)),
+      );
+    }
+    final snapshotsList = await Future.wait(queryFutures);
+    for (final snapshots in snapshotsList) {
       for (final doc in snapshots.docs) {
         financialsById[doc.id] = doc.data();
       }
     }
-
     return products.map((product) {
       final financials = financialsById[product['id'].toString()] ?? {};
       final unitCosts = <String, num>{};
@@ -488,15 +493,15 @@ class AdminService {
       try {
         final snap = await _db
             .collection('orders')
-            .where('status', isEqualTo: 'delivered')
-            .limit(100)
+            .where('delivered_at',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
             .get(const GetOptions(source: Source.serverAndCache));
-
         double revenue = 0.0;
         int count = 0;
 
         for (final doc in snap.docs) {
           final data = doc.data();
+          if (data['status'] != 'delivered') continue;
           final rawDeliveredAt =
               data['delivered_at'] ?? data['updated_at'] ?? data['created_at'];
 
@@ -1030,19 +1035,24 @@ class AdminService {
             options:
                 HttpsCallableOptions(timeout: const Duration(seconds: 25)));
 
-    // تجهيز البيانات وصياغة التواريخ بصيغة ISO القياسية لتمريرها عبر JSON
-    final safeUpdates = <String, dynamic>{};
-    for (final entry in updates.entries) {
-      if (entry.value is Timestamp) {
-        safeUpdates[entry.key] =
-            (entry.value as Timestamp).toDate().toIso8601String();
-      } else if (entry.value is FieldValue) {
-        safeUpdates[entry.key] = null; // يترجم في السيرفر إلى حذف الحقل
-      } else {
-        safeUpdates[entry.key] = entry.value;
+    // تجهيز البيانات وصياغة التواريخ بصيغة ISO القياسية عبر فحص عودي عميق
+    dynamic sanitizeDeep(dynamic val) {
+      if (val is Timestamp) return val.toDate().toIso8601String();
+      if (val is DateTime) return val.toIso8601String();
+      if (val is FieldValue) return null;
+      if (val is Map) {
+        return val.map((k, v) => MapEntry(k.toString(), sanitizeDeep(v)));
       }
+      if (val is List) {
+        return val.map(sanitizeDeep).toList();
+      }
+      return val;
     }
 
+    final safeUpdates = <String, dynamic>{};
+    for (final entry in updates.entries) {
+      safeUpdates[entry.key] = sanitizeDeep(entry.value);
+    }
     try {
       await callable.call({
         'id': cleanId,

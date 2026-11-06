@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:sala/core/services/background_worker.dart';
+import 'package:wamd/core/services/background_worker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // لـ compute()
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sala/core/services/local_storage.dart';
+import 'package:wamd/core/services/local_storage.dart';
 
 // ══════════════════════════════════════════════════════════
 // AppCache — نظام كاش ثلاثي الطبقات بسرعة الضوء
@@ -41,7 +41,6 @@ class AppCache {
     }
   }
 
-  // 🚀 مدة صلاحية متوازنة تمنع تعارض الأسعار عند الشراء وتدعم العمل المؤقت دون إنترنت
   static const Duration _categoryTtl = Duration(minutes: 30);
   static const Duration _productTtl = Duration(minutes: 20);
   static const Duration orderTtl = Duration(hours: 1);
@@ -118,20 +117,6 @@ class AppCache {
   // ══════════════════════════════
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-
-    // ✅ مسح أي ملفات مؤقتة متبقية لمنع تراكم الملفات التالفة على قرص الهاتف
-    if (!kIsWeb) {
-      try {
-        final dir = await getApplicationDocumentsDirectory();
-        final files = dir.listSync();
-        for (final f in files) {
-          if (f is File &&
-              (f.path.endsWith('.tmp.json') || f.path.endsWith('.tmp'))) {
-            await f.delete().catchError((_) => f);
-          }
-        }
-      } catch (_) {}
-    }
 
     final keys = <String>{
       _keyCategories,
@@ -268,6 +253,32 @@ class AppCache {
     await _removeKeyFamily(_keyBrands);
   }
 
+  /// تطهير كافة كاشات الأقسام المتفرعة لضمان تطابق شاشات الأقسام مع المنتجات المحدثة
+  Future<void> invalidateCategoryPartitions() async {
+    final keysToRemove =
+        _ram.keys.where((key) => key.startsWith('${_keyProducts}_')).toList();
+    _ram.removeWhere((key, _) => key.startsWith('${_keyProducts}_'));
+    final prefs = _prefs;
+    if (prefs != null) {
+      final catKeys = prefs
+          .getKeys()
+          .where((k) => k.startsWith('${_keyProducts}_'))
+          .toList();
+      for (final k in catKeys) {
+        await prefs.remove(k);
+      }
+    }
+    if (!kIsWeb) {
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        for (final k in keysToRemove) {
+          final file = File('${dir.path}/$k.json');
+          if (await file.exists()) await file.delete();
+        }
+      } catch (_) {}
+    }
+  }
+
   Future<void> invalidateProducts() async {
     final previousLock = _productsWriteLock;
     final completer = Completer<void>();
@@ -289,7 +300,6 @@ class AppCache {
             key == _keyProducts || key.startsWith('${_keyProducts}_')));
       }
 
-      // 🛡️ وسم البيانات بأنها منتهية الصلاحية (Stale) لتحديثها لاحقاً دون حذف ملفات القرص لتأمين الأوفلاين
       for (final key in productCacheKeys) {
         final current = _ram[key];
         if (current != null) {
@@ -302,17 +312,14 @@ class AppCache {
           await prefs.setString('${key}_ts', expiredDate.toIso8601String());
         }
       }
-      // 🔒 ملفات القرص تبقى محفوظة بالكامل لتشغيل الطلبات في وضع عدم الاتصال (Offline-First)
+      await invalidateCategoryPartitions();
     } finally {
       completer.complete();
     }
   }
 
-  /// جلب كافة المنتجات المخزنة محلياً مع قراءة شمولية متزامنة لجميع ملفات الأقسام عند الإقلاع البارد أوفلاين
   List<Map<String, dynamic>> getAllCachedProducts() {
     final Map<String, Map<String, dynamic>> byId = {};
-
-    // 1. القراءة من ذاكرة RAM أولاً
     for (final entry in _ram.entries) {
       if (entry.key == _keyProducts ||
           entry.key.startsWith('${_keyProducts}_')) {
@@ -326,38 +333,6 @@ class AppCache {
         }
       }
     }
-
-    // 2. إذا كانت الذاكرة باردة عند فتح التطبيق أوفلاين، نقرأ القرص مباشرة بشكل حتمي
-    if (byId.isEmpty && !kIsWeb) {
-      try {
-        final appPath = AppStorage.appDocsPath;
-        if (appPath != null) {
-          final dir = Directory(appPath);
-          if (dir.existsSync()) {
-            final productFiles = dir.listSync().whereType<File>().where(
-                  (f) =>
-                      f.path.contains('cache_products') &&
-                      f.path.endsWith('.json') &&
-                      !f.path.contains('.tmp') &&
-                      !f.path.contains('.bak'),
-                );
-            for (final file in productFiles) {
-              try {
-                final content = file.readAsStringSync();
-                final decoded = _decodeJson(content);
-                if (decoded != null) {
-                  for (final p in decoded) {
-                    final id = p['id']?.toString();
-                    if (id != null && id.isNotEmpty) byId[id] = p;
-                  }
-                }
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
     return byId.values.toList();
   }
 
@@ -470,8 +445,10 @@ class AppCache {
     return item;
   }
 
-  static String _isolateEncodeJson(List<dynamic> sanitizedData) {
-    return jsonEncode(sanitizedData);
+  static String _isolateSanitizeAndEncodeJson(
+      List<Map<String, dynamic>> rawData) {
+    final sanitized = rawData.map((e) => _sanitizeForJson(e)).toList();
+    return jsonEncode(sanitized);
   }
 
   Future<void> _saveToDisk(
@@ -480,36 +457,10 @@ class AppCache {
   ) async {
     if (kIsWeb) return;
     try {
-      final sanitizedData = data.map((e) => _sanitizeForJson(e)).toList();
-      final encoded = await compute(_isolateEncodeJson, sanitizedData);
+      final encoded = await compute(_isolateSanitizeAndEncodeJson, data);
       final dir = await getApplicationDocumentsDirectory();
-      final nonce = DateTime.now().microsecondsSinceEpoch;
-      final tempFile = File('${dir.path}/${key}_$nonce.tmp.json');
       final finalFile = File('${dir.path}/$key.json');
-      await tempFile.writeAsString(encoded, flush: true);
-
-      final backupFile = File('${dir.path}/$key.bak.json');
-      try {
-        if (await finalFile.exists()) {
-          await finalFile.copy(backupFile.path);
-        }
-        await tempFile.rename(finalFile.path);
-      } catch (_) {
-        try {
-          await tempFile.copy(finalFile.path);
-          if (await tempFile.exists()) {
-            await tempFile.delete();
-          }
-        } catch (_) {
-          if (await backupFile.exists()) {
-            await backupFile.copy(finalFile.path);
-          }
-        }
-      } finally {
-        if (await backupFile.exists()) {
-          await backupFile.delete().catchError((_) => backupFile);
-        }
-      }
+      await finalFile.writeAsString(encoded, flush: true);
       await _prefs?.setString(
         '${key}_ts',
         DateTime.now().toIso8601String(),

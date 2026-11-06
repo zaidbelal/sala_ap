@@ -35,14 +35,15 @@ android {
         jvmTarget = "17"
     }
 
-  defaultConfig {
+    defaultConfig {
         applicationId = "com.zaidsalaapp.sala"
-        minSdk = flutter.minSdkVersion // ضمان تشغيل Firebase و Google Maps دون أي مشاكل توافقية
-        targetSdk = 36 // المتطلب الإلزامي الرسمي المعتمد لدى متجر Google Play
+        minSdk = flutter.minSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
     }
+    
     signingConfigs {
         create("release") {
             keyAlias = keystoreProperties.getProperty("keyAlias")
@@ -54,7 +55,6 @@ android {
 
     buildTypes {
         getByName("release") {
-            // توقيع آمن يحمي البناء في حال عدم وجود key.properties محلياً
             signingConfig = if (keystorePropertiesFile.exists()) {
                 signingConfigs.getByName("release")
             } else {

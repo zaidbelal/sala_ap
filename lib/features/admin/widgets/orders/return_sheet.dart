@@ -289,11 +289,24 @@ class _ReturnSheetState extends State<ReturnSheet> {
                                               fontFamily: 'Cairo',
                                               fontSize: 13,
                                               fontWeight: FontWeight.w700)),
-                                      Text('الكمية: $maxQty كرتون',
-                                          style: TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: Colors.grey[500])),
+                                      Builder(
+                                        builder: (_) {
+                                          final unit = (item['unit_label'] ??
+                                                  item['unit'])
+                                              ?.toString()
+                                              .trim();
+                                          final unitText =
+                                              unit != null && unit.isNotEmpty
+                                                  ? unit
+                                                  : 'كرتون';
+                                          return Text(
+                                              'الكمية: $maxQty $unitText',
+                                              style: TextStyle(
+                                                  fontFamily: 'Cairo',
+                                                  fontSize: 11,
+                                                  color: Colors.grey[500]));
+                                        },
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -414,7 +427,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
                               )
                             : Text(
                                 _hasSelection
-                                    ? 'تأكيد ارجاع $_totalQty كرتون'
+                                    ? 'تأكيد ارجاع $_totalQty وحدة'
                                     : 'اختر كمية أولاً',
                                 style: const TextStyle(
                                     fontFamily: 'Cairo',

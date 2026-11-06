@@ -7,9 +7,9 @@ import '../../../../../core/services/local_storage.dart';
 import '../../../orders/models/order_model.dart';
 import '../../../orders/screens/order_status_screen.dart';
 import '../../../widgets/order_card.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'dart:async';
-import 'package:sala/core/services/realtime_hub.dart';
+import 'package:wamd/core/services/realtime_hub.dart';
 
 class OrdersTab extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToHistory;
@@ -51,23 +51,32 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
 
   void _onTabAnimation() {
     final val = _tabController.animation!.value;
-    final lastIdx = (_tabs.length - 1).toDouble(); // = 4.0
-    // المستخدم سحب يساراً تجاوز آخر تبويب → انتقل للسجل
+    final lastIdx = (_tabs.length - 1).toDouble();
     if (val > lastIdx + 0.4 && !_historyTriggered) {
       _historyTriggered = true;
-      widget.onNavigateToHistory?.call();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onNavigateToHistory?.call();
+      });
     } else if (val <= lastIdx + 0.1) {
       _historyTriggered = false;
     }
   }
 
   Future<void> _loadMoreOrders(String merchantId) async {
-    final cursor = _ordersCursor;
-    if (merchantId.isEmpty ||
-        cursor == null ||
-        !_hasMoreOrders ||
-        _isLoadingMoreOrders) {
+    if (merchantId.isEmpty || !_hasMoreOrders || _isLoadingMoreOrders) {
       return;
+    }
+    var cursor = _ordersCursor;
+    if (cursor == null) {
+      final initialDocs = await FirebaseFirestore.instance
+          .collection('orders')
+          .where('merchant_id', isEqualTo: merchantId)
+          .orderBy('created_at', descending: true)
+          .limit(50)
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (initialDocs.docs.isEmpty) return;
+      cursor = initialDocs.docs.last;
+      _ordersCursor = cursor;
     }
     setState(() {
       _isLoadingMoreOrders = true;

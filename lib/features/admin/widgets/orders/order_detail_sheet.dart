@@ -12,7 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:sala/core/services/local_storage.dart';
+import 'package:wamd/core/services/local_storage.dart';
 
 class OrderDetailSheet extends ConsumerStatefulWidget {
   final AdminOrder order;
@@ -796,6 +796,7 @@ class _ActionButtons extends ConsumerWidget {
                   merchantName: order.storeName ?? order.merchantName,
                 );
                 if (signatureUrl != null && context.mounted) {
+                  bool saved = true;
                   try {
                     final callable =
                         FirebaseFunctions.instanceFor(region: 'us-central1')
@@ -805,14 +806,17 @@ class _ActionButtons extends ConsumerWidget {
                       'signatureUrl': signatureUrl,
                       'signerName': order.storeName ?? order.merchantName,
                     });
-                  } catch (_) {}
+                  } catch (_) {
+                    saved = false;
+                  }
 
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                            '✅ تم توثيق وحفظ التوقيع الرقمي بنجاح في الفاتورة'),
-                        backgroundColor: AppColors.primary,
+                      SnackBar(
+                        content: Text(saved
+                            ? '✅ تم توثيق وحفظ التوقيع الرقمي بنجاح في الفاتورة'
+                            : '❌ تعذر حفظ التوقيع، تحقق من الاتصال وأعد المحاولة'),
+                        backgroundColor: saved ? AppColors.primary : Colors.red,
                         behavior: SnackBarBehavior.floating,
                       ),
                     );
@@ -834,7 +838,16 @@ class _ActionButtons extends ConsumerWidget {
                   color: Colors.red,
                   onTap: () => changeStatus('cancelled')),
             ],
-            if (order.status == 'confirmed' || order.status == 'pending') ...[
+            if (order.status == 'confirmed' ||
+                order.status == 'pending' ||
+                order.status == 'preparing') ...[
+              if (order.status != 'preparing')
+                _ActionBtn(
+                  label: 'بدء التجهيز في المستودع 📦',
+                  icon: Icons.inventory_2_rounded,
+                  color: Colors.blue,
+                  onTap: () => changeStatus('preparing'),
+                ),
               _ActionBtn(
                 label: 'تأكيد التسليم مباشرة (المدير)',
                 icon: Icons.done_all_rounded,
@@ -844,7 +857,7 @@ class _ActionButtons extends ConsumerWidget {
               _ActionBtn(
                 label: 'بدء التوصيل بنفسك',
                 icon: Icons.local_shipping_rounded,
-                color: Colors.blue,
+                color: Colors.indigo,
                 onTap: () async {
                   final adminUid = AppStorage.userId ?? '';
                   final adminName = AppStorage.userName ?? 'الإدارة';
@@ -904,10 +917,20 @@ class _ActionButtons extends ConsumerWidget {
                     if (pendingReturns.isEmpty) {
                       await service.updateOrderStatus(order.id, 'returned');
                     } else {
-                      for (final ret in pendingReturns) {
-                        await service.updateReturnStatus(
-                            ret['id']?.toString() ?? '', 'accepted');
-                      }
+                      // 🚀 دمج كافة بنود الإرجاع في دفعة ذرية واحدة لا تقبل التجزئة
+                      final returnItemsPayload = pendingReturns
+                          .map((r) => {
+                                'item_id': r['order_item_id']?.toString() ?? '',
+                                'quantity':
+                                    (r['quantity'] as num?)?.toInt() ?? 0,
+                              })
+                          .toList();
+
+                      await service.processReturn(
+                        order.id,
+                        'اعتماد وتسوية المرتجعات من الإدارة',
+                        returnItems: returnItemsPayload,
+                      );
                     }
                     if (context.mounted) {
                       onDone();

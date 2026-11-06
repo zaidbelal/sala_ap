@@ -10,7 +10,7 @@ import '../../../splash/widgets/sala_logo.dart';
 import '../../login/widgets/phone_input_field.dart';
 import '../services/signup_service.dart';
 import 'package:go_router/go_router.dart';
-import 'package:sala/app_router.dart';
+import 'package:wamd/app_router.dart';
 import '../../login/services/auth_service.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -33,7 +33,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
   bool _isPhoneValid = false;
   bool _isLoading = false;
   String _errorMsg = '';
-  String? _lastAutoRequestedPhone;
+  String? lastAutoRequestedPhone;
   @override
   void initState() {
     super.initState();
@@ -41,7 +41,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
     // إذا جاء برقم مُدخل مسبقاً
     if (widget.prefilledPhone != null) {
       _phoneController.text = widget.prefilledPhone!;
-      _lastAutoRequestedPhone = widget.prefilledPhone!;
+      lastAutoRequestedPhone = widget.prefilledPhone!;
     }
     _animController = AnimationController(
       vsync: this,
@@ -136,7 +136,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                 children: [
                   const SizedBox(height: 56),
                   // ── اللوجو ──
-                  const SalaLogo(size: 90, color: AppColors.primary),
+                  const WamdLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
 
                   // ── اسم التطبيق ──
@@ -144,7 +144,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'سَلة',
+                      'وَمْض',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -169,7 +169,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                       children: [
                         // ── العنوان ──
                         Text(
-                          'مرحباً بك في سَلة 🎉',
+                          'مرحباً بك في وَمْض 🎉',
                           style: AppTextStyles.headlineMedium,
                         ),
                         const SizedBox(height: 6),
@@ -200,22 +200,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                               _isPhoneValid = valid;
                               _errorMsg = '';
                             });
-
-                            final currentPhone = _phoneController.text.trim();
-                            if (currentPhone.length < 9) {
-                              _lastAutoRequestedPhone = null;
-                            }
-
-                            // فحص تلقائي فوري بمجرد اكتمال الرقم التاسع
-                            if (valid &&
-                                !_isLoading &&
-                                _lastAutoRequestedPhone != currentPhone) {
-                              _lastAutoRequestedPhone = currentPhone;
-                              _onNext();
-                            }
                           },
                         ),
-
                         // ── رسالة خطأ ──
                         AnimatedSize(
                           duration: const Duration(milliseconds: 250),

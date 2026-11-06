@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sala/core/services/local_storage.dart';
-import 'package:sala/core/services/realtime_hub.dart';
+import 'package:wamd/core/services/local_storage.dart';
+import 'package:wamd/core/services/realtime_hub.dart';
 import 'dart:async';
 
 enum SessionResult {

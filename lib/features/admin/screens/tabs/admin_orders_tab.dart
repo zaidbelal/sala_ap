@@ -7,28 +7,32 @@ import '../../services/admin_service.dart';
 import '../../widgets/orders/order_card.dart';
 
 // مزود استماع سحابي مفلتر ومرتب زمنياً في الخادم لضمان جلب أحدث الطلبات
+final adminOrdersLimitProvider =
+    StateProvider.autoDispose.family<int, String>((ref, key) => 150);
 final adminOrdersRealtimeProvider = StreamProvider.autoDispose
     .family<List<AdminOrder>, List<String>?>((ref, statuses) {
+  final limit =
+      ref.watch(adminOrdersLimitProvider(statuses?.join(',') ?? 'all'));
+
   Query<Map<String, dynamic>> query =
       FirebaseFirestore.instance.collection('orders');
 
+  // الاستعلام السحابي الصافي عبر الفهرس المركب (status ASC, created_at DESC)
   if (statuses != null && statuses.isNotEmpty) {
     if (statuses.length == 1) {
       query = query.where('status', isEqualTo: statuses.first);
     } else {
       query = query.where('status', whereIn: statuses);
     }
-  } else {
-    query = query.orderBy('created_at', descending: true);
   }
 
-  return query.limit(150).snapshots(includeMetadataChanges: false).map((snap) {
-    final list = snap.docs
-        .map((d) => AdminOrder.fromMap({'id': d.id, ...d.data()}))
-        .toList();
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return list;
-  });
+  return query
+      .orderBy('created_at', descending: true)
+      .limit(limit)
+      .snapshots(includeMetadataChanges: false)
+      .map((snap) => snap.docs
+          .map((d) => AdminOrder.fromMap({'id': d.id, ...d.data()}))
+          .toList());
 });
 
 class AdminOrdersTab extends ConsumerStatefulWidget {
@@ -235,10 +239,26 @@ class _OrdersList extends ConsumerWidget {
           );
         }
 
+        final limitKey = statuses?.join(',') ?? 'all';
+        final currentLimit = ref.watch(adminOrdersLimitProvider(limitKey));
+        final canLoadMore = orders.length >= currentLimit;
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
-          itemCount: orders.length,
+          itemCount: orders.length + (canLoadMore ? 1 : 0),
           itemBuilder: (_, i) {
+            if (i == orders.length) {
+              return Center(
+                child: TextButton.icon(
+                  onPressed: () => ref
+                      .read(adminOrdersLimitProvider(limitKey).notifier)
+                      .state += 150,
+                  icon: const Icon(Icons.arrow_downward_rounded),
+                  label: const Text('تحميل المزيد',
+                      style: TextStyle(
+                          fontFamily: 'Cairo', fontWeight: FontWeight.w700)),
+                ),
+              );
+            }
             return OrderCard(
               order: orders[i],
               onStatusChanged: () {

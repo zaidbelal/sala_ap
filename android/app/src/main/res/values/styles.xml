@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- ثيم شاشة البداية المتوافق مع Edge-to-Edge الحديث وبدون أي APIs متوقفة -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
+
+    <!-- الثيم العادي للتطبيق متوافق مع نظام أندرويد 15 فما فوق -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>

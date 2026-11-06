@@ -10,8 +10,8 @@ import 'services/auth_service.dart';
 import '../../../core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:sala/app_router.dart';
-import 'package:sala/core/services/local_storage.dart';
+import 'package:wamd/app_router.dart';
+import 'package:wamd/core/services/local_storage.dart';
 import 'dart:async';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -34,7 +34,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   bool _isPhoneValid = false;
   bool _isLoading = false;
   String _errorMsg = '';
-  String? _lastAutoCheckedPhone;
+  String? lastAutoCheckedPhone;
   @override
   void initState() {
     super.initState();
@@ -44,16 +44,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
     if (widget.prefilledPhone != null && widget.prefilledPhone!.isNotEmpty) {
       _phoneController.text = widget.prefilledPhone!;
-      _lastAutoCheckedPhone = widget.prefilledPhone!;
+      lastAutoCheckedPhone = widget.prefilledPhone!;
     }
 
-    if (AppStorage.isLoggedIn && AppStorage.isSessionExpired) {
-      Future.microtask(() async {
-        try {
-          await ref.read(authServiceProvider).signOut();
-        } catch (_) {}
-      });
-    }
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -160,13 +153,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 56),
-                  const SalaLogo(size: 90, color: AppColors.primary),
+                  const WamdLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
                   ShaderMask(
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'سَلة',
+                      'وَمْض',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -205,19 +198,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               _isPhoneValid = valid;
                               _errorMsg = '';
                             });
-
-                            final currentPhone = _phoneController.text.trim();
-                            if (currentPhone.length < 9) {
-                              _lastAutoCheckedPhone = null;
-                            }
-
-                            // فحص تلقائي فوري بمجرد اكتمال الرقم التاسع
-                            if (valid &&
-                                !_isLoading &&
-                                _lastAutoCheckedPhone != currentPhone) {
-                              _lastAutoCheckedPhone = currentPhone;
-                              _onNext();
-                            }
                           },
                         ),
                         AnimatedSize(

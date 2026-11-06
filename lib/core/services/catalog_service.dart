@@ -6,7 +6,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'app_cache.dart';
 import 'realtime_hub.dart';
 import 'image_precache_service.dart';
-import 'package:sala/core/services/delta_sync_service.dart';
+
 // ══════════════════════════════════════════════════════════
 // CatalogService — Production-Grade
 //
@@ -33,9 +33,6 @@ final _db = FirebaseFirestore.instance;
 
 /// حقن الاعتماديات عبر مزودات مركزية
 final appCacheProvider = Provider<AppCache>((ref) => AppCache.instance);
-final deltaSyncProvider =
-    Provider<DeltaSyncService>((ref) => DeltaSyncService.instance);
-
 final categoriesProvider =
     AsyncNotifierProvider<CategoriesNotifier, List<Map<String, dynamic>>>(
   CategoriesNotifier.new,
@@ -204,27 +201,14 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     );
   }
 
-  /// تحديث خلفي صامت يوفر استهلاك الشبكة بنسبة 100% عند عدم وجود تعديلات
   Future<void> _bgRefresh() async {
     final cache = ref.read(appCacheProvider);
-    final deltaSync = ref.read(deltaSyncProvider);
-
-    try {
-      await deltaSync.syncCategoriesDelta();
-      final cached = cache.getCategories();
-      if (cached != null && cached.isNotEmpty && !_isDisposed) {
-        state = AsyncValue.data(cached);
-        return;
-      }
-    } catch (_) {}
-
     final fresh = await _silently<List<Map<String, dynamic>>>(
       _fetchFromNetwork,
       tag: 'categories-bg',
     );
     if (fresh != null) {
       await cache.setCategories(fresh);
-      // ✅ فحص مزدوج للـ mount والـ disposal قبل لمس الـ State
       if (!_isDisposed && ref.exists(categoriesProvider)) {
         state = AsyncValue.data(fresh);
       }
@@ -337,22 +321,6 @@ class ProductsNotifier
   }
 
   Future<void> _bgRefresh({String? categoryId}) async {
-    if (categoryId == null) {
-      try {
-        // 🚀 تشغيل المزامنة التفاضلية لجلب التعديلات الجديدة فقط (Delta Sync)
-        await DeltaSyncService.instance.syncProductsDelta();
-
-        // 🔒 حظر الهدر: إذا اكتمل الفحص والكاش متوفر ومحدث، نكتفي به فوراً ونمنع تحميل 2500 منتج
-        final cached = AppCache.instance.getProducts();
-        if (cached != null && cached.isNotEmpty && !_isDisposed) {
-          state = AsyncData(cached);
-          _precache(cached);
-          return; // 👈 خروج فوري يوفر 2500 قراءة Firestore في كل فتحة للتطبيق
-        }
-      } catch (_) {}
-    }
-
-    // لا يتم اللجوء للاستعلام الكامل إلا إذا كان الكاش المحلي فارغاً تماماً
     final fresh = await _silently(
       () => _fetchFromNetwork(categoryId: categoryId),
       tag: 'products-bg-${categoryId ?? "all"}',

@@ -11,7 +11,7 @@ import 'checkout_screen.dart';
 import '../../../../../core/services/local_storage.dart';
 import '../../../../../core/services/connectivity_service.dart';
 import '../models/cart_item_model.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class CartScreen extends ConsumerStatefulWidget {
   const CartScreen({super.key});

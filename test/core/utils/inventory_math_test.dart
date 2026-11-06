@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sala/core/utils/inventory_math.dart';
+import 'package:wamd/core/utils/inventory_math.dart';
 
 void main() {
   group('InventoryMath.cartonsFor', () {

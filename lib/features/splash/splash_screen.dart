@@ -7,7 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/notification_service.dart';
 import 'animations/splash_animator.dart';
 import 'controllers/session_checker.dart';
-import 'widgets/sala_logo.dart';
+import 'widgets/sala_logo.dart'; // يتضمن WamdLogo الجديد
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -89,11 +89,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             // ── الأنيميشن الرئيسي ──
             Center(
               child: SplashAnimator(
-                logo: const SalaLogo(
-                  size: 110,
+                logo: const WamdLogo(
+                  size: 140,
                   color: Colors.white,
                 ),
-                appName: 'سَلة',
+                appName: 'وَمْـــــض',
                 textColor: Colors.white,
                 sessionFuture: sessionFuture,
                 onAnimationComplete: _onAnimationComplete,
@@ -108,7 +108,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               child: Column(
                 children: [
                   Text(
-                    'توصيل خلال 24 ساعة',
+                    'منصة التوزيع والطلب الذكي',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,

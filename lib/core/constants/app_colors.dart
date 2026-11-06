@@ -9,12 +9,15 @@ class AppConfig {
 
 class AppColors {
   AppColors._();
-  // ── الأساسي (أخضر) ──
-  static const Color primary = Color(0xFF1B8E3D);
-  static const Color primaryLight = Color(0xFF2DB85B);
-  static const Color primaryDark = Color(0xFF146B2E);
-  static const Color primarySurface = Color(0xFFE8F5ED);
-
+// ── هوية وَمْض الرسمية المستخرجة بدقة من الشعار الجديد ──
+  static const Color primary = Color(0xFF10B981); // زمردي مشرق حيوي
+  static const Color primaryLight = Color(0xFF2BD87E); // وميض زمردي ليموني فاقع
+  static const Color primaryDark = Color(0xFF032B20); // زمردي كحلي داكن عميق
+  static const Color primarySurface =
+      Color(0xFFEAFBF2); // مسطح ناعم مائل للزمرد
+  static const Color goldAccent = Color(0xFFFFC83B); // ذهبي النجوم الصافي
+  static const Color goldGlow = Color(0xFFF59E0B); // توهج النجوم الخارجي
+  static const Color goldCore = Color(0xFFFFDF79); // قلب النجمة المضيء
   // ── الثانوي (سماوي) ──
   static const Color secondary = Color(0xFF00B4D8);
   static const Color secondaryLight = Color(0xFF48CAE4);
@@ -61,10 +64,9 @@ class AppColors {
   static const Color warehouseColor = Color(0xFFF57C00);
   static const Color adminColor = Color(0xFF6C3483);
   static const Color accountantColor = Color(0xFF1565C0);
-
-  // ── تدرجات لونية ──
+// ── تدرجات لونية مطابقة بنسبة 100% لخلفية الشعار الجديد ──
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFF1B8E3D), Color(0xFF2DB85B)],
+    colors: [Color(0xFF2BD87E), Color(0xFF10B981), Color(0xFF044E32)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -75,13 +77,16 @@ class AppColors {
     end: Alignment.bottomRight,
   );
 
+  // تدرج ومض السينمائي المطابق لخلفية الشعار
   static const LinearGradient splashGradient = LinearGradient(
     colors: [
-      Color(0xFF146B2E),
-      Color(0xFF1B8E3D),
-      Color(0xFF2DB85B),
+      Color(0xFF2BD87E),
+      Color(0xFF10B981),
+      Color(0xFF065F3E),
+      Color(0xFF022B1E),
     ],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    stops: [0.0, 0.35, 0.70, 1.0],
   );
 }

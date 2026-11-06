@@ -14,7 +14,7 @@ import '../brands/screens/brands_screen.dart';
 import '../products/screens/products_screen.dart';
 import '../products/widgets/product_details_sheet.dart';
 import '../products/services/products_service.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class SearchResultsView extends ConsumerWidget {
   final String query;

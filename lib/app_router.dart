@@ -3,13 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'features/splash/splash_screen.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'features/auth/login/login_screen.dart';
 import 'features/auth/login/otp_screen.dart';
 import 'features/auth/signup/signup_details_screen.dart';
-import 'package:sala/core/services/local_storage.dart';
-import 'package:sala/core/services/notification_service.dart';
-import 'package:sala/core/services/realtime_hub.dart';
+import 'package:wamd/core/services/local_storage.dart';
+import 'package:wamd/core/services/notification_service.dart';
+import 'package:wamd/core/services/realtime_hub.dart';
 import 'features/merchant/home/screens/merchant_home_screen.dart';
 import 'features/admin/screens/admin_home_screen.dart';
 import 'features/merchant/notifications/notifications_screen.dart';
@@ -354,11 +354,11 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
             (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
 
         if (isBanned) {
-          await AppStorage.clearUserData();
+          final container = ProviderScope.containerOf(context);
+          await container.read(authServiceProvider).signOut();
           if (mounted) context.go(AppRoutes.login);
           return;
         }
-
         // إذا وافقت الإدارة وتم التفعيل: توجيهه فوراً وتشغيل قنواته اللحظية
         if (isActive) {
           await AppStorage.setIsActive(true);

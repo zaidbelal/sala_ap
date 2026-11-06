@@ -10,11 +10,11 @@ import '../../../../core/services/notification_service.dart';
 import '../../../../core/services/realtime_hub.dart';
 import 'quickconnect_otp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:sala/core/services/catalog_service.dart';
-import 'package:sala/core/services/prefetch_service.dart';
-import 'package:sala/features/merchant/cart/providers/cart_provider.dart';
-import 'package:sala/features/merchant/search/services/search_service.dart';
-import 'package:sala/features/merchant/barcode/barcode_scanner_screen.dart';
+import 'package:wamd/core/services/catalog_service.dart';
+import 'package:wamd/core/services/prefetch_service.dart';
+import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wamd/features/merchant/search/services/search_service.dart';
+import 'package:wamd/features/merchant/barcode/barcode_scanner_screen.dart';
 
 class OtpVerifyResponse {
   final bool success;

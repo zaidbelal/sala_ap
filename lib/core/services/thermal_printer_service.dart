@@ -110,7 +110,7 @@ class ThermalReceiptWidget extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    'سَـــــلَّـــــة',
+                    'وَمْـــــض',
                     style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 28,
@@ -472,7 +472,7 @@ class ThermalReceiptWidget extends StatelessWidget {
               children: [
                 QrImageView(
                   data:
-                      'SALA_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
+                      'WAMD_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
                   version: QrVersions.auto,
                   size: paperSize == PaperSize.mm58 ? 95.0 : 120.0,
                 ),

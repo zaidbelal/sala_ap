@@ -5,7 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import '../orders/screens/order_detail_screen.dart';
 import '../orders/screens/order_status_screen.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class OrderCard extends StatefulWidget {
   final Map<String, dynamic> order;
@@ -37,22 +37,7 @@ class _OrderCardState extends State<OrderCard> {
   void _resolveItemCount() {
     final stored = (widget.order['items_count'] as num?)?.toInt() ??
         (widget.order['item_count'] as num?)?.toInt();
-    if (stored != null) {
-      _itemCount = stored;
-    } else {
-      _fetchItemCount();
-    }
-  }
-
-  Future<void> _fetchItemCount() async {
-    final orderId = widget.order['id'] as String? ?? '';
-    if (orderId.isEmpty) return;
-    final snap = await FirebaseFirestore.instance
-        .collection('order_items')
-        .where('order_id', isEqualTo: orderId)
-        .count()
-        .get();
-    if (mounted) setState(() => _itemCount = snap.count ?? 0);
+    _itemCount = stored ?? 0;
   }
 
   String _formatDate(dynamic raw) {
@@ -196,30 +181,16 @@ class _OrderCardState extends State<OrderCard> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        if (status == 'returned' &&
-                            (total == '0' || total == '0.0'))
-                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                            stream: FirebaseFirestore.instance
-                                .collection('order_returns')
-                                .where('order_id', isEqualTo: order['id'])
-                                .snapshots(),
-                            builder: (context, snap) {
-                              double displayAmount =
+                        Builder(
+                          builder: (context) {
+                            if (status == 'returned' &&
+                                (total == '0' || total == '0.0')) {
+                              final displayAmount =
                                   (order['returned_amount'] as num?)
                                           ?.toDouble() ??
                                       (order['original_total'] as num?)
                                           ?.toDouble() ??
                                       0.0;
-                              if (displayAmount == 0 && snap.hasData) {
-                                for (final doc in snap.data!.docs) {
-                                  if (doc.data()['status'] != 'rejected') {
-                                    displayAmount +=
-                                        (doc.data()['refund_amount'] as num?)
-                                                ?.toDouble() ??
-                                            0.0;
-                                  }
-                                }
-                              }
                               return Text(
                                 '${displayAmount.toStringAsFixed(0)} ر.ي',
                                 style: const TextStyle(
@@ -229,19 +200,19 @@ class _OrderCardState extends State<OrderCard> {
                                   color: Color(0xFFEA580C),
                                 ),
                               );
-                            },
-                          )
-                        else
-                          Text(
-                            '$total ر.ي',
-                            style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 17,
-                                fontWeight: FontWeight.w900,
-                                color: status == 'returned'
-                                    ? const Color(0xFFEA580C)
-                                    : context.textPrimary),
-                          ),
+                            }
+                            return Text(
+                              '$total ر.ي',
+                              style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                  color: status == 'returned'
+                                      ? const Color(0xFFEA580C)
+                                      : context.textPrimary),
+                            );
+                          },
+                        ),
                         Text(
                           status == 'returned'
                               ? 'مرتجع مسترد'

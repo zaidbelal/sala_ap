@@ -512,87 +512,26 @@ class _ReturnCard extends ConsumerWidget {
 
   Future<void> _confirmReject(
       BuildContext context, WidgetRef ref, String returnId) async {
-    String? enteredReason;
-    final reasonCtrl = TextEditingController();
-    try {
-      await showDialog(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            title: const Text(
-              'رفض طلب الإرجاع',
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'اكتب سبب الرفض ليظهر للتاجر في السجل والإشعار:',
-                  style: TextStyle(fontFamily: 'Cairo', fontSize: 12),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: reasonCtrl,
-                  maxLines: 2,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText:
-                        'مثال: المنتج مستخدم / تلف سوء تخزين / مضت مهلة الإرجاع...',
-                    hintStyle: const TextStyle(
-                        fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFB),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  FocusScope.of(ctx).unfocus();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('إلغاء',
-                    style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  enteredReason = reasonCtrl.text.trim();
-                  FocusScope.of(ctx).unfocus();
-                  Navigator.pop(ctx);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('تأكيد الرفض',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700)),
-              ),
-            ],
-          );
-        },
-      );
-    } finally {
-      reasonCtrl.dispose();
-    }
+    // نجعل الـ Dialog كـ Stateful مستقل ليتحكم بنفسه بـ TextEditingController
+    // ويتخلص منه بأمان بعد اكتمال إغلاق النافذة تماماً
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RejectReasonDialog(),
+    );
 
-    if (enteredReason != null && context.mounted) {
-      _updateStatus(context, ref, returnId, 'rejected',
-          rejectionReason: enteredReason!.isNotEmpty ? enteredReason : null);
+    if (result != null && context.mounted) {
+      // نؤخر التحديث حتى ينتهي إغلاق نافذة الـ Dialog بالكامل
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          _updateStatus(
+            context,
+            ref,
+            returnId,
+            'rejected',
+            rejectionReason: result.isNotEmpty ? result : null,
+          );
+        }
+      });
     }
   }
 
@@ -603,6 +542,8 @@ class _ReturnCard extends ConsumerWidget {
 
     HapticFeedback.mediumImpact();
 
+    final messenger = ScaffoldMessenger.of(context);
+
     // 🚀 تطبيق التحديث فوراً في جزء من الثانية (0ms) بدون أي تعليق أو انتظار
     ref.read(adminReturnsPaginationProvider.notifier).updateLocally(
           returnId,
@@ -610,8 +551,8 @@ class _ReturnCard extends ConsumerWidget {
           rejectionReason: rejectionReason,
         );
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(
       content: Text(
         newStatus == 'accepted' ? 'تم قبول الإرجاع بنجاح ✓' : 'تم رفض الإرجاع',
         style: const TextStyle(fontFamily: 'Cairo'),
@@ -636,13 +577,114 @@ class _ReturnCard extends ConsumerWidget {
             returnId,
             'pending',
           );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('فشل الاتصال: $e',
-              style: const TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: Colors.red,
-        ));
-      }
+      messenger.showSnackBar(SnackBar(
+        content: Text('فشل الاتصال: $e',
+            style: const TextStyle(fontFamily: 'Cairo')),
+        backgroundColor: Colors.red,
+      ));
     }
+  }
+}
+
+class _RejectReasonDialog extends StatefulWidget {
+  const _RejectReasonDialog();
+
+  @override
+  State<_RejectReasonDialog> createState() => _RejectReasonDialogState();
+}
+
+class _RejectReasonDialogState extends State<_RejectReasonDialog> {
+  late final TextEditingController _reasonCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _reasonCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose(); // يتخلص من المتحكم بأمان تام فقط بعد خروج النافذة
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text(
+        'رفض طلب الإرجاع',
+        style: TextStyle(
+          fontFamily: 'Cairo',
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'اكتب سبب الرفض ليظهر للتاجر في السجل والإشعار:',
+            style: TextStyle(fontFamily: 'Cairo', fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _reasonCtrl,
+            maxLines: 2,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+            decoration: InputDecoration(
+              hintText:
+                  'مثال: المنتج مستخدم / تلف سوء تخزين / مضت مهلة الإرجاع...',
+              hintStyle: const TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 11,
+                color: Colors.grey,
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFB),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            FocusScope.of(context).unfocus();
+            Navigator.pop(context, null);
+          },
+          child: const Text(
+            'إلغاء',
+            style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final reason = _reasonCtrl.text.trim();
+            FocusScope.of(context).unfocus();
+            Navigator.pop(context, reason);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Text(
+            'تأكيد الرفض',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

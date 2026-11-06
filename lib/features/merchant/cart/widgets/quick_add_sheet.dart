@@ -4,14 +4,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // 👈 تمت إضافة هذا السطر لحل الأخطاء الثلاثة فوراً
 import '../../cart/providers/cart_provider.dart';
-import 'package:sala/core/constants/app_colors.dart';
-import 'package:sala/core/constants/app_radius.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wamd/core/constants/app_radius.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../products/services/products_service.dart';
-import 'package:sala/core/services/app_cache.dart';
-import 'package:sala/core/services/catalog_service.dart';
+import 'package:wamd/core/services/app_cache.dart';
+import 'package:wamd/core/services/catalog_service.dart';
+import 'package:wamd/core/utils/arabic_normalizer.dart';
 
 class QuickAddSheet extends ConsumerStatefulWidget {
   const QuickAddSheet({super.key});
@@ -108,24 +109,13 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
   }
 
   void _filter() {
-    // دالة مساعدة لتوحيد الحروف العربية تجاهل (الهمزات، التاء المربوطة، الياء)
-    String normalize(String text) {
-      return text
-          .replaceAll(RegExp(r'[أإآ]'), 'ا')
-          .replaceAll('ة', 'ه')
-          .replaceAll('ى', 'ي')
-          .toLowerCase()
-          .trim();
-    }
-
-    final q = normalize(_searchCtrl.text);
+    final q = ArabicNormalizer.normalize(_searchCtrl.text);
 
     setState(() {
       _filtered = q.isEmpty
           ? _products
           : _products.where((p) {
-              final productName = normalize(p.name);
-              // دعم البحث المتقدم (حتى لو كان جزء من الكلمة في الوسط)
+              final productName = ArabicNormalizer.normalize(p.name);
               return productName.contains(q);
             }).toList();
     });

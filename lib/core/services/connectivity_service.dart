@@ -1,34 +1,29 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 
 class ConnectivityHelper {
   ConnectivityHelper._();
-
-  /// فحص ذكي وفوري: يتأكد من الاتصال بالراوتر أولاً، ثم يختبر مقبس اتصال حي
   static Future<bool> hasActiveInternet() async {
     try {
       final results = await Connectivity().checkConnectivity();
       if (results.every((r) => r == ConnectivityResult.none)) {
         return false;
       }
+      if (kIsWeb) return true;
 
-      final socket = await Socket.connect(
-        '1.1.1.1',
-        443,
-        timeout: const Duration(milliseconds: 1200),
-      );
-      socket.destroy();
-      return true;
+      // فحص نطاق رسمي خفيف وسريع عبر DNS مع مهلة واقعية لشبكات اليمن
+      final lookup = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 4));
+      return lookup.isNotEmpty && lookup[0].rawAddress.isNotEmpty;
     } catch (_) {
       try {
-        final socket = await Socket.connect(
-          '8.8.8.8',
-          53,
-          timeout: const Duration(milliseconds: 800),
-        );
-        socket.destroy();
-        return true;
+        final lookupFallback =
+            await InternetAddress.lookup('firebase.google.com')
+                .timeout(const Duration(seconds: 3));
+        return lookupFallback.isNotEmpty &&
+            lookupFallback[0].rawAddress.isNotEmpty;
       } catch (_) {
         return false;
       }

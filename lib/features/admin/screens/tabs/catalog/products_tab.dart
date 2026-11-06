@@ -8,11 +8,10 @@ import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
 import 'product_units_editor.dart';
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../merchant/barcode/barcode_scanner_screen.dart';
 import 'dart:async';
-import 'package:sala/core/services/app_cache.dart';
 
 String formatFirestoreDate(dynamic value) {
   DateTime? date;
@@ -194,20 +193,13 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
               ),
             ),
             data: (list) {
-              final allCached = AppCache.instance.getProducts() ?? [];
-              final sourceList =
-                  (_search.trim().isNotEmpty && allCached.length > list.length)
-                      ? allCached
-                      : list;
-
               final filtered = _search.trim().isEmpty
                   ? list
-                  : sourceList
+                  : list
                       .where((p) => (p['name'] as String? ?? '')
                           .toLowerCase()
                           .contains(_search.trim().toLowerCase()))
                       .toList();
-
               if (filtered.isEmpty) {
                 return _search.isNotEmpty
                     ? Center(

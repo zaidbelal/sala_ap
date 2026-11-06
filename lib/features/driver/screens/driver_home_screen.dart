@@ -6,19 +6,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:sala/core/constants/app_colors.dart';
-import 'package:sala/core/services/local_storage.dart';
-import 'package:sala/core/services/connectivity_service.dart';
+import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wamd/core/services/local_storage.dart';
+import 'package:wamd/core/services/connectivity_service.dart';
 import '../widgets/new_order_sheet.dart';
 import 'driver_order_detail_screen.dart';
 import 'driver_stats_screen.dart';
 import 'driver_history_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sala/core/services/realtime_hub.dart';
-import 'package:sala/features/auth/login/services/auth_service.dart';
-import 'package:sala/features/merchant/orders/services/orders_service.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
-import 'package:sala/core/widgets/signature_pad_dialog.dart';
+import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wamd/features/auth/login/services/auth_service.dart';
+import 'package:wamd/features/merchant/orders/services/orders_service.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/widgets/signature_pad_dialog.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
@@ -32,10 +32,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtrl;
   bool _sheetOpen = false;
-  bool _isSyncingDeliveries = false;
   final db = FirebaseFirestore.instance;
-  late final StreamSubscription<List<ConnectivityResult>>
-      _driverConnectivitySub;
 
   @override
   void initState() {
@@ -56,126 +53,12 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
         }
       },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncPendingDeliveries();
-    });
-
-    _driverConnectivitySub =
-        Connectivity().onConnectivityChanged.listen((results) {
-      final hasNet = !results.every((r) => r == ConnectivityResult.none);
-      if (hasNet && mounted) {
-        _syncPendingDeliveries();
-      }
-    });
-  }
-
-  Future<void> _syncPendingDeliveries() async {
-    if (_isSyncingDeliveries) return;
-    _isSyncingDeliveries = true;
-    try {
-      final driverId = AppStorage.userId;
-      if (driverId == null || driverId.isEmpty) return;
-      final pending = AppStorage.getPendingDriverDeliveriesPayload(driverId);
-      if (pending.isEmpty) return;
-
-      for (final item in pending) {
-        final orderId = item['orderId']?.toString() ?? '';
-        var signatureUrl = item['signatureUrl']?.toString();
-        if (orderId.isEmpty) continue;
-
-        try {
-          if (signatureUrl != null &&
-              signatureUrl.startsWith('file://') &&
-              !kIsWeb) {
-            try {
-              final path = signatureUrl.replaceFirst('file://', '');
-              final f = File(path);
-              if (await f.exists()) {
-                final raw = await f.readAsString();
-                signatureUrl =
-                    raw.trim().replaceAll('\r', '').replaceAll('\n', '');
-              } else {
-                // في حال فقدان ملف التوقيع المؤقت نتخطى للقيد التالي
-                continue;
-              }
-            } catch (_) {
-              continue;
-            }
-          }
-
-          await OrdersService.deliverOrderByDriver(
-            orderId: orderId,
-            signatureUrl: signatureUrl,
-          );
-
-          // نجاح قطعي: حذف المهمة وملف التوقيع المرتبط بها فوراً
-          await AppStorage.removePendingDriverDelivery(orderId, driverId);
-          if (!kIsWeb) {
-            try {
-              final dir = await getApplicationDocumentsDirectory();
-              final f = File('${dir.path}/sig_${orderId}.b64');
-              if (await f.exists()) await f.delete();
-            } catch (_) {}
-          }
-        } catch (e) {
-          final err = e.toString().toLowerCase();
-
-          // 🔒 القائمة البيضاء الحصرية للأخطاء القطعية غير القابلة للإعادة (Strict Terminal Whitelist)
-          // لا نحذف التوقيع إلا إذا أكد السيرفر قطيعاً أن الطلب إما تم تسليمه مسبقاً، أو غير موجود، أو مسند لمندوب آخر
-          final bool isAlreadyDelivered = err.contains('already-delivered') ||
-              err.contains('already_delivered') ||
-              err.contains('تم تسجيل تسليم الطلب مسبقاً');
-
-          final bool isUnassignableOrCancelled =
-              err.contains('order-not-found') ||
-                  err.contains('not-found') ||
-                  err.contains('الطلب غير موجود') ||
-                  err.contains('غير مسند إليك') ||
-                  err.contains('سائق آخر') ||
-                  err.contains('تم تسليمه لسائق آخر');
-
-          if (isAlreadyDelivered || isUnassignableOrCancelled) {
-            // نجاح قطعي مسبق أو رفض إداري حتمي: تنظيف المهمة والتوقيع بأمان
-            await AppStorage.removePendingDriverDelivery(orderId, driverId);
-            if (!kIsWeb) {
-              try {
-                final dir = await getApplicationDocumentsDirectory();
-                final f = File('${dir.path}/sig_${orderId}.b64');
-                if (await f.exists()) await f.delete();
-              } catch (_) {}
-            }
-
-            if (mounted && isUnassignableOrCancelled) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '⚠️ تعذر تسليم الطلب #${orderId.length > 6 ? orderId.substring(0, 6) : orderId} (مسند لسائق آخر أو ملغي بالسيرفر)',
-                    style: const TextStyle(fontFamily: 'Cairo'),
-                  ),
-                  backgroundColor: Colors.deepOrange,
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            }
-          } else {
-            // 🛡️ أي خطأ آخر (شبكة، سيرفر 500، عطل تخزين، تعليق): نتمسك بالتوقيع والطلب ونوقف الحلقة للمحاولة لاحقاً
-            debugPrint(
-                '⚠️ تعثر مؤقت أثناء مزامنة تسليم الطلب $orderId - تم تأمين التوقيع لإعادة المحاولة: $e');
-            break;
-          }
-        }
-      }
-    } finally {
-      _isSyncingDeliveries = false;
-    }
   }
 
   @override
   void dispose() {
     _ordersSubscription?.close();
     _ordersSubscription = null;
-    _driverConnectivitySub.cancel();
     _tabCtrl.dispose();
     _newOrderQueue.clear();
     super.dispose();
@@ -233,13 +116,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   @override
   Widget build(BuildContext context) {
     final confirmedOrders = ref.watch(realtimeConfirmedOrdersProvider);
-    final driverId = AppStorage.userId ?? '';
-    final pendingDeliveries =
-        AppStorage.getPendingDriverDeliveries(driverId).toSet();
-    final shippedOrders = ref
-        .watch(realtimeMyShippedOrdersProvider)
-        .where((o) => !pendingDeliveries.contains(o['id']?.toString()))
-        .toList();
+    final shippedOrders = ref.watch(realtimeMyShippedOrdersProvider);
 
     return Scaffold(
       backgroundColor: context.bgPage,
@@ -804,58 +681,10 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
           await OrdersService.assignOrderToDriver(orderId: orderId)
               .timeout(const Duration(seconds: 12));
         } else {
-          // 🔒 اختبار الاتصال الفعلي بالإنترنت عبر المقبس الحي
-          final bool hasInternet = await ConnectivityHelper.hasActiveInternet();
-
-          if (!hasInternet) {
-            await AppStorage.savePendingDriverDelivery(
-              orderId,
-              signatureUrl: signatureUrl,
-            );
-            dismissDialog();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text(
-                  'أنت أوفلاين: تم تأمين التسليم والتوقيع وسيُرحل تلقائياً فور توفر الشبكة 📡',
-                  style: TextStyle(
-                      fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-                ),
-                backgroundColor: Colors.orange,
-                behavior: SnackBarBehavior.floating,
-              ));
-            }
-            return true;
-          } else {
-            try {
-              await OrdersService.deliverOrderByDriver(
-                orderId: orderId,
-                signatureUrl: signatureUrl,
-              ).timeout(const Duration(seconds: 20));
-            } catch (err) {
-              // 🔒 في حال سقط الاتصال أثناء محاولة التسليم يتم الاحتفاظ بالتوقيع وإسناده لطابور الأوفلاين فوراً
-              if (ConnectivityHelper.isNetworkException(err)) {
-                await AppStorage.savePendingDriverDelivery(
-                  orderId,
-                  signatureUrl: signatureUrl,
-                );
-                dismissDialog();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text(
-                      'ضعف في الاتصال: تم حفظ التسليم والتوقيع بأمان وسيُرسل تلقائياً 📡',
-                      style: TextStyle(
-                          fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-                    ),
-                    backgroundColor: Colors.orange,
-                    behavior: SnackBarBehavior.floating,
-                  ));
-                }
-                return true;
-              } else {
-                rethrow;
-              }
-            }
-          }
+          await OrdersService.deliverOrderByDriver(
+            orderId: orderId,
+            signatureUrl: signatureUrl,
+          ).timeout(const Duration(seconds: 20));
         }
         dismissDialog();
         HapticFeedback.mediumImpact();
@@ -992,7 +821,7 @@ class _OrdersListFromProvider extends StatelessWidget {
         final aTime = parse(a['created_at']);
         final bTime = parse(b['created_at']);
         if (aTime == null || bTime == null) return 0;
-        return aTime.compareTo(bTime);
+        return bTime.compareTo(aTime); // 👈 الأحدث أولاً في أعلى قائمة السائق
       });
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),

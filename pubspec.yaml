@@ -1,7 +1,7 @@
-name: sala
-description: منصة توصيل B2B احترافية لليمن
-# publish_to: 'none'
-version: 1.0.1+8
+name: wamd
+description: منصة وَمْض للتوزيع والطلب الذكي بالجملة والتجزئة
+publish_to: 'none'
+version: 1.0.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -109,7 +109,6 @@ flutter:
     - assets/
     - assets/sounds/
 
-  # 🔤 تعريف خط Cairo المحلي ليعمل أوفلاين دون الحاجة لتحميله من سيرفرات قوقل
   fonts:
     - family: Cairo
       fonts:

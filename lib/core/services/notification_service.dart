@@ -77,10 +77,10 @@ class NotificationService {
 
   // ── تهيئة المكتبة المحلية مع فرض تشغيل صوت الإشعار الرسمي لأندرويد ──
   Future<void> initLocalNotifications({bool isBackground = false}) async {
-    // 🚀 القناة الرسمية للطلبات العامة
+    // 🚀 القناة الرسمية للطلبات العامة (متطابقة تماماً مع السيرفر)
     const ordersChannel = AndroidNotificationChannel(
-      'sala_orders_channel_v3',
-      'طلبات سلة',
+      'wamd_orders_channel_v3',
+      'طلبات وَمْض',
       description: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       playSound: true,
@@ -88,17 +88,16 @@ class NotificationService {
       enableLights: true,
     );
 
-    // 🚀 قناة إشعارات السائقين المعتمدة لمنع إسقاط إشعاراتهم في أندرويد 8+
+    // 🚀 قناة إشعارات السائقين المعتمدة (متطابقة تماماً مع السيرفر)
     const driverChannel = AndroidNotificationChannel(
-      'sala_orders_channel',
+      'wamd_orders_channel',
       'طلبات السائقين',
       description: 'إشعارات الطلبات الجديدة للسائق مع الرنين',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
-      sound: RawResourceAndroidNotificationSound('sala_notification'),
+      sound: RawResourceAndroidNotificationSound('wamd_notification'),
     );
-
     final androidPlugin = _localNotif.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(ordersChannel);
@@ -186,10 +185,15 @@ class NotificationService {
     final body = message.notification?.body ?? message.data['body']?.toString();
 
     if (title == null && body == null) return;
+    // iOS يعرض إشعار الـ notification تلقائياً في الواجهة، فلا نكرره محلياً
+    if (defaultTargetPlatform == TargetPlatform.iOS &&
+        message.notification != null) {
+      return;
+    }
 
     final androidDetails = AndroidNotificationDetails(
-      'sala_orders_channel_v3', // تم تغيير القناة لتتطابق مع التهيئة وتعمل في الخلفية
-      'طلبات سلة',
+      'wamd_orders_channel_v3',
+      'طلبات وَمْض',
       channelDescription: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       priority: Priority.high,
@@ -221,8 +225,8 @@ class NotificationService {
     required String title,
     required String body,
     String? payload,
-    String channelId = 'sala_orders_channel_v3',
-    String channelName = 'طلبات سلة',
+    String channelId = 'wamd_orders_channel_v3',
+    String channelName = 'طلبات وَمْض',
     String? channelDescription,
     RawResourceAndroidNotificationSound? sound,
   }) async {
@@ -350,6 +354,12 @@ class NotificationService {
         // محاولة بديلة في الخلفية (Fire and Forget) لضمان عدم الفشل الصامت
         Future.delayed(const Duration(seconds: 10), () {
           _messaging.subscribeToTopic('all').catchError((_) {});
+          final role = AppStorage.normalizedUserRole;
+          if (role == 'merchant') {
+            _messaging.subscribeToTopic('merchants').catchError((_) {});
+          } else if (role == 'driver') {
+            _messaging.subscribeToTopic('drivers').catchError((_) {});
+          }
         });
         if (kDebugMode) {
           debugPrint('[NotificationService] topic subscribe failed: $e');

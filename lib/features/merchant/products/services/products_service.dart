@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -214,22 +214,21 @@ class ProductCatalogNotifier
   DocumentSnapshot<Map<String, dynamic>>? _cursor;
   final Map<String, ProductModel> _firstPage = {};
   final Map<String, ProductModel> _loadedPages = {};
+  String? _firstPageLastId;
   bool _hasMore = true;
   bool _isLoadingMore = false;
 
-  Query<Map<String, dynamic>> get _baseQuery =>
-      _db.collection('products').where('brand_id', isEqualTo: brandId);
+  Query<Map<String, dynamic>> get _baseQuery => _db
+      .collection('products')
+      .where('brand_id', isEqualTo: brandId)
+      .where('is_deleted', isEqualTo: false);
   void _subscribeToFirstPage() {
     _subscription = _baseQuery
         .limit(_pageSize)
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snapshot) {
-        // عدم الكتابة فوق مؤشر التصفح المتقدم إذا كان المستخدم يتصفح صفحات إضافية
-        if (_loadedPages.isEmpty) {
-          _cursor = snapshot.docs.isEmpty ? null : snapshot.docs.last;
-          _hasMore = snapshot.docs.length == _pageSize;
-        }
+        _firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
         _firstPage
           ..clear()
           ..addEntries(
@@ -245,6 +244,9 @@ class ProductCatalogNotifier
               return MapEntry(product.id, product);
             }).where((entry) => entry.value.name.trim().isNotEmpty),
           );
+        for (final id in _firstPage.keys) {
+          _loadedPages.remove(id);
+        }
         _publish();
       },
       onError: (Object error, StackTrace stackTrace) {

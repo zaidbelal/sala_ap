@@ -7,7 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import 'package:gal/gal.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 Color _statusColorFromEnum(OrderStatus s) => switch (s) {
       OrderStatus.delivered => const Color(0xFF10B981),
@@ -95,7 +95,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final fileName = 'فاتورة_${widget.order.invoiceNumber ?? shortId}.png';
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
-      await Share.shareXFiles([xFile], text: 'فاتورة سَلة');
+      await Share.shareXFiles([xFile], text: 'فاتورة وَمْض');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -367,7 +367,7 @@ class _InvoiceHeader extends StatelessWidget {
               ],
             ),
             child: const Center(
-              child: Text('سَلة',
+              child: Text('وَمْض',
                   style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 16,
@@ -377,6 +377,7 @@ class _InvoiceHeader extends StatelessWidget {
           ),
           const SizedBox(width: 14),
           Expanded(
+            flex: 3,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -387,6 +388,8 @@ class _InvoiceHeader extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                         color: Color(0xFF1A1A2E))),
                 Text('المنصة الرقمية الأولى في اليمن',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 11,
@@ -394,33 +397,41 @@ class _InvoiceHeader extends StatelessWidget {
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
+          const SizedBox(width: 8),
+          Flexible(
+            flex: 4,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    order.invoiceNumber ??
+                        'INV-${order.id.length >= 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection
+                        .ltr, // لضمان ظهور الثلاث نقاط بشكل صحيح مع الأرقام الإنجليزية
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary),
+                  ),
                 ),
-                child: Text(
-                  order.invoiceNumber ??
-                      'INV-${order.id.length >= 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}',
-                  style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primary),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text('$date  •  $time',
-                  style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 11,
-                      color: Colors.grey[500])),
-            ],
+                const SizedBox(height: 6),
+                Text('$date  •  $time',
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        color: Colors.grey[500])),
+              ],
+            ),
           ),
         ],
       ),
@@ -897,7 +908,7 @@ class _InvoiceFooter extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   color: AppColors.primary)),
           const SizedBox(height: 2),
-          Text('سَلة — المنصة الرقمية الأولى في اليمن',
+          Text('وَمْض — المنصة الرقمية الأولى في اليمن',
               style: TextStyle(
                   fontFamily: 'Cairo', fontSize: 11, color: Colors.grey[500])),
         ],

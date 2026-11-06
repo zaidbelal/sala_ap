@@ -352,14 +352,14 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const SalaLogo(
-                                  size: 36, color: AppColors.primary),
+                              const WamdLogo(
+                                  size: 38, color: AppColors.primary),
                               const SizedBox(width: 10),
                               ShaderMask(
                                 shaderCallback: (b) =>
                                     AppColors.primaryGradient.createShader(b),
                                 child: Text(
-                                  'سَلة',
+                                  'وَمْض',
                                   style: AppTextStyles.headlineMedium.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,

@@ -7,7 +7,7 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/products_service.dart';
 import '../../cart/providers/cart_provider.dart';
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/models/product_unit.dart';
 import 'product_details_sheet.dart';
 
 class ProductCard extends ConsumerStatefulWidget {

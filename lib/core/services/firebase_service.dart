@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'local_storage.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:sala/features/auth/login/services/auth_service.dart';
+import 'package:wamd/features/auth/login/services/auth_service.dart';
 
 // ══ العملاء المركزيون ══
 final db = FirebaseFirestore.instance;

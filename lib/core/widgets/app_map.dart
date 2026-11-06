@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../constants/app_colors.dart';
+import 'package:wamd/core/utils/arabic_normalizer.dart';
 
 enum AppMapStyle {
   streets,
@@ -160,7 +161,7 @@ class _AppMapState extends State<AppMap> {
                 ],
               ),
               content: const Text(
-                'يجمع تطبيق "سلة" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
+                'يجمع تطبيق "وَمْض" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
                 style:
                     TextStyle(fontFamily: 'Cairo', fontSize: 13, height: 1.6),
               ),
@@ -584,7 +585,7 @@ class _SanaaPlace {
 // محرك بحث قوقل الحقيقي لصنعاء + كاش أوفلاين دائم
 // ══════════════════════════════════════════════════════════════
 class _SanaaPlacesEngine {
-  static const String _kOfflineCacheKey = 'sala_sanaa_offline_places_v2';
+  static const String _kOfflineCacheKey = 'wamd_sanaa_places_v2';
   static final Map<String, List<_SanaaPlace>> _memoryCache = {};
   static final List<_SanaaPlace> _offlineStoredPlaces = [];
   static bool _initialized = false;
@@ -610,19 +611,8 @@ class _SanaaPlacesEngine {
     } catch (_) {}
   }
 
-  static String normalizeYemeniArabic(String input) {
-    var text = input.trim();
-    text = text.replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '');
-    text = text.replaceAll('ـ', '');
-    text = text.replaceAll(RegExp(r'[أإآٱ]'), 'ا');
-    text = text.replaceAll('ء', '');
-    text = text.replaceAll('ؤ', 'و');
-    text = text.replaceAll('ئ', 'ي');
-    text = text.replaceAll('ة', 'ه');
-    text = text.replaceAll('ى', 'ي');
-    text = text.replaceAll('ظ', 'ض');
-    return text.replaceAll(RegExp(r'\s+'), ' ').toLowerCase().trim();
-  }
+  static String normalizeYemeniArabic(String input) =>
+      ArabicNormalizer.normalizeDialect(input);
 
   // دالة البحث الرئيسية: تجمع بين نتائج قوقل الحية وحفظ الأوفلاين
   static Future<List<_SanaaPlace>> search(String query) async {
@@ -763,7 +753,7 @@ class _SanaaPlacesEngine {
       );
 
       final request = await client.getUrl(url);
-      request.headers.set('User-Agent', 'SalaAppYemen/1.0');
+      request.headers.set('User-Agent', 'WamdAppYemen/1.0');
       final response = await request.close();
 
       if (response.statusCode == 200) {

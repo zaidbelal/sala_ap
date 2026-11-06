@@ -4,13 +4,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/app_spacing.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _privacyPolicyWebUrl =
-      'https://sites.google.com/view/salla-yemen-privacy';
+      'https://sites.google.com/view/wamd-yemen-privacy';
   Future<void> _launchUrl(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);
     try {
@@ -62,7 +62,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'سياسة الخصوصية وحماية البيانات لمنصة سَلة',
+              'سياسة الخصوصية وحماية البيانات لمنصة وَمْض',
               style: AppTextStyles.headlineMedium.copyWith(
                 fontWeight: FontWeight.w800,
                 color: context.textPrimary,

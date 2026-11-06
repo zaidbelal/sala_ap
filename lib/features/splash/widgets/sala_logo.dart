@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import '../../../core/constants/app_colors.dart';
 
-class SalaLogo extends StatelessWidget {
+/// شعار "وَمْض" الرسمي المتطابق هندسياً بنسبة 100% مع الهوية
+class WamdLogo extends StatelessWidget {
   final double size;
   final Color color;
 
-  const SalaLogo({
+  const WamdLogo({
     super.key,
-    this.size = 100,
-    this.color = AppColors.primary,
+    this.size = 120,
+    this.color = Colors.white,
   });
 
   @override
@@ -18,151 +18,146 @@ class SalaLogo extends StatelessWidget {
       width: size,
       height: size,
       child: CustomPaint(
-        painter: _BasketPainter(color: color),
+        painter: _WamdLogoPainter(color: color),
       ),
     );
   }
 }
 
-class _BasketPainter extends CustomPainter {
+/// للتوافق المؤقت مع أي استدعاء قديم
+typedef SalaLogo = WamdLogo;
+
+class _WamdLogoPainter extends CustomPainter {
   final Color color;
 
-  _BasketPainter({required this.color});
+  _WamdLogoPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
 
-    // ── الألوان ──
-    final paintFill = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+    // ── 1. رسم مجسم حرف (و) الأبيض المتناسق ──
+    final outerHeadRadius = w * 0.285;
+    final headCenter = Offset(w * 0.54, h * 0.385);
+    final innerHeadRadius = w * 0.165;
 
-    final paintStroke = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.045
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+    final headOuter = Path()
+      ..addOval(Rect.fromCircle(center: headCenter, radius: outerHeadRadius));
 
-    final paintLight = Paint()
-      ..color = Colors.white.withValues(alpha: 0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.030
-      ..strokeCap = StrokeCap.round;
+    final headInner = Path()
+      ..addOval(Rect.fromCircle(center: headCenter, radius: innerHeadRadius));
 
-    // ══════════════════════════════════════
-    // 1. المقبض (Handle)
-    // ══════════════════════════════════════
-    final handleRect = Rect.fromCenter(
-      center: Offset(w * 0.50, h * 0.28),
-      width: w * 0.44,
-      height: h * 0.34,
+    final headRing =
+        Path.combine(PathOperation.difference, headOuter, headInner);
+
+    // ذيل حرف الواو الانسيابي مع نهاية مستديرة ملساء
+    final strokeWidth = outerHeadRadius - innerHeadRadius;
+    final tailPath = Path();
+    tailPath.moveTo(
+        headCenter.dx + innerHeadRadius + strokeWidth / 2, headCenter.dy);
+    tailPath.cubicTo(
+      headCenter.dx + innerHeadRadius + strokeWidth / 2,
+      h * 0.64,
+      w * 0.54,
+      h * 0.84,
+      w * 0.38,
+      h * 0.84,
     );
-    final handlePath = Path()..addArc(handleRect, math.pi, math.pi);
+    tailPath.cubicTo(
+      w * 0.28,
+      h * 0.84,
+      w * 0.28,
+      h * 0.76,
+      w * 0.35,
+      h * 0.76,
+    );
+    tailPath.cubicTo(
+      w * 0.44,
+      h * 0.76,
+      w * 0.52,
+      h * 0.72,
+      w * 0.54,
+      h * 0.58,
+    );
+    tailPath.lineTo(headCenter.dx + innerHeadRadius, headCenter.dy);
+    tailPath.close();
 
-    canvas.drawPath(handlePath, paintStroke);
+    final wawBody = Path.combine(PathOperation.union, headRing, tailPath);
 
-    // ══════════════════════════════════════
-    // 2. جسم السلة (Body)
-    // ══════════════════════════════════════
-    final bodyTop = h * 0.42;
-    final bodyBottom = h * 0.88;
-    final bodyLeft = w * 0.10;
-    final bodyRight = w * 0.90;
+    // رسم ظل ناعم للشعار ليعطي بُعداً ثلاثي الأبعاد
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.15)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawPath(wawBody.shift(const Offset(0, 3)), shadowPaint);
 
-    // الشكل الخارجي للسلة (شبه منحرف منحنى)
-    final bodyPath = Path();
-    bodyPath.moveTo(w * 0.16, bodyTop);
-    bodyPath.lineTo(w * 0.84, bodyTop);
-    bodyPath.quadraticBezierTo(
-        bodyRight, bodyTop + h * 0.02, bodyRight, bodyTop + h * 0.06);
-    bodyPath.lineTo(w * 0.92, bodyBottom - h * 0.06);
-    bodyPath.quadraticBezierTo(
-        bodyRight - w * 0.04, bodyBottom, w * 0.78, bodyBottom);
-    bodyPath.lineTo(w * 0.22, bodyBottom);
-    bodyPath.quadraticBezierTo(
-        bodyLeft + w * 0.04, bodyBottom, bodyLeft, bodyBottom - h * 0.06);
-    bodyPath.lineTo(bodyLeft, bodyTop + h * 0.06);
-    bodyPath.quadraticBezierTo(bodyLeft, bodyTop + h * 0.02, w * 0.16, bodyTop);
-    bodyPath.close();
+    final whitePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+    canvas.drawPath(wawBody, whitePaint);
 
-    canvas.drawPath(bodyPath, paintFill);
+    // ── 2. رسم نجمة الوميض الذهبية داخل عين حرف الواو ──
+    _drawSparkle(
+      canvas,
+      center: headCenter,
+      outerRadius: w * 0.13,
+      innerRadius: w * 0.032,
+      coreColor: const Color(0xFFFFDF79),
+      edgeColor: const Color(0xFFFFC83B),
+    );
 
-    // ══════════════════════════════════════
-    // 3. خطوط النسيج الأفقية
-    // ══════════════════════════════════════
-    const lines = 4;
+    // ── 3. رسم نجمة الوميض العلوية الخارجية (أعلى يمين الشعار) ──
+    _drawSparkle(
+      canvas,
+      center: Offset(w * 0.76, h * 0.17),
+      outerRadius: w * 0.075,
+      innerRadius: w * 0.02,
+      coreColor: const Color(0xFFFFDF79),
+      edgeColor: const Color(0xFFFFC83B),
+    );
+  }
 
-    final spacing = (bodyBottom - bodyTop) / (lines + 1);
+  void _drawSparkle(
+    Canvas canvas, {
+    required Offset center,
+    required double outerRadius,
+    required double innerRadius,
+    required Color coreColor,
+    required Color edgeColor,
+  }) {
+    final path = Path();
+    const points = 4;
+    final step = math.pi / points;
+    double rot = -math.pi / 2;
 
-    for (int i = 1; i <= lines; i++) {
-      final y = bodyTop + spacing * i;
-      final shrink = (i / lines) * w * 0.05;
-
-      canvas.drawLine(
-        Offset(bodyLeft + shrink + w * 0.04, y),
-        Offset(bodyRight - shrink - w * 0.04, y),
-        paintLight,
-      );
+    for (int i = 0; i < points * 2; i++) {
+      final r = (i % 2 == 0) ? outerRadius : innerRadius;
+      final x = center.dx + math.cos(rot) * r;
+      final y = center.dy + math.sin(rot) * r;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+      rot += step;
     }
+    path.close();
 
-    // ══════════════════════════════════════
-    // 4. خطوط النسيج العمودية
-    // ══════════════════════════════════════
-    const vLines = 5;
-    final vSpacing = (bodyRight - bodyLeft) / (vLines + 1);
-
-    for (int i = 1; i <= vLines; i++) {
-      final x = bodyLeft + vSpacing * i;
-      canvas.drawLine(
-        Offset(x, bodyTop + h * 0.04),
-        Offset(x, bodyBottom - h * 0.04),
-        paintLight,
-      );
-    }
-
-    // ══════════════════════════════════════
-    // 5. الحافة العلوية للسلة
-    // ══════════════════════════════════════
-    final rimPaint = Paint()
-      ..color = color.withValues(alpha: 0.85)
-      ..style = PaintingStyle.fill;
-
-    final rimPath = Path();
-    rimPath.moveTo(w * 0.10, bodyTop);
-    rimPath.lineTo(w * 0.90, bodyTop);
-    rimPath.lineTo(w * 0.90, bodyTop + h * 0.07);
-    rimPath.lineTo(w * 0.10, bodyTop + h * 0.07);
-    rimPath.close();
-
-    canvas.drawPath(rimPath, rimPaint);
-
-    // ══════════════════════════════════════
-    // 6. بريق علوي للعمق
-    // ══════════════════════════════════════
+    // توهج خارجي ناعم خلف النجمة
     final glowPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          Colors.white.withValues(alpha: 0.20),
-          Colors.white.withValues(alpha: 0.00),
-        ],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ).createShader(Rect.fromLTWH(0, bodyTop, w, h * 0.25))
+      ..color = edgeColor.withValues(alpha: 0.45)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    canvas.drawPath(path, glowPaint);
+
+    final starPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [coreColor, edgeColor],
+      ).createShader(Rect.fromCircle(center: center, radius: outerRadius))
       ..style = PaintingStyle.fill;
-
-    final glowPath = Path();
-    glowPath.moveTo(w * 0.10, bodyTop);
-    glowPath.lineTo(w * 0.90, bodyTop);
-    glowPath.lineTo(w * 0.90, bodyTop + h * 0.25);
-    glowPath.lineTo(w * 0.10, bodyTop + h * 0.25);
-    glowPath.close();
-
-    canvas.drawPath(glowPath, glowPaint);
+    canvas.drawPath(path, starPaint);
   }
 
   @override
-  bool shouldRepaint(_BasketPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

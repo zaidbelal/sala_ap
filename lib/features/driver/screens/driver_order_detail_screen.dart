@@ -6,10 +6,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:sala/core/constants/app_colors.dart';
-import 'package:sala/core/widgets/app_map.dart';
+import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wamd/core/widgets/app_map.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class DriverOrderDetailScreen extends StatefulWidget {
   final String orderId;
@@ -72,7 +72,7 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final status = d['status'] as String? ?? '';
     final orderNum = d['order_number'] ?? d['invoice_number'] ?? '';
     final paymentMethod = d['payment_method'] as String? ?? 'cash';
-    final isConfirmed = status == 'confirmed';
+    final isConfirmed = status == 'confirmed' || status == 'pending';
 
     return Scaffold(
       backgroundColor: context.bgPage,
@@ -752,11 +752,20 @@ class _ItemRow extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: context.textPrimary)),
-                Text('$qty كرتون × ${price.toStringAsFixed(0)} ر.ي',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: context.textSecondary)),
+                Builder(
+                  builder: (_) {
+                    final unit =
+                        (item['unit_label'] ?? item['unit'])?.toString().trim();
+                    final unitText =
+                        unit != null && unit.isNotEmpty ? unit : 'كرتون';
+                    return Text(
+                        '$qty $unitText × ${price.toStringAsFixed(0)} ر.ي',
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: context.textSecondary));
+                  },
+                ),
               ],
             ),
           ),

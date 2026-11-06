@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:sala/core/constants/app_colors.dart';
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wamd/core/models/product_unit.dart';
 import 'package:image_picker/image_picker.dart';
 import 'catalog_helpers.dart';
 import 'products_tab.dart' show DateInputFormatter;

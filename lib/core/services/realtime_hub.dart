@@ -14,8 +14,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'local_storage.dart';
 import 'notification_service.dart';
 import 'connectivity_service.dart';
-import 'package:sala/core/services/app_cache.dart';
-import 'package:sala/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wamd/core/services/app_cache.dart';
+import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
 
 // ══════════════════════════════════════════════════════════
 //  RealtimeHub — Production-Grade
@@ -365,6 +365,9 @@ class RealtimeHub {
           name: data['full_name'] as String?,
           phone: data['phone_number'] as String?,
         );
+        try {
+          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } catch (_) {}
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
           if (AppStorage.userId == userId && _initialized) {
@@ -456,6 +459,7 @@ class RealtimeHub {
     final sub = _db
         .collection('user_notifications')
         .where('user_id', isEqualTo: userId)
+        .orderBy('created_at', descending: true)
         .limit(50)
         .snapshots()
         .listen(
@@ -577,29 +581,20 @@ class RealtimeHub {
   void _watchConfirmedOrders() {
     bool firstLoad = true;
     final seenIds = LinkedHashSet<String>();
+    const targetStatuses = ['confirmed', 'pending', 'preparing'];
 
+    // تصفية سحابية موثقة بالفهرس (status ASC, created_at DESC)
     final sub = _db
         .collection('orders')
-        .where('status', isEqualTo: 'confirmed')
+        .where('status', whereIn: targetStatuses)
         .orderBy('created_at', descending: true)
-        .limit(25)
+        .limit(30)
         .snapshots()
         .listen(
       (snap) {
         final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-        data.sort((a, b) {
-          final aDate = a['created_at'] is Timestamp
-              ? (a['created_at'] as Timestamp).toDate()
-              : DateTime(2000);
-          final bDate = b['created_at'] is Timestamp
-              ? (b['created_at'] as Timestamp).toDate()
-              : DateTime(2000);
-          return bDate.compareTo(aDate);
-        });
-
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
-
         final currentIds = LinkedHashSet<String>.from(
           snap.docs.map((doc) => doc.id),
         );
@@ -631,6 +626,13 @@ class RealtimeHub {
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchConfirmedOrders error: $e');
+        final errStr = e.toString().toLowerCase();
+        // 🔒 حظر إعادة الاتصال إذا كان الخطأ نقص في الفهرس أو رفض صلاحيات لمنع العاصفة اللانهائية
+        if (errStr.contains('failed-precondition') ||
+            errStr.contains('requires an index') ||
+            errStr.contains('permission-denied')) {
+          return;
+        }
         _scheduleReconnect();
       },
     );
@@ -943,17 +945,11 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
         final query = _db
             .collection('user_notifications')
             .where('user_id', isEqualTo: userId)
-            .where('is_read', isEqualTo: false)
-            .orderBy(FieldPath.documentId);
+            .where('is_read', isEqualTo: false);
         const chunkSize = 400;
-        DocumentSnapshot<Map<String, dynamic>>? cursor;
         bool hasMore;
         do {
-          Query<Map<String, dynamic>> pageQuery = query.limit(chunkSize);
-          if (cursor != null) {
-            pageQuery = pageQuery.startAfterDocument(cursor);
-          }
-          final page = await pageQuery.get();
+          final page = await query.limit(chunkSize).get();
           if (page.docs.isEmpty) break;
 
           final batch = _db.batch();
@@ -961,7 +957,6 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
             batch.update(doc.reference, {'is_read': true});
           }
           await batch.commit();
-          cursor = page.docs.last;
           hasMore = page.docs.length == chunkSize;
         } while (hasMore);
         if (mounted) {

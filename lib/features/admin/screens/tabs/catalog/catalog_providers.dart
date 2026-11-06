@@ -107,6 +107,8 @@ class AdminProductsPaginationNotifier
           (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''));
 
       state = AsyncValue.data(combined);
+    } catch (_) {
+      // نبقي القائمة الحالية كما هي ويمكن للمستخدم إعادة المحاولة
     } finally {
       if (mounted)
         _ref.read(productsLoadingMoreProvider.notifier).state = false;

@@ -4,7 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/services/local_storage.dart';
 import '../../../../core/services/realtime_hub.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 
@@ -19,7 +19,7 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   final ScrollController _scrollCtrl = ScrollController();
   Timer? _markReadDebounce;
-  bool _hasMarkedRead = false;
+  bool _isMarkingRead = false;
 
   @override
   void initState() {
@@ -37,11 +37,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Future<void> _markAllRead() async {
-    if (_hasMarkedRead) return;
+    if (_isMarkingRead || !mounted) return;
+    if (ref.read(unreadCountProvider) == 0) return;
     final uid = AppStorage.userId ?? '';
     if (uid.isEmpty) return;
-    _hasMarkedRead = true;
-    await ref.read(realtimeNotifsProvider.notifier).markAllRead(uid);
+    _isMarkingRead = true;
+    try {
+      await ref.read(realtimeNotifsProvider.notifier).markAllRead(uid);
+    } finally {
+      _isMarkingRead = false;
+    }
   }
 
   @override
@@ -72,6 +77,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
     final notifs = ref.watch(realtimeNotifsProvider);
+    ref.listen<int>(unreadCountProvider, (prev, next) {
+      if (next > 0) {
+        _markReadDebounce?.cancel();
+        _markReadDebounce =
+            Timer(const Duration(milliseconds: 800), _markAllRead);
+      }
+    });
     final notificationsNotifier = ref.read(realtimeNotifsProvider.notifier);
 
     return PopScope(

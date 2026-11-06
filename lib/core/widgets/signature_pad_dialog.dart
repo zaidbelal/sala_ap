@@ -72,11 +72,11 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     try {
       // 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
       final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 360, 160));
+      final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 360, 180));
       final painter = _SignaturePainter(strokes: _strokes);
-      painter.paint(canvas, const Size(360, 160));
+      painter.paint(canvas, const Size(360, 180));
       final picture = recorder.endRecording();
-      final img = await picture.toImage(360, 160);
+      final img = await picture.toImage(360, 180);
       picture.dispose();
       final pngBytes = await img.toByteData(format: ui.ImageByteFormat.png);
       img.dispose();

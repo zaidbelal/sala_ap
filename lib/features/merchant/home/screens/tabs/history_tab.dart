@@ -9,7 +9,7 @@ import '../../../orders/models/order_model.dart';
 import '../../../orders/services/orders_service.dart';
 import '../../../invoice/invoice_screen.dart';
 import '../../../invoice/return_invoice_screen.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 
 class HistoryTab extends ConsumerStatefulWidget {
   const HistoryTab({super.key});
@@ -833,16 +833,20 @@ class _OrderCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        'فاتورة طلب #$shortOrderId',
-                        style: TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: context.textPrimary,
+                      Expanded(
+                        child: Text(
+                          'فاتورة طلب #$shortOrderId',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: context.textPrimary,
+                          ),
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),

@@ -4,7 +4,7 @@ import '../../../../core/services/app_cache.dart';
 import '../../../../core/services/image_precache_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-
+import 'package:wamd/core/utils/arabic_normalizer.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة استيراد Crashlytics
 
 final _db = FirebaseFirestore.instance;
@@ -71,22 +71,11 @@ class SearchService {
     _cache[query] = _CachedSearchResult(result, DateTime.now());
   }
 
-  static String normalizeArabic(String text) {
-    return text
-        .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '') // الحركات
-        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
-        .replaceAll('ة', 'ه')
-        .replaceAll('ى', 'ي')
-        .replaceAll('ـ', '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .toLowerCase()
-        .trim();
-  }
+  static String normalizeArabic(String text) =>
+      ArabicNormalizer.normalize(text);
 
-  static bool _matchesTokens(String target, List<String> tokens) {
-    final normTarget = normalizeArabic(target);
-    return tokens.every((token) => normTarget.contains(token));
-  }
+  static bool _matchesTokens(String target, List<String> tokens) =>
+      ArabicNormalizer.matches(target, tokens);
 
   SearchResult? _searchLocally(String q) {
     final cache = AppCache.instance;
@@ -169,14 +158,27 @@ class SearchService {
             combinedDocs[d.id] = {'id': d.id, ...d.data()};
           }
         }
-        for (final product in await _fetchNameMatches(
-          collectionName: 'products',
-          prefix: firstToken,
-          tokens: tokens,
-          resultLimit: 30,
-        )) {
-          combinedDocs[product['id'].toString()] = product;
+
+        final prefixesToQuery = <String>{firstToken};
+        if (firstToken.startsWith('ا') ||
+            firstToken.startsWith('أ') ||
+            firstToken.startsWith('إ') ||
+            firstToken.startsWith('آ')) {
+          final rest = firstToken.substring(1);
+          prefixesToQuery.addAll(['ا$rest', 'أ$rest', 'إ$rest', 'آ$rest']);
         }
+
+        await Future.wait(prefixesToQuery.map((pfx) async {
+          final matchedList = await _fetchNameMatches(
+            collectionName: 'products',
+            prefix: pfx,
+            tokens: tokens,
+            resultLimit: 30,
+          );
+          for (final product in matchedList) {
+            combinedDocs[product['id'].toString()] = product;
+          }
+        }));
 
         // تصفية متعددة الكلمات في الذاكرة مع إبقاء نتائج الباركود المطابقة.
         final filteredList = combinedDocs.values.where((p) {

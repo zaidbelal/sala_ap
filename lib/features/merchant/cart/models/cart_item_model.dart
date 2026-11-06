@@ -3,7 +3,7 @@
 // ==================================================
 
 import '../../products/services/products_service.dart';
-import 'package:sala/core/models/product_unit.dart';
+import 'package:wamd/core/models/product_unit.dart';
 
 class CartItem {
   final ProductModel product;
@@ -35,17 +35,7 @@ class CartItem {
         selectedUnit: selectedUnit ?? this.selectedUnit,
       );
   Map<String, dynamic> toJson() {
-    final unitMap = selectedUnit?.toMap();
-
-    if (unitMap != null) {
-      if (selectedUnit!.productionDate != null) {
-        unitMap['production_date'] =
-            selectedUnit!.productionDate!.toIso8601String();
-      }
-      if (selectedUnit!.expiryDate != null) {
-        unitMap['expiry_date'] = selectedUnit!.expiryDate!.toIso8601String();
-      }
-    }
+    final unitMap = selectedUnit?.toJson();
 
     return {
       'product': {
@@ -58,10 +48,9 @@ class CartItem {
         'size_ml': product.sizeMl,
         'size_text': product.sizeText,
         'barcode': product.barcode,
-        'stock': product
-            .stock, // 🔒 حفظ المخزون الحقيقي لمنع تصفيره عند إعادة فتح السلة
+        'stock': product.stock,
         'items_per_carton': product.itemsPerCarton,
-        'units': product.units.map((u) => u.toMap()).toList(),
+        'units': product.units.map((u) => u.toJson()).toList(),
       },
       'quantity': quantity,
       'snapshot_at': DateTime.now().millisecondsSinceEpoch,

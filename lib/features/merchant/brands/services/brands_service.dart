@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sala/core/services/app_cache.dart';
+import 'package:wamd/core/services/app_cache.dart';
 
 class BrandModel {
   final String id;
@@ -44,7 +44,6 @@ final brandsStreamProvider =
           .map((d) => {'id': d.id, ...d.data()})
           .toList();
 
-      // حفظ الشركات في كاش الهاتف لتغذية البحث الفوري بدون إنترنت مع دمج الأصناف
       if (rawDocs.isNotEmpty) {
         AppCache.instance.setBrands(rawDocs, categoryId: categoryId);
       }

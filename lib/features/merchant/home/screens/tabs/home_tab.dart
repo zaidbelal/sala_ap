@@ -15,7 +15,7 @@ import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
 import '../../../../../core/services/realtime_hub.dart';
-import 'package:sala/core/constants/app_adaptive_colors.dart';
+import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/widgets/product_details_sheet.dart';
