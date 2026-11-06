@@ -1,8 +1,7 @@
 name: wamd
 description: منصة وَمْض للتوزيع والطلب الذكي بالجملة والتجزئة
 publish_to: 'none'
-version: 1.0.0+1
-
+version: 9.5.2+10
 environment:
   sdk: '>=3.3.0 <4.0.0'
 

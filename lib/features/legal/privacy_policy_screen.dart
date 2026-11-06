@@ -10,7 +10,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _privacyPolicyWebUrl =
-      'https://sites.google.com/view/wamd-yemen-privacy';
+      'https://sites.google.com/view/view-wamd';
   Future<void> _launchUrl(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);
     try {

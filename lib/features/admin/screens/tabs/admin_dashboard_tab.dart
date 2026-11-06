@@ -18,10 +18,6 @@ final _todayStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return ref.read(adminServiceProvider).getTodayStats();
 });
 final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
-  final now = DateTime.now();
-  final startOfDay = DateTime(now.year, now.month, now.day);
-
-  // الاستعلام المرتب تنازلياً لضمان احتواء أحدث طلبات اليوم داخل الـ limit
   return FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'pending')
@@ -29,6 +25,9 @@ final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
       .limit(100)
       .snapshots(includeMetadataChanges: false)
       .map((snap) {
+    // ✅ حساب تاريخ بداية اليوم ديناميكياً داخل معالج التدفق لمواكبة تجاوز منتصف الليل
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
     return snap.docs.where((d) {
       final ts = d.data()['created_at'];
       final date = ts is Timestamp ? ts.toDate() : (ts is DateTime ? ts : null);

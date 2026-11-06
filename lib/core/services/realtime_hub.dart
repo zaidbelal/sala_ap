@@ -598,22 +598,7 @@ class RealtimeHub {
         final currentIds = LinkedHashSet<String>.from(
           snap.docs.map((doc) => doc.id),
         );
-        if (!firstLoad) {
-          final newIds = currentIds.difference(seenIds);
-          for (final id in newIds) {
-            final doc = snap.docs.firstWhere((d) => d.id == id);
-            final order = {'id': doc.id, ...doc.data()};
-            final assignedDriver = order['driver_id'] as String?;
-            if (assignedDriver != null && assignedDriver.isNotEmpty) continue;
-
-            NotificationService.instance.showLocalNotification(
-              title: '🚨 طلب جديد وصلك!',
-              body:
-                  'طلب جديد جاهز للتوصيل بقيمة ${(order['total'] ?? order['total_amount'] ?? 0)} ر.ي',
-              payload: '/driver',
-            );
-          }
-        }
+        // 🚀 تم إلغاء showLocalNotification هنا لمنع التكرار المزدوج مع FCM Topic والحوار المنبثق
         firstLoad = false;
         for (final id in currentIds) {
           seenIds

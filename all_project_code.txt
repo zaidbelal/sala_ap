@@ -2528,7 +2528,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // لـ compute()
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:wamd/core/services/local_storage.dart';
 
 // ══════════════════════════════════════════════════════════
 // AppCache — نظام كاش ثلاثي الطبقات بسرعة الضوء
@@ -3875,7 +3874,6 @@ class ImagePrecacheService {
 // ==================================================
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -5219,21 +5217,18 @@ class RealtimeHub {
   void _watchConfirmedOrders() {
     bool firstLoad = true;
     final seenIds = LinkedHashSet<String>();
-    const targetStatuses = {'confirmed', 'pending', 'preparing'};
+    const targetStatuses = ['confirmed', 'pending', 'preparing'];
 
+    // تصفية سحابية موثقة بالفهرس (status ASC, created_at DESC)
     final sub = _db
         .collection('orders')
+        .where('status', whereIn: targetStatuses)
         .orderBy('created_at', descending: true)
-        .limit(50)
+        .limit(30)
         .snapshots()
         .listen(
       (snap) {
-        final data = snap.docs
-            .map((d) => {'id': d.id, ...d.data()})
-            .where((d) => targetStatuses.contains(d['status']?.toString()))
-            .take(25)
-            .toList();
-
+        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
         final currentIds = LinkedHashSet<String>.from(
@@ -8212,11 +8207,12 @@ final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
   final now = DateTime.now();
   final startOfDay = DateTime(now.year, now.month, now.day);
 
-  // الفرز الآمن في الذاكرة لتجنب اشتراط فهرس مركب مسبق
+  // الاستعلام المرتب تنازلياً لضمان احتواء أحدث طلبات اليوم داخل الـ limit
   return FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'pending')
-      .limit(200)
+      .orderBy('created_at', descending: true)
+      .limit(100)
       .snapshots(includeMetadataChanges: false)
       .map((snap) {
     return snap.docs.where((d) {
@@ -12022,26 +12018,25 @@ final adminOrdersRealtimeProvider = StreamProvider.autoDispose
   final limit =
       ref.watch(adminOrdersLimitProvider(statuses?.join(',') ?? 'all'));
 
-  Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-      .collection('orders')
-      .orderBy('created_at', descending: true);
+  Query<Map<String, dynamic>> query =
+      FirebaseFirestore.instance.collection('orders');
 
-  if (statuses != null && statuses.length == 1) {
-    query = query.where('status', isEqualTo: statuses.first);
+  // الاستعلام السحابي الصافي عبر الفهرس المركب (status ASC, created_at DESC)
+  if (statuses != null && statuses.isNotEmpty) {
+    if (statuses.length == 1) {
+      query = query.where('status', isEqualTo: statuses.first);
+    } else {
+      query = query.where('status', whereIn: statuses);
+    }
   }
 
   return query
+      .orderBy('created_at', descending: true)
       .limit(limit)
       .snapshots(includeMetadataChanges: false)
-      .map((snap) {
-    final allDocs =
-        snap.docs.map((d) => AdminOrder.fromMap({'id': d.id, ...d.data()}));
-    if (statuses != null && statuses.length > 1) {
-      final allowed = statuses.toSet();
-      return allDocs.where((o) => allowed.contains(o.status)).toList();
-    }
-    return allDocs.toList();
-  });
+      .map((snap) => snap.docs
+          .map((d) => AdminOrder.fromMap({'id': d.id, ...d.data()}))
+          .toList());
 });
 
 class AdminOrdersTab extends ConsumerStatefulWidget {
@@ -12800,87 +12795,26 @@ class _ReturnCard extends ConsumerWidget {
 
   Future<void> _confirmReject(
       BuildContext context, WidgetRef ref, String returnId) async {
-    String? enteredReason;
-    final reasonCtrl = TextEditingController();
-    try {
-      await showDialog(
-        context: context,
-        builder: (ctx) {
-          return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            title: const Text(
-              'رفض طلب الإرجاع',
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'اكتب سبب الرفض ليظهر للتاجر في السجل والإشعار:',
-                  style: TextStyle(fontFamily: 'Cairo', fontSize: 12),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: reasonCtrl,
-                  maxLines: 2,
-                  textDirection: TextDirection.rtl,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText:
-                        'مثال: المنتج مستخدم / تلف سوء تخزين / مضت مهلة الإرجاع...',
-                    hintStyle: const TextStyle(
-                        fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFB),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  FocusScope.of(ctx).unfocus();
-                  Navigator.pop(ctx);
-                },
-                child: const Text('إلغاء',
-                    style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  enteredReason = reasonCtrl.text.trim();
-                  FocusScope.of(ctx).unfocus();
-                  Navigator.pop(ctx);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('تأكيد الرفض',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700)),
-              ),
-            ],
-          );
-        },
-      );
-    } finally {
-      reasonCtrl.dispose();
-    }
+    // نجعل الـ Dialog كـ Stateful مستقل ليتحكم بنفسه بـ TextEditingController
+    // ويتخلص منه بأمان بعد اكتمال إغلاق النافذة تماماً
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RejectReasonDialog(),
+    );
 
-    if (enteredReason != null && context.mounted) {
-      _updateStatus(context, ref, returnId, 'rejected',
-          rejectionReason: enteredReason!.isNotEmpty ? enteredReason : null);
+    if (result != null && context.mounted) {
+      // نؤخر التحديث حتى ينتهي إغلاق نافذة الـ Dialog بالكامل
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          _updateStatus(
+            context,
+            ref,
+            returnId,
+            'rejected',
+            rejectionReason: result.isNotEmpty ? result : null,
+          );
+        }
+      });
     }
   }
 
@@ -12932,6 +12866,109 @@ class _ReturnCard extends ConsumerWidget {
         backgroundColor: Colors.red,
       ));
     }
+  }
+}
+
+class _RejectReasonDialog extends StatefulWidget {
+  const _RejectReasonDialog();
+
+  @override
+  State<_RejectReasonDialog> createState() => _RejectReasonDialogState();
+}
+
+class _RejectReasonDialogState extends State<_RejectReasonDialog> {
+  late final TextEditingController _reasonCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _reasonCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose(); // يتخلص من المتحكم بأمان تام فقط بعد خروج النافذة
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text(
+        'رفض طلب الإرجاع',
+        style: TextStyle(
+          fontFamily: 'Cairo',
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'اكتب سبب الرفض ليظهر للتاجر في السجل والإشعار:',
+            style: TextStyle(fontFamily: 'Cairo', fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _reasonCtrl,
+            maxLines: 2,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+            decoration: InputDecoration(
+              hintText:
+                  'مثال: المنتج مستخدم / تلف سوء تخزين / مضت مهلة الإرجاع...',
+              hintStyle: const TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 11,
+                color: Colors.grey,
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFB),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            FocusScope.of(context).unfocus();
+            Navigator.pop(context, null);
+          },
+          child: const Text(
+            'إلغاء',
+            style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final reason = _reasonCtrl.text.trim();
+            FocusScope.of(context).unfocus();
+            Navigator.pop(context, reason);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Text(
+            'تأكيد الرفض',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -19499,10 +19536,20 @@ class _ActionButtons extends ConsumerWidget {
                     if (pendingReturns.isEmpty) {
                       await service.updateOrderStatus(order.id, 'returned');
                     } else {
-                      for (final ret in pendingReturns) {
-                        await service.updateReturnStatus(
-                            ret['id']?.toString() ?? '', 'accepted');
-                      }
+                      // 🚀 دمج كافة بنود الإرجاع في دفعة ذرية واحدة لا تقبل التجزئة
+                      final returnItemsPayload = pendingReturns
+                          .map((r) => {
+                                'item_id': r['order_item_id']?.toString() ?? '',
+                                'quantity':
+                                    (r['quantity'] as num?)?.toInt() ?? 0,
+                              })
+                          .toList();
+
+                      await service.processReturn(
+                        order.id,
+                        'اعتماد وتسوية المرتجعات من الإدارة',
+                        returnItems: returnItemsPayload,
+                      );
                     }
                     if (context.mounted) {
                       onDone();
@@ -20633,7 +20680,6 @@ import '../../../core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wamd/app_router.dart';
-import 'package:wamd/core/services/local_storage.dart';
 import 'dart:async';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -24508,16 +24554,12 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
 // ==================================================
 
 import 'dart:async';
-import 'dart:io'; // 👈 لحل خطأ File
-import 'package:flutter/foundation.dart'; // 👈 لحل خطأ kIsWeb و kDebugMode
-import 'package:path_provider/path_provider.dart'; // 👈 لحل خطأ getApplicationDocumentsDirectory
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wamd/core/constants/app_colors.dart';
 import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/connectivity_service.dart';
 import '../widgets/new_order_sheet.dart';
 import 'driver_order_detail_screen.dart';
 import 'driver_stats_screen.dart';
@@ -24528,7 +24570,6 @@ import 'package:wamd/features/auth/login/services/auth_service.dart';
 import 'package:wamd/features/merchant/orders/services/orders_service.dart';
 import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'package:wamd/core/widgets/signature_pad_dialog.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});
@@ -30140,8 +30181,6 @@ class _EmptyCart extends StatelessWidget {
 // ==================================================
 
 import 'dart:async';
-import 'dart:convert'; // 👈 لحل خطأ jsonDecode
-import 'dart:io'; // 👈 لحل خطأ File
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30160,7 +30199,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:wamd/features/auth/login/services/auth_service.dart';
 import '../../../../core/services/connectivity_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   final String merchantId;
@@ -30659,11 +30697,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         extraData: extraDataMap,
         orderId: _orderIdempotencyKey,
       ).timeout(const Duration(seconds: 30));
+
+      // ✅ تصفير المفتاح فقط وفقط عند النجاح القطعي للتنفيذ
       _orderIdempotencyKey = null;
-
-      // تفريغ السلة فور نجاح الطلب من السيرفر
       ref.read(cartProvider.notifier).clear();
-
       if (!mounted) return;
       safeDismissLoading();
 
@@ -30737,7 +30774,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         }
       }
 
-      _orderIdempotencyKey = null;
+      // 🔒 الحفاظ على _orderIdempotencyKey في حالات انقطاع النت/المهلة لضمان Idempotent Retry
+      if (matches.isNotEmpty) {
+        _orderIdempotencyKey =
+            null; // تصفيره فقط إذا تغيرت محتويات السلة لاستبعاد أصناف
+      }
 
       String friendlyMessage;
       if (e is FirebaseFunctionsException &&
@@ -33654,21 +33695,12 @@ class _BulletLine extends StatelessWidget {
 // FILE: lib\features\merchant\home\screens\merchant_home_screen.dart
 // ==================================================
 
-import 'dart:async';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart'; // تمت الإضافة من أجل kDebugMode
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_adaptive_colors.dart';
-import '../../../../core/services/local_storage.dart';
-import '../../../../core/services/connectivity_service.dart';
-import '../../../../core/models/product_unit.dart';
-import '../../orders/services/orders_service.dart';
-import '../../products/services/products_service.dart';
 import '../../cart/widgets/cart_floating_button.dart';
-import '../../cart/providers/cart_provider.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/history_tab.dart';
 import 'tabs/orders_tab.dart';
@@ -39278,7 +39310,6 @@ import '../models/order_model.dart';
 import '../services/orders_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final OrderModel order;
@@ -39573,38 +39604,43 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ),
       ),
       bottomNavigationBar: _canReturn
-          ? Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              decoration: BoxDecoration(
-                color: context.bgCard,
-                boxShadow: [
-                  BoxShadow(
-                    color: context.shadowColor.withValues(alpha: 0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _openReturnSheet,
-                  icon: const Icon(Icons.assignment_return_rounded, size: 20),
-                  label: const Text(
-                    'طلب إرجاع أصناف',
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
+          ? SafeArea(
+              top: false,
+              maintainBottomViewPadding: true,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                decoration: BoxDecoration(
+                  color: context.bgCard,
+                  border: Border(top: BorderSide(color: context.borderColor)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: context.shadowColor,
+                      blurRadius: 12,
+                      offset: const Offset(0, -4),
                     ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEA580C),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  ],
+                ),
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: _openReturnSheet,
+                    icon: const Icon(Icons.assignment_return_rounded, size: 20),
+                    label: const Text(
+                      'طلب إرجاع أصناف',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    elevation: 0,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEA580C),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
                   ),
                 ),
               ),
@@ -40193,16 +40229,6 @@ class _ReturnSheetState extends State<_ReturnSheet> {
         return;
       }
 
-      final returnData = {
-        'orderId': widget.order.id,
-        'merchantId': uid,
-        'itemsToReturn': itemsToReturn,
-        'storeName': _storeCtrl.text.trim(),
-        'contact': _contactCtrl.text.trim(),
-        'latitude': widget.order.latitude,
-        'longitude': widget.order.longitude,
-        'reason': _reasonCtrl.text.trim(),
-      };
       await OrdersService.submitReturns(
         orderId: widget.order.id,
         itemsToReturn: itemsToReturn,
@@ -40248,31 +40274,33 @@ class _ReturnSheetState extends State<_ReturnSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final navBarPadding = MediaQuery.of(context).padding.bottom;
+
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
         decoration: BoxDecoration(
-          color:
-              context.bgPage, // 👈 استبدال اللون الثابت F5F7FA باللون المتكيف
+          color: context.bgPage,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // مقبض
+            // مقبض السحب المتكيف
             Container(
               margin: const EdgeInsets.only(top: 12, bottom: 4),
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2)),
+                color: context.borderColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
 
             // رأس الشيت
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
               child: Row(children: [
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -40288,18 +40316,23 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('طلب إرجاع',
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800)),
+                      Text(
+                        'طلب إرجاع',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: context.textPrimary,
+                        ),
+                      ),
                       Text(
                         widget.order.orderNumber ??
                             '#${widget.order.id.length >= 6 ? widget.order.id.substring(0, 6).toUpperCase() : widget.order.id.toUpperCase()}',
                         style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 12,
-                            color: Colors.grey[500]),
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          color: context.textSecondary,
+                        ),
                       ),
                     ],
                   ),
@@ -40309,26 +40342,27 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEA580C).withValues(alpha: 0.1),
+                      color: const Color(0xFFEA580C).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       '$_totalSelectedQty كرتون',
                       style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFFEA580C)),
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFEA580C),
+                      ),
                     ),
                   ),
               ]),
             ),
-            const Divider(height: 20),
+            Divider(height: 16, color: context.borderColor),
 
-            // المحتوى
+            // المحتوى القابل للتمرير
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: Column(
                   children: [
                     // بيانات التاجر
@@ -40357,22 +40391,23 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                       title: 'اختر المنتجات المرتجعة',
                       icon: Icons.inventory_2_rounded,
                       child: _returnableItems.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(8),
+                          ? Padding(
+                              padding: const EdgeInsets.all(8),
                               child: Text(
                                 'لا توجد كميات متبقية للإرجاع',
                                 style: TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13,
-                                    color: Colors.grey),
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13,
+                                  color: context.textSecondary,
+                                ),
                               ),
                             )
                           : ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: _returnableItems.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 16),
+                              separatorBuilder: (_, __) => Divider(
+                                  height: 16, color: context.borderColor),
                               itemBuilder: (_, i) {
                                 final item = _returnableItems[i];
                                 final name = item['product_name']?.toString() ??
@@ -40390,11 +40425,15 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(name,
-                                            style: const TextStyle(
-                                                fontFamily: 'Cairo',
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w700)),
+                                        Text(
+                                          name,
+                                          style: TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: context.textPrimary,
+                                          ),
+                                        ),
                                         Builder(
                                           builder: (_) {
                                             final unit = item['unit_label']
@@ -40407,27 +40446,30 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                                             return Text(
                                               'متبقي: $maxQty من $ordered $unitText',
                                               style: TextStyle(
-                                                  fontFamily: 'Cairo',
-                                                  fontSize: 11,
-                                                  color: maxQty < ordered
-                                                      ? Colors.orange[700]
-                                                      : Colors.grey[500]),
+                                                fontFamily: 'Cairo',
+                                                fontSize: 11,
+                                                color: maxQty < ordered
+                                                    ? Colors.orange
+                                                    : context.textSecondary,
+                                              ),
                                             );
                                           },
                                         ),
                                       ],
                                     ),
                                   ),
+                                  // 👈 صندوق العداد المتكيف بالكامل مع الثيم الداكن والفاتح
                                   Container(
                                     decoration: BoxDecoration(
                                       color: current > 0
-                                          ? const Color(0xFFFFF7ED)
-                                          : const Color(0xFFF5F7FA),
+                                          ? const Color(0xFFEA580C)
+                                              .withValues(alpha: 0.12)
+                                          : context.bgInput,
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: current > 0
                                             ? const Color(0xFFEA580C)
-                                            : Colors.grey[300]!,
+                                            : context.borderColor,
                                       ),
                                     ),
                                     child: Row(
@@ -40445,12 +40487,13 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                                             '$current',
                                             textAlign: TextAlign.center,
                                             style: TextStyle(
-                                                fontFamily: 'Cairo',
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w800,
-                                                color: current > 0
-                                                    ? const Color(0xFFEA580C)
-                                                    : Colors.grey[600]),
+                                              fontFamily: 'Cairo',
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w800,
+                                              color: current > 0
+                                                  ? const Color(0xFFEA580C)
+                                                  : context.textPrimary,
+                                            ),
                                           ),
                                         ),
                                         _CounterBtn(
@@ -40468,7 +40511,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                     ),
                     const SizedBox(height: 12),
 
-                    // ── سبب الإرجاع ──
+                    // سبب الإرجاع
                     _Card(
                       title: 'سبب الإرجاع *',
                       icon: Icons.notes_rounded,
@@ -40478,101 +40521,118 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                         maxLines: 3,
                         textDirection: TextDirection.rtl,
                         style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 14,
-                            color: context.textPrimary), // 👈 نص واضح
+                          fontFamily: 'Cairo',
+                          fontSize: 14,
+                          color: context.textPrimary,
+                        ),
                         decoration: InputDecoration(
                           hintText:
                               'مثال: منتج تالف / كمية خاطئة / منتهي الصلاحية...',
                           hintStyle: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 12,
-                              color: context.textHint),
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            color: context.textHint,
+                          ),
                           filled: true,
-                          fillColor: context.isDark
-                              ? Colors.red.withValues(alpha: 0.08)
-                              : const Color(
-                                  0xFFFFF5F5), // 👈 يتكيف مع الثيم الداكن
+                          fillColor: context.bgInput,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: Colors.red.withValues(alpha: 0.3)),
+                            borderSide: BorderSide(color: context.borderColor),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: Colors.red.withValues(alpha: 0.2)),
+                            borderSide: BorderSide(color: context.borderColor),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: const BorderSide(
-                                color: Colors.redAccent, width: 1.5),
+                              color: Color(0xFFEA580C),
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // أزرار
-                    Row(children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            side: const BorderSide(color: Color(0xFFDDDDDD)),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: const Text('إلغاء',
-                              style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton(
-                          onPressed:
-                              (_loading || !_hasSelection) ? null : _submit,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEA580C),
-                            foregroundColor: Colors.white,
-                            disabledBackgroundColor: context.isDark
-                                ? Colors.grey[800]
-                                : Colors.grey[300], // 👈 لون تعطيل واضح للثيمين
-                            disabledForegroundColor: context.isDark
-                                ? Colors.grey[400]
-                                : Colors.grey[600], // 👈 لون نص التعطيل
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      color: Colors.white, strokeWidth: 2),
-                                )
-                              : Text(
-                                  _hasSelection
-                                      ? 'تأكيد إرجاع $_totalSelectedQty كرتون'
-                                      : 'اختر كمية أولاً',
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo',
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800),
-                                ),
-                        ),
-                      ),
-                    ]),
                   ],
                 ),
               ),
+            ),
+
+            // 👈 شريط الأزرار مع احتساب مسافة أمان أزرار أندرويد بالكامل
+            Container(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                navBarPadding > 0 ? navBarPadding + 8 : 16,
+              ),
+              decoration: BoxDecoration(
+                color: context.bgCard,
+                border: Border(top: BorderSide(color: context.borderColor)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      side: BorderSide(color: context.borderColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'إلغاء',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        color: context.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: (_loading || !_hasSelection) ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEA580C),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: context.isDark
+                          ? const Color(0xFF2C2C2C)
+                          : Colors.grey.shade300,
+                      disabledForegroundColor: context.isDark
+                          ? Colors.grey.shade600
+                          : Colors.grey.shade500,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _hasSelection
+                                ? 'تأكيد إرجاع $_totalSelectedQty كرتون'
+                                : 'اختر كمية أولاً',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                  ),
+                ),
+              ]),
             ),
           ],
         ),
@@ -40783,16 +40843,20 @@ class _OrderProgressStepper extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.bgCard, // 👈 متكيف تلقائياً مع الثيم
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.borderColor),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
+          BoxShadow(
+            color: context.shadowColor,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
         children: List.generate(_steps.length * 2 - 1, (i) {
           if (i.isOdd) {
-            // الخط الواصل
             final lineIndex = i ~/ 2;
             final filled = lineIndex < current;
             return Expanded(
@@ -40800,7 +40864,7 @@ class _OrderProgressStepper extends StatelessWidget {
                 duration: const Duration(milliseconds: 400),
                 height: 3,
                 decoration: BoxDecoration(
-                  color: filled ? AppColors.primary : const Color(0xFFE0E0E0),
+                  color: filled ? AppColors.primary : context.borderColor,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -40820,17 +40884,21 @@ class _OrderProgressStepper extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: isDone ? AppColors.primary : const Color(0xFFF0F0F0),
+                  color: isDone
+                      ? AppColors.primary
+                      : isActive
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : context.bgInput,
                   shape: BoxShape.circle,
                   border: isActive
-                      ? Border.all(color: AppColors.primary, width: 2.5)
-                      : null,
+                      ? Border.all(color: AppColors.primary, width: 2.2)
+                      : Border.all(color: context.borderColor),
                   boxShadow: isDone
                       ? [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.35),
                             blurRadius: 8,
-                            offset: const Offset(0, 3),
+                            offset: const Offset(0, 2),
                           )
                         ]
                       : null,
@@ -40838,17 +40906,25 @@ class _OrderProgressStepper extends StatelessWidget {
                 child: Icon(
                   isDone && !isActive ? Icons.check_rounded : step.icon,
                   size: 16,
-                  color: isDone ? Colors.white : Colors.grey[400],
+                  color: isDone
+                      ? Colors.white
+                      : isActive
+                          ? AppColors.primary
+                          : context.iconSecondary,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 5),
               Text(
                 step.label,
                 style: TextStyle(
                   fontFamily: 'Cairo',
-                  fontSize: 9,
-                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-                  color: isDone ? AppColors.primary : Colors.grey[400],
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                  color: isDone
+                      ? AppColors.primary
+                      : isActive
+                          ? context.textPrimary
+                          : context.textSecondary,
                 ),
               ),
             ],
@@ -42126,7 +42202,6 @@ import '../models/order_model.dart';
 import 'package:wamd/core/services/app_cache.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:wamd/core/services/local_storage.dart';
 
 class OrdersService {
@@ -43263,19 +43338,21 @@ class ProductCatalogNotifier
   DocumentSnapshot<Map<String, dynamic>>? _cursor;
   final Map<String, ProductModel> _firstPage = {};
   final Map<String, ProductModel> _loadedPages = {};
-  String? _firstPageLastId;
+  String? firstPageLastId;
   bool _hasMore = true;
   bool _isLoadingMore = false;
 
-  Query<Map<String, dynamic>> get _baseQuery =>
-      _db.collection('products').where('brand_id', isEqualTo: brandId);
+  Query<Map<String, dynamic>> get _baseQuery => _db
+      .collection('products')
+      .where('brand_id', isEqualTo: brandId)
+      .where('is_deleted', isEqualTo: false);
   void _subscribeToFirstPage() {
     _subscription = _baseQuery
         .limit(_pageSize)
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snapshot) {
-        _firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
+        firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
         _firstPage
           ..clear()
           ..addEntries(
@@ -46269,8 +46346,8 @@ class _SplashAnimatorState extends State<SplashAnimator>
   late Animation<double> _ambientOpacity;
   late Animation<double> _logoScale;
   late Animation<double> _logoOpacity;
-  late Animation<double> _sparkleRotation;
-  late Animation<double> _sparkleScale;
+  late Animation<double> sparkleRotation;
+  late Animation<double> sparkleScale;
   late Animation<double> _textSlideY;
   late Animation<double> _textOpacity;
   late Animation<double> _shimmerWave;
@@ -46319,10 +46396,10 @@ class _SplashAnimatorState extends State<SplashAnimator>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
-    _sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
+    sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.linear),
     );
-    _sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
+    sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
     );
 

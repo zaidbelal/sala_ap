@@ -916,16 +916,11 @@ class AdminService {
       options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
     );
 
-    try {
-      await callable.call({'type': 'category', 'id': cleanId});
-      await AppCache.instance.invalidateCategories();
-      await AppCache.instance.invalidateBrands();
-      await AppCache.instance.invalidateProducts();
-      return true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AdminService] deleteCategory error: $e');
-      return false;
-    }
+    await callable.call({'type': 'category', 'id': cleanId});
+    await AppCache.instance.invalidateCategories();
+    await AppCache.instance.invalidateBrands();
+    await AppCache.instance.invalidateProducts();
+    return true;
   }
 
   // ── حذف الشركة والمنتجات التابعة لها سحابياً وبضمان 100% ──

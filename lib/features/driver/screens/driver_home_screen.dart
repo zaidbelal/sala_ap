@@ -862,7 +862,9 @@ class _DriverOrderCard extends StatelessWidget {
         (data['total'] as num?)?.toDouble() ??
         0.0;
     final status = data['status'] as String? ?? '';
-    final isConfirmed = status == 'confirmed' || status == 'pending';
+    // ✅ إدراج حالة 'preparing' ضمن الحالات الجاهزة للاستلام من المستودع
+    final isConfirmed =
+        status == 'confirmed' || status == 'pending' || status == 'preparing';
     final orderNum = data['order_number'] ?? data['invoice_number'] ?? '';
     final notes = data['notes'] as String?;
     final itemsCount = (data['items_count'] as num?)?.toInt() ?? 0;

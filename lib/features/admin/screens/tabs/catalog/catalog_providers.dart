@@ -44,7 +44,7 @@ class AdminProductsPaginationNotifier
     }
     try {
       final adminService = _ref.read(adminServiceProvider);
-      await adminService.ensureFinancialFieldsMigrated();
+      // 🚀 إزالة استدعاء ensureFinancialFieldsMigrated المتكرر لتسريع فتح الكتالوج فوراً
       final snap = await FirebaseFirestore.instance
           .collection('products')
           .orderBy('name')
@@ -79,7 +79,6 @@ class AdminProductsPaginationNotifier
     _ref.read(productsLoadingMoreProvider.notifier).state = true;
     try {
       final adminService = _ref.read(adminServiceProvider);
-      await adminService.ensureFinancialFieldsMigrated();
       final snap = await FirebaseFirestore.instance
           .collection('products')
           .orderBy('name')

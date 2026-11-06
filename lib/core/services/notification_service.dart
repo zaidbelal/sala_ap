@@ -299,14 +299,16 @@ class NotificationService {
 
   String _routeFromData(Map<String, dynamic> data) {
     final type = data['type'] as String? ?? '';
-    final bool isDriver =
-        AppStorage.isInitialized ? AppStorage.isDriver : false;
+    final bool hasAdmin = AppStorage.isInitialized && AppStorage.hasAdminAccess;
+    final bool isDriver = AppStorage.isInitialized && AppStorage.isDriver;
+
     return switch (type) {
       'new_order' => isDriver ? '/driver' : '/admin',
-      'order_status' => '/merchant',
-      'return_request' => '/admin',
+      'order_status' =>
+        hasAdmin ? '/admin' : (isDriver ? '/driver' : '/merchant'),
+      'return_request' => hasAdmin ? '/admin' : '/merchant',
       'notification' => '/notifications',
-      _ => '',
+      _ => hasAdmin ? '/admin' : (isDriver ? '/driver' : '/merchant'),
     };
   }
 

@@ -453,13 +453,14 @@ exports.requestOtp = onCall(
     const userExists = !profileSnap.empty;
     const userData = userExists ? profileSnap.docs[0].data() : null;
 
-    if (purpose === "login") {
-      // إذا كان تسجيل دخول والرقم غير مسجل أصلاً، أو محظور: ننسحب فوراً دون إرسال أي رسالة واتساب
-      if (!userExists || userData?.is_banned === true || userData?.is_deleted === true) {
+ if (purpose === "login") {
+      // إذا كان تسجيل دخول والرقم غير مسجل أصلاً، أو محظور، أو لم يستكمل التسجيل: ننسحب بأمان
+      if (!userExists || userData?.is_banned === true || userData?.is_deleted === true || userData?.account_status === "otp_verified") {
         return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
       }
-  } else if (purpose === "signup") {
-      if (userExists && userData?.is_deleted !== true) {
+    } else if (purpose === "signup") {
+      // السماح لمن وثق هاتفه سابقاً ولم يكمل بيانات المتجر بإعادة إرسال كود التسجيل
+      if (userExists && userData?.is_deleted !== true && userData?.account_status !== "otp_verified") {
         throw new HttpsError(
           "already-exists",
           "هذا الرقم مسجل بالفعل، يرجى تسجيل الدخول إلى حسابك."
@@ -1040,27 +1041,35 @@ exports.createUserProfile = onCall(
         if (!phoneMatches.empty && phoneMatches.docs[0].id !== uid) {
           throw new HttpsError("already-exists", "رقم الهاتف هذا مسجل مسبقاً لحساب آخر");
         }
-        if (existingDoc.exists) {
+     if (existingDoc.exists) {
           const existingData = existingDoc.data() || {};
           if (existingData.role !== "merchant" || existingData.phone_number !== cleanPhone) {
             throw new HttpsError("already-exists", "ملف الحساب موجود مسبقاً ولا يمكن إعادة إنشائه");
           }
-          return;
+          // ✅ تحديث الحساب المحجوز مسبقاً من OTP وحفظ كافة البيانات الجغرافية والاسم
+          tx.update(profileRef, {
+            full_name: cleanFullName,
+            store_name: cleanStoreName,
+            latitude: numLat,
+            longitude: numLng,
+            account_status: "pending",
+            updated_at: FieldValue.serverTimestamp(),
+          });
+        } else {
+          tx.create(profileRef, {
+            full_name: cleanFullName,
+            store_name: cleanStoreName,
+            phone_number: cleanPhone,
+            latitude: numLat,
+            longitude: numLng,
+            role: "merchant",
+            is_active: false,
+            is_banned: false,
+            account_status: "pending",
+            created_at: FieldValue.serverTimestamp(),
+            updated_at: FieldValue.serverTimestamp(),
+          });
         }
-
-        tx.create(profileRef, {
-          full_name: cleanFullName,
-          store_name: cleanStoreName,
-          phone_number: cleanPhone,
-          latitude: numLat,
-          longitude: numLng,
-          role: "merchant",
-          is_active: false,
-          is_banned: false,
-          account_status: "pending",
-          created_at: FieldValue.serverTimestamp(),
-          updated_at: FieldValue.serverTimestamp(),
-        });
       });
 
       await auth.setCustomUserClaims(uid, { role: "merchant", purpose: "registered" });
@@ -2237,27 +2246,24 @@ exports.cascadeDeleteCatalogItem = onCall(
     const allRefsToUpdate = [];
 async function softDeleteInBatches(query) {
       let count = 0;
-      let last = null;
+      // 🚀 إزالة orderBy(FieldPath.documentId()) لتفادي فرض Composite Index مفقود على Firestore
       while (true) {
-        let q = query.orderBy(FieldPath.documentId()).limit(300);
-        if (last) q = q.startAfter(last);
-        const snap = await q.get();
+        const snap = await query
+          .where("is_deleted", "==", false)
+          .limit(300)
+          .get();
         if (snap.empty) break;
         const batch = db.batch();
-        let n = 0;
         for (const doc of snap.docs) {
-          if (doc.data().is_deleted === true) continue;
           batch.update(doc.ref, {
             is_deleted: true,
             is_active: false,
             deleted_at: FieldValue.serverTimestamp(),
             updated_at: FieldValue.serverTimestamp(),
           });
-          n++;
         }
-        if (n > 0) await batch.commit();
-        count += n;
-        last = snap.docs[snap.docs.length - 1];
+        await batch.commit();
+        count += snap.docs.length;
         if (snap.docs.length < 300) break;
       }
       return count;
@@ -2697,12 +2703,19 @@ exports.adminUpdateProduct = onCall(
       const financialUpdates = { cost_price: requestedCost };
       const allowedFields = ["name", "brand_id", "category_id", "size_text", "price", "size_ml", "items_per_carton", "image_url", "is_active"];
 
-         for (const field of allowedFields) {
+ for (const field of allowedFields) {
         if (updates[field] === undefined) continue;
-        const v = updates[field];
+        let v = updates[field];
         let valid = true;
         if (field === "price") valid = Number.isFinite(v) && v >= 0;
-        else if (field === "items_per_carton") valid = Number.isInteger(v) && v >= 1;
+        else if (field === "items_per_carton") {
+          if (v === null || v === "" || !Number.isFinite(Number(v))) {
+            v = 1; // ضبط افتراضي آمن بدلاً من رمي خطأ وإيقاف التعديل
+          } else {
+            v = Math.max(1, parseInt(v, 10));
+          }
+          valid = true;
+        }
         else if (field === "name") valid = typeof v === "string" && v.trim().length >= 2 && v.length <= 200;
         else if (field === "size_ml") valid = v === null || (Number.isFinite(v) && v >= 0);
         else if (field === "brand_id" || field === "category_id") {
