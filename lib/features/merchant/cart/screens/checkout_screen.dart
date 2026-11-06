@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert'; // 👈 لحل خطأ jsonDecode
-import 'dart:io'; // 👈 لحل خطأ File
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,7 +17,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:wamd/features/auth/login/services/auth_service.dart';
 import '../../../../core/services/connectivity_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   final String merchantId;

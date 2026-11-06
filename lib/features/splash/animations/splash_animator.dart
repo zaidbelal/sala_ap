@@ -34,8 +34,8 @@ class _SplashAnimatorState extends State<SplashAnimator>
   late Animation<double> _ambientOpacity;
   late Animation<double> _logoScale;
   late Animation<double> _logoOpacity;
-  late Animation<double> _sparkleRotation;
-  late Animation<double> _sparkleScale;
+  late Animation<double> sparkleRotation;
+  late Animation<double> sparkleScale;
   late Animation<double> _textSlideY;
   late Animation<double> _textOpacity;
   late Animation<double> _shimmerWave;
@@ -84,10 +84,10 @@ class _SplashAnimatorState extends State<SplashAnimator>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
-    _sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
+    sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.linear),
     );
-    _sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
+    sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
     );
 

@@ -9,7 +9,6 @@ import '../models/order_model.dart';
 import '../services/orders_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final OrderModel order;
@@ -929,16 +928,6 @@ class _ReturnSheetState extends State<_ReturnSheet> {
         return;
       }
 
-      final returnData = {
-        'orderId': widget.order.id,
-        'merchantId': uid,
-        'itemsToReturn': itemsToReturn,
-        'storeName': _storeCtrl.text.trim(),
-        'contact': _contactCtrl.text.trim(),
-        'latitude': widget.order.latitude,
-        'longitude': widget.order.longitude,
-        'reason': _reasonCtrl.text.trim(),
-      };
       await OrdersService.submitReturns(
         orderId: widget.order.id,
         itemsToReturn: itemsToReturn,

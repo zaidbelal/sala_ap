@@ -214,7 +214,7 @@ class ProductCatalogNotifier
   DocumentSnapshot<Map<String, dynamic>>? _cursor;
   final Map<String, ProductModel> _firstPage = {};
   final Map<String, ProductModel> _loadedPages = {};
-  String? _firstPageLastId;
+  String? firstPageLastId;
   bool _hasMore = true;
   bool _isLoadingMore = false;
 
@@ -228,7 +228,7 @@ class ProductCatalogNotifier
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snapshot) {
-        _firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
+        firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
         _firstPage
           ..clear()
           ..addEntries(

@@ -1,18 +1,9 @@
-import 'dart:async';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart'; // تمت الإضافة من أجل kDebugMode
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_adaptive_colors.dart';
-import '../../../../core/services/local_storage.dart';
-import '../../../../core/services/connectivity_service.dart';
-import '../../../../core/models/product_unit.dart';
-import '../../orders/services/orders_service.dart';
-import '../../products/services/products_service.dart';
 import '../../cart/widgets/cart_floating_button.dart';
-import '../../cart/providers/cart_provider.dart';
 import 'tabs/home_tab.dart';
 import 'tabs/history_tab.dart';
 import 'tabs/orders_tab.dart';

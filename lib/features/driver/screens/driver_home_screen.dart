@@ -1,14 +1,10 @@
 import 'dart:async';
-import 'dart:io'; // 👈 لحل خطأ File
-import 'package:flutter/foundation.dart'; // 👈 لحل خطأ kIsWeb و kDebugMode
-import 'package:path_provider/path_provider.dart'; // 👈 لحل خطأ getApplicationDocumentsDirectory
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wamd/core/constants/app_colors.dart';
 import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/connectivity_service.dart';
 import '../widgets/new_order_sheet.dart';
 import 'driver_order_detail_screen.dart';
 import 'driver_stats_screen.dart';
@@ -19,7 +15,6 @@ import 'package:wamd/features/auth/login/services/auth_service.dart';
 import 'package:wamd/features/merchant/orders/services/orders_service.dart';
 import 'package:wamd/core/constants/app_adaptive_colors.dart';
 import 'package:wamd/core/widgets/signature_pad_dialog.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});

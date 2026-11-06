@@ -11,7 +11,6 @@ import '../../../core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wamd/app_router.dart';
-import 'package:wamd/core/services/local_storage.dart';
 import 'dart:async';
 
 class LoginScreen extends ConsumerStatefulWidget {
