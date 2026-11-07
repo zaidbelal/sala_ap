@@ -7,7 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/notification_service.dart';
 import 'animations/splash_animator.dart';
 import 'controllers/session_checker.dart';
-import 'widgets/sala_logo.dart'; // يتضمن WamdLogo الجديد
+import 'widgets/sala_logo.dart'; // يتضمن WissalLogo الجديد
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -89,11 +89,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             // ── الأنيميشن الرئيسي ──
             Center(
               child: SplashAnimator(
-                logo: const WamdLogo(
+                logo: const WissalLogo(
                   size: 140,
                   color: Colors.white,
                 ),
-                appName: 'وَمْـــــض',
+                appName: 'وصًـــــال',
                 textColor: Colors.white,
                 sessionFuture: sessionFuture,
                 onAnimationComplete: _onAnimationComplete,

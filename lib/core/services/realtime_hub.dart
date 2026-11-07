@@ -14,8 +14,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'local_storage.dart';
 import 'notification_service.dart';
 import 'connectivity_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
 
 // ══════════════════════════════════════════════════════════
 //  RealtimeHub — Production-Grade
@@ -148,7 +148,7 @@ class RealtimeHub {
   StreamSubscription? _notificationsSub;
   StreamSubscription? _categoriesSub;
   StreamSubscription? _brandsSub;
-
+  StreamSubscription? _productsSub;
   Future<void> _startForUserLock = Future.value();
   String? _activeUserId;
   String? _activeUserRole;
@@ -165,6 +165,7 @@ class RealtimeHub {
 
     _watchCategories();
     _watchBrands();
+    _watchProducts();
 
     final userId = AppStorage.userId ?? '';
     if (userId.isNotEmpty) {
@@ -268,6 +269,7 @@ class RealtimeHub {
   void _startUserChannels(String userId, {required String role}) {
     if (_categoriesSub == null) _watchCategories();
     if (_brandsSub == null) _watchBrands();
+    if (_productsSub == null) _watchProducts();
 
     _profileSub?.cancel();
     if (_profileSub != null) {
@@ -367,6 +369,16 @@ class RealtimeHub {
         );
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-token-revoked') {
+            await resetOnSignOut();
+            await AppStorage.clearUserData();
+            final navContext = NotificationService.navigatorKey.currentContext;
+            if (navContext != null && navContext.mounted) {
+              navContext.go('/login');
+            }
+            return;
+          }
         } catch (_) {}
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
@@ -509,9 +521,33 @@ class RealtimeHub {
     _userSubs.add(sub);
   }
 
+  void _watchProducts() {
+    _productsSub?.cancel();
+    _productsSub = _db
+        .collection('products')
+        .where('is_deleted', isEqualTo: false)
+        .limit(100)
+        .snapshots(includeMetadataChanges: false)
+        .listen(
+      (snap) {
+        final data = snap.docs
+            .where((d) => d.data()['is_active'] != false)
+            .map((d) => {'id': d.id, ...d.data()})
+            .toList()
+          ..sort((a, b) => (a['name']?.toString() ?? '')
+              .compareTo(b['name']?.toString() ?? ''));
+        _container?.read(realtimeProductsProvider.notifier).update(data);
+        AppCache.instance.setProducts(data);
+      },
+      onError: (e) {
+        if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
+      },
+    );
+  }
+
   void watchProducts() {
-    if ((_container?.read(realtimeProductsProvider).length ?? 0) == 0) {
-      unawaited(_container?.read(realtimeProductsProvider.notifier).reload());
+    if (_productsSub == null) {
+      _watchProducts();
     }
   }
 
@@ -579,7 +615,6 @@ class RealtimeHub {
   }
 
   void _watchConfirmedOrders() {
-    bool firstLoad = true;
     final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'pending', 'preparing'];
 
@@ -599,7 +634,7 @@ class RealtimeHub {
           snap.docs.map((doc) => doc.id),
         );
         // 🚀 تم إلغاء showLocalNotification هنا لمنع التكرار المزدوج مع FCM Topic والحوار المنبثق
-        firstLoad = false;
+
         for (final id in currentIds) {
           seenIds
             ..remove(id)
@@ -723,12 +758,12 @@ class RealtimeHub {
     _reconnectTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
     final subsToCancel = <StreamSubscription?>[
       _profileSub,
       _notificationsSub,
       _categoriesSub,
       _brandsSub,
+      _productsSub,
       ..._userSubs,
     ];
 
@@ -736,8 +771,8 @@ class RealtimeHub {
     _notificationsSub = null;
     _categoriesSub = null;
     _brandsSub = null;
+    _productsSub = null;
     _userSubs.clear();
-
     await Future.wait(
       subsToCancel
           .whereType<StreamSubscription>()
@@ -970,7 +1005,6 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   bool _isLoadingMore = false;
   String? _lastLoadedCursor;
   String? _activeBrandId;
-
   Future<void> reload({String? brandId}) async {
     _activeBrandId = brandId;
     _lastLoadedCursor = null;
@@ -980,7 +1014,10 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
         if (brandId != null) {
           query = query.where('brand_id', isEqualTo: brandId);
         }
-        final snap = await query.limit(RealtimeHub._productsPageSize).get();
+        final snap = await query
+            .orderBy('name')
+            .limit(RealtimeHub._productsPageSize)
+            .get();
         final list = snap.docs
             .where((d) =>
                 d.data()['is_active'] != false &&

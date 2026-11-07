@@ -10,11 +10,11 @@ import '../../../../core/services/notification_service.dart';
 import '../../../../core/services/realtime_hub.dart';
 import 'quickconnect_otp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/core/services/catalog_service.dart';
-import 'package:wamd/core/services/prefetch_service.dart';
-import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
-import 'package:wamd/features/merchant/search/services/search_service.dart';
-import 'package:wamd/features/merchant/barcode/barcode_scanner_screen.dart';
+import 'package:wissal/core/services/catalog_service.dart';
+import 'package:wissal/core/services/prefetch_service.dart';
+import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wissal/features/merchant/search/services/search_service.dart';
+import 'package:wissal/features/merchant/barcode/barcode_scanner_screen.dart';
 
 class OtpVerifyResponse {
   final bool success;

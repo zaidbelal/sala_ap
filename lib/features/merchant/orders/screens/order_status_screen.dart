@@ -6,7 +6,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_radius.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderStatusScreen extends StatefulWidget {
   final OrderModel order;
@@ -829,9 +829,13 @@ class _OrderSummaryCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF8E7),
+                color: context.isDark
+                    ? Colors.amber.withValues(alpha: 0.12)
+                    : const Color(0xFFFFF8E7),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                border: Border.all(
+                    color: Colors.orange
+                        .withValues(alpha: context.isDark ? 0.4 : 0.3)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -840,11 +844,17 @@ class _OrderSummaryCard extends StatelessWidget {
                       size: 16, color: Colors.orange),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(order.notes!,
-                        style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 13,
-                            color: Color(0xFF7A5C00))),
+                    child: Text(
+                      order.notes!,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: context.isDark
+                            ? const Color(0xFFFFD54F)
+                            : const Color(0xFF7A5C00),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -912,13 +922,17 @@ class _OrderSummaryCard extends StatelessWidget {
                     color: context.textSecondary,
                   ),
                 ),
-                const Text(
-                  '0 ر.ي (تمت التسوية)',
+                Text(
+                  order.status == OrderStatus.returned
+                      ? '0 ر.ي (تمت التسوية بالكامل)'
+                      : '${order.total.toStringAsFixed(0)} ر.ي (قيد مراجعة المرتجع)',
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: Colors.green,
+                    color: order.status == OrderStatus.returned
+                        ? Colors.green
+                        : Colors.orange,
                   ),
                 ),
               ],

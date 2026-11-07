@@ -6,17 +6,17 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:wamd/core/services/firebase_service.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
-import 'package:wamd/core/services/notification_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/core/services/catalog_service.dart';
+import 'package:wissal/core/services/firebase_service.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/notification_service.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/core/services/catalog_service.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_theme.dart';
-import 'package:wamd/app_router.dart';
-import 'package:wamd/core/services/image_precache_service.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/constants/app_theme.dart';
+import 'package:wissal/app_router.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -181,7 +181,7 @@ void main() async {
       container: container,
       child: initError != null
           ? _CriticalErrorApp(error: initError)
-          : const WamdApp(),
+          : const WissalApp(),
     ),
   );
   if (isFirebaseReady) {
@@ -300,14 +300,15 @@ void _warmUpCache(ProviderContainer container) {
   });
 }
 
-class WamdApp extends ConsumerStatefulWidget {
-  const WamdApp({super.key});
+class WissalApp extends ConsumerStatefulWidget {
+  const WissalApp({super.key});
 
   @override
-  ConsumerState<WamdApp> createState() => _WamdAppState();
+  ConsumerState<WissalApp> createState() => _WissalAppState();
 }
 
-class _WamdAppState extends ConsumerState<WamdApp> with WidgetsBindingObserver {
+class _WissalAppState extends ConsumerState<WissalApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -333,7 +334,7 @@ class _WamdAppState extends ConsumerState<WamdApp> with WidgetsBindingObserver {
     final currentTheme = ref.watch(themeProvider);
 
     return MaterialApp.router(
-      title: 'وَمْض',
+      title: 'وصًال',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

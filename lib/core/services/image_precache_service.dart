@@ -21,7 +21,7 @@ class ImagePrecacheService {
   // هذا يمنع إعادة تحميل الصور في حالة الإنترنت البطيء ويوفر تجربة تصفح فورية
   final _cacheManager = CacheManager(
     Config(
-      'wamd_images_cache',
+      'wissal_images_cache',
       stalePeriod: const Duration(days: 30),
       maxNrOfCacheObjects: 2000,
     ),

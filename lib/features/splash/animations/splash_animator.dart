@@ -91,7 +91,7 @@ class _SplashAnimatorState extends State<SplashAnimator>
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
     );
 
-    // 4. انزلاق وبزوغ الاسم "وَمْـــــض" مع تموج ضوئي ذهبي
+    // 4. انزلاق وبزوغ الاسم "وصًـــــال" مع تموج ضوئي ذهبي
     _textRevealCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),

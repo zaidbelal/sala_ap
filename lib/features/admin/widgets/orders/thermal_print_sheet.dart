@@ -80,8 +80,10 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
         await ImagePrecacheService.instance.cacheManager
             .getSingleFile(widget.signatureUrl!)
             .timeout(const Duration(seconds: 4));
-        if (mounted) setState(() {});
-        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          setState(() {});
+          await WidgetsBinding.instance.endOfFrame;
+        }
       } catch (_) {}
     }
 
@@ -108,8 +110,14 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
       name: 'receipt_${widget.order.id}.png',
     );
 
-    // إرسال الصورة فوراً إلى تطبيقات الطابعات الحرارية عبر البلوتوث (مثل RawBT أو طباعة النظام)
-    await Share.shareXFiles([xFile], text: 'طباعة فاتورة حرارية');
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box != null
+        ? (box.localToGlobal(Offset.zero) & box.size)
+        : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+
+    // إرسال الصورة فوراً إلى تطبيقات الطابعات الحرارية عبر البلوتوث مع دعم كامل لأجهزة iPad
+    await Share.shareXFiles([xFile],
+        text: 'طباعة فاتورة حرارية', sharePositionOrigin: origin);
   }
 
   Future<void> _saveToGallery() async {

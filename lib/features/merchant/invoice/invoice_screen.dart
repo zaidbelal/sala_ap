@@ -7,7 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import 'package:gal/gal.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 Color _statusColorFromEnum(OrderStatus s) => switch (s) {
       OrderStatus.delivered => const Color(0xFF10B981),
@@ -95,7 +95,12 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final fileName = 'فاتورة_${widget.order.invoiceNumber ?? shortId}.png';
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
-      await Share.shareXFiles([xFile], text: 'فاتورة وَمْض');
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? (box.localToGlobal(Offset.zero) & box.size)
+          : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+      await Share.shareXFiles([xFile],
+          text: 'فاتورة وصًال', sharePositionOrigin: origin);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -367,7 +372,7 @@ class _InvoiceHeader extends StatelessWidget {
               ],
             ),
             child: const Center(
-              child: Text('وَمْض',
+              child: Text('وصًال',
                   style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 16,
@@ -908,7 +913,7 @@ class _InvoiceFooter extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   color: AppColors.primary)),
           const SizedBox(height: 2),
-          Text('وَمْض — المنصة الرقمية الأولى في اليمن',
+          Text('وصًال — المنصة الرقمية الأولى في اليمن',
               style: TextStyle(
                   fontFamily: 'Cairo', fontSize: 11, color: Colors.grey[500])),
         ],

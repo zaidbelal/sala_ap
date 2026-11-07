@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:wamd/core/services/background_worker.dart';
+import 'package:wissal/core/services/background_worker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // لـ compute()
 import 'package:path_provider/path_provider.dart';
@@ -107,7 +107,7 @@ class AppCache {
     }
 
     await Future.wait(
-      keys.map(prefs.remove),
+      keys.map((key) => prefs.remove(key)),
     );
   }
 
@@ -220,13 +220,10 @@ class AppCache {
           } catch (_) {}
         }
 
-        // لا نقوم بتحديث الكاش الشامل إلا إذا كان محملاً مسبقاً لمنع مسح باقي المنتجات
+        // تحديث الكاش الشامل مع إزالة الأصناف المحذوفة التابعة لنفس القسم
         if (all.isNotEmpty) {
-          final ids = data.map((e) => e['id']).toSet();
           final merged = [
-            ...all.where((e) =>
-                e['category_id']?.toString() != categoryId &&
-                !ids.contains(e['id'])),
+            ...all.where((e) => e['category_id']?.toString() != categoryId),
             ...data,
           ];
           _ram[_keyProducts] = _CacheEntry(

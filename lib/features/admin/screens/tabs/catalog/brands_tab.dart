@@ -1,12 +1,15 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../services/admin_service.dart';
 import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 
 class BrandsTab extends ConsumerWidget {
   const BrandsTab({super.key});
@@ -144,11 +147,15 @@ class _BrandTile extends StatelessWidget {
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: logoUrl != null && logoUrl!.isNotEmpty
-              ? Image.network(logoUrl!,
+              ? CachedNetworkImage(
+                  cacheManager: ImagePrecacheService.instance.cacheManager,
+                  imageUrl: logoUrl!,
                   width: 48,
                   height: 48,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _logoPlaceholder(name))
+                  placeholder: (_, __) => _logoPlaceholder(name),
+                  errorWidget: (_, __, ___) => _logoPlaceholder(name),
+                )
               : _logoPlaceholder(name),
         ),
         title: Text(name,
@@ -272,8 +279,9 @@ class _AddBrandBarState extends State<AddBrandBar> {
       if (!mounted) return;
       final text = _ctrl.text.trim();
       final catId = _selectedCategoryId!;
-      _ctrl.clear();
+      await widget.onAdd(text, catId, imageUrl);
       if (mounted) {
+        _ctrl.clear();
         setState(() {
           _image = null;
           _imageBytes = null;
@@ -281,7 +289,6 @@ class _AddBrandBarState extends State<AddBrandBar> {
           _loading = false;
         });
       }
-      await widget.onAdd(text, catId, imageUrl);
     } catch (e) {
       if (mounted) {
         setState(() {

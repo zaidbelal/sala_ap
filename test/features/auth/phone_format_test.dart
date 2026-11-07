@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 
 void main() {
   group('AuthService.formatPhone', () {

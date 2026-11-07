@@ -5,7 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_radius.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../services/products_service.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/services/image_precache_service.dart';
 

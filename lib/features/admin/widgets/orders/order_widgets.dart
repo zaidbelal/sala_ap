@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../../core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../merchant/orders/models/order_model.dart';
 
 class OrderSection extends StatelessWidget {

@@ -11,7 +11,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../constants/app_colors.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 enum AppMapStyle {
   streets,
@@ -102,10 +102,9 @@ class _AppMapState extends State<AppMap> {
 
     setState(() => _searching = true);
 
-    // ✅ مهلة 1000ms متزنة لمنع حظر خوادم الخرائط (HTTP 429) أثناء الكتابة السريعة
-    _searchDebounce = Timer(const Duration(milliseconds: 1000), () async {
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () async {
       final results = await _SanaaPlacesEngine.search(q);
-      if (mounted) {
+      if (mounted && _searchController.text.trim() == q) {
         setState(() {
           _searchResults = results;
           _searching = false;
@@ -161,7 +160,7 @@ class _AppMapState extends State<AppMap> {
                 ],
               ),
               content: const Text(
-                'يجمع تطبيق "وَمْض" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
+                'يجمع تطبيق "وصًال" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
                 style:
                     TextStyle(fontFamily: 'Cairo', fontSize: 13, height: 1.6),
               ),
@@ -585,7 +584,7 @@ class _SanaaPlace {
 // محرك بحث قوقل الحقيقي لصنعاء + كاش أوفلاين دائم
 // ══════════════════════════════════════════════════════════════
 class _SanaaPlacesEngine {
-  static const String _kOfflineCacheKey = 'wamd_sanaa_places_v2';
+  static const String _kOfflineCacheKey = 'wissal_sanaa_places_v2';
   static final Map<String, List<_SanaaPlace>> _memoryCache = {};
   static final List<_SanaaPlace> _offlineStoredPlaces = [];
   static bool _initialized = false;
@@ -753,7 +752,7 @@ class _SanaaPlacesEngine {
       );
 
       final request = await client.getUrl(url);
-      request.headers.set('User-Agent', 'WamdAppYemen/1.0');
+      request.headers.set('User-Agent', 'WissalAppYemen/1.0');
       final response = await request.close();
 
       if (response.statusCode == 200) {

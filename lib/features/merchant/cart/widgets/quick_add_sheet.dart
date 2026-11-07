@@ -4,15 +4,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // 👈 تمت إضافة هذا السطر لحل الأخطاء الثلاثة فوراً
 import '../../cart/providers/cart_provider.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_radius.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/constants/app_radius.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../products/services/products_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/core/services/catalog_service.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/core/services/catalog_service.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class QuickAddSheet extends ConsumerStatefulWidget {
   const QuickAddSheet({super.key});

@@ -23,9 +23,9 @@ class ThermalPrinterService {
       final context = key.currentContext;
       if (context == null) return null;
       final boundary = context.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null || !boundary.attached) return null;
+      if (boundary == null || !boundary.attached || boundary.size.isEmpty)
+        return null;
 
-      // انتظار اكتمال رسم الشجرة بالكامل مع إعادة محاولة مؤمنة
       await Future.delayed(const Duration(milliseconds: 150));
       WidgetsBinding.instance.scheduleFrame();
       await WidgetsBinding.instance.endOfFrame.timeout(
@@ -33,13 +33,18 @@ class ThermalPrinterService {
         onTimeout: () => null,
       );
 
-      ui.Image image;
+      ui.Image? image;
       try {
         image = await boundary.toImage(pixelRatio: 1.0);
       } catch (_) {
         await Future.delayed(const Duration(milliseconds: 200));
-        image = await boundary.toImage(pixelRatio: 1.0);
+        if (boundary.attached && !boundary.size.isEmpty) {
+          try {
+            image = await boundary.toImage(pixelRatio: 1.0);
+          } catch (_) {}
+        }
       }
+      if (image == null) return null;
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       if (byteData == null) return null;
@@ -110,7 +115,7 @@ class ThermalReceiptWidget extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    'وَمْـــــض',
+                    'وصًـــــال',
                     style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 28,
@@ -472,7 +477,7 @@ class ThermalReceiptWidget extends StatelessWidget {
               children: [
                 QrImageView(
                   data:
-                      'WAMD_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
+                      'WISSAL_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
                   version: QrVersions.auto,
                   size: paperSize == PaperSize.mm58 ? 95.0 : 120.0,
                 ),

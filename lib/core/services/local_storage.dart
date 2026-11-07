@@ -88,7 +88,7 @@ class AppStorage {
       if (uid != null && !kIsWeb) {
         try {
           final dir = await getApplicationDocumentsDirectory();
-          final file = File('${dir.path}/wamd_cart_v2_$uid.json');
+          final file = File('${dir.path}/wissal_cart_v2_$uid.json');
           if (await file.exists()) await file.delete();
         } catch (_) {}
       }
@@ -107,7 +107,7 @@ class AppStorage {
       _db.remove(_kStoreName),
       _db.remove(_kUserPhone),
       _db.remove(_kWarehouseId),
-      if (uid != null) _db.remove('wamd_cart_v2_$uid'),
+      if (uid != null) _db.remove('wissal_cart_v2_$uid'),
     ]);
     if (kDebugMode) {
       debugPrint('🗑️ LocalStorage: user data cleared safely');

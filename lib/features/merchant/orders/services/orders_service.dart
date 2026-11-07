@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/order_model.dart';
-import 'package:wamd/core/services/app_cache.dart';
+import 'package:wissal/core/services/app_cache.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/services/local_storage.dart';
 
 class OrdersService {
   static final _db = FirebaseFirestore.instance;

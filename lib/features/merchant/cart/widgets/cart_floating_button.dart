@@ -16,7 +16,7 @@ class _CartFloatingButtonState extends ConsumerState<CartFloatingButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseCtrl;
   late Animation<double> _pulse;
-  int _prevCount = 0;
+  int prevCount = 0;
 
   @override
   void initState() {
@@ -39,18 +39,13 @@ class _CartFloatingButtonState extends ConsumerState<CartFloatingButton>
     final count = ref.watch(cartCountProvider);
     final total = ref.watch(cartTotalProvider);
 
-    // نبض عند إضافة منتج جديد
-    if (count > _prevCount) {
-      _prevCount = count;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    ref.listen<int>(cartCountProvider, (prev, next) {
+      if (next > (prev ?? 0)) {
         _pulseCtrl.forward().then((_) => _pulseCtrl.reverse());
-      });
-    } else {
-      _prevCount = count;
-    }
+      }
+    });
 
     if (count == 0) return const SizedBox.shrink();
-
     return GestureDetector(
       onTap: () {
         HapticFeedback.mediumImpact();

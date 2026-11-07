@@ -6,10 +6,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/widgets/app_map.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/widgets/app_map.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class DriverOrderDetailScreen extends StatefulWidget {
   final String orderId;

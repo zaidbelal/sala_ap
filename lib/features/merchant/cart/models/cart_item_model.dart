@@ -3,7 +3,7 @@
 // ==================================================
 
 import '../../products/services/products_service.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 
 class CartItem {
   final ProductModel product;

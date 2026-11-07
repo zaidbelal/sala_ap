@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/app_cache.dart';
+import 'package:wissal/core/services/app_cache.dart';
 
 class BrandModel {
   final String id;

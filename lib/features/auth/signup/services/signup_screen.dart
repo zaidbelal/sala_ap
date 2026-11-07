@@ -10,7 +10,7 @@ import '../../../splash/widgets/sala_logo.dart';
 import '../../login/widgets/phone_input_field.dart';
 import '../services/signup_service.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 import '../../login/services/auth_service.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -136,7 +136,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                 children: [
                   const SizedBox(height: 56),
                   // ── اللوجو ──
-                  const WamdLogo(size: 95, color: AppColors.primary),
+                  const WissalLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
 
                   // ── اسم التطبيق ──
@@ -144,7 +144,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'وَمْض',
+                      'وصًال',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -169,7 +169,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                       children: [
                         // ── العنوان ──
                         Text(
-                          'مرحباً بك في وَمْض 🎉',
+                          'مرحباً بك في وصًال 🎉',
                           style: AppTextStyles.headlineMedium,
                         ),
                         const SizedBox(height: 6),

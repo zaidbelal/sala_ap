@@ -5,7 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import '../orders/screens/order_detail_screen.dart';
 import '../orders/screens/order_status_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderCard extends StatefulWidget {
   final Map<String, dynamic> order;

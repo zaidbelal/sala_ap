@@ -31,7 +31,7 @@
     <uses-feature android:name="android.hardware.location.network" android:required="false" />
 
     <application
-        android:label="وَمْض"
+        android:label="وصًال"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -68,10 +68,10 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- إعدادات إشعارات فايربيز الرسمية والقناة الافتراضية والتطبيق مغلق (تم توحيدها مع ومض) -->
+        <!-- إعدادات إشعارات فايربيز الرسمية والقناة الافتراضية والتطبيق مغلق (تم توحيدها مع وصال) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="wamd_orders_channel_v3"/>
+            android:value="wissal_orders_channel_v3"/>
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher"/>

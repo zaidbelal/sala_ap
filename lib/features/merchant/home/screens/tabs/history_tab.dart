@@ -9,7 +9,7 @@ import '../../../orders/models/order_model.dart';
 import '../../../orders/services/orders_service.dart';
 import '../../../invoice/invoice_screen.dart';
 import '../../../invoice/return_invoice_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class HistoryTab extends ConsumerStatefulWidget {
   const HistoryTab({super.key});

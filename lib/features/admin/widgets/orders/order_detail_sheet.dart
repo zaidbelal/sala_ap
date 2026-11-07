@@ -12,7 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/services/local_storage.dart';
 
 class OrderDetailSheet extends ConsumerStatefulWidget {
   final AdminOrder order;

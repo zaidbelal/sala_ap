@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -217,11 +217,11 @@ class ProductCatalogNotifier
   String? firstPageLastId;
   bool _hasMore = true;
   bool _isLoadingMore = false;
-
   Query<Map<String, dynamic>> get _baseQuery => _db
       .collection('products')
       .where('brand_id', isEqualTo: brandId)
-      .where('is_deleted', isEqualTo: false);
+      .where('is_deleted', isEqualTo: false)
+      .orderBy('name');
   void _subscribeToFirstPage() {
     _subscription = _baseQuery
         .limit(_pageSize)
@@ -229,6 +229,10 @@ class ProductCatalogNotifier
         .listen(
       (snapshot) {
         firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
+        if (_loadedPages.isEmpty) {
+          _cursor = snapshot.docs.isEmpty ? null : snapshot.docs.last;
+          _hasMore = snapshot.docs.length == _pageSize;
+        }
         _firstPage
           ..clear()
           ..addEntries(

@@ -2,11 +2,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../services/admin_service.dart';
 import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 
 class CategoriesTab extends ConsumerWidget {
   const CategoriesTab({super.key});
@@ -145,16 +147,17 @@ class _CategoryTile extends StatelessWidget {
             borderRadius:
                 const BorderRadius.horizontal(right: Radius.circular(16)),
             child: imageUrl != null && imageUrl!.isNotEmpty
-                ? Image.network(
-                    imageUrl!,
+                ? CachedNetworkImage(
+                    cacheManager: ImagePrecacheService.instance.cacheManager,
+                    imageUrl: imageUrl!,
                     width: 72,
                     height: 72,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _placeholder(),
+                    placeholder: (_, __) => _placeholder(),
+                    errorWidget: (_, __, ___) => _placeholder(),
                   )
                 : _placeholder(),
           ),
-
           // الاسم والوصف
           Expanded(
             child: Padding(

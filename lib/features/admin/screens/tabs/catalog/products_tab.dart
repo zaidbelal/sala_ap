@@ -8,7 +8,7 @@ import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
 import 'product_units_editor.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../merchant/barcode/barcode_scanner_screen.dart';
 import 'dart:async';
@@ -1161,7 +1161,6 @@ class _ManualDateField extends StatelessWidget {
       controller: ctrl,
       keyboardType: TextInputType.number,
       inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
         DateInputFormatter(),
       ],
       style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),

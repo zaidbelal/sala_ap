@@ -11,7 +11,7 @@ import 'checkout_screen.dart';
 import '../../../../../core/services/local_storage.dart';
 import '../../../../../core/services/connectivity_service.dart';
 import '../models/cart_item_model.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class CartScreen extends ConsumerStatefulWidget {
   const CartScreen({super.key});
@@ -55,7 +55,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
               .where(FieldPath.documentId, whereIn: chunk)
               .get(const GetOptions(source: Source.server));
           latestProducts
-              .addAll(snap.docs.map((d) => {'id': d.id, ...d.data()}));
+              .addAll(snap.docs.map((d) => {...d.data(), 'id': d.id}));
           successfullyQueriedIds.addAll(chunk);
         } catch (_) {
           // في حال فشل أي Chunk شبكياً، لا نعتبر منتجاته محذوفة ونحفظها للمحاولة القادمة
@@ -145,6 +145,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     HapticFeedback.mediumImpact();
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: '/checkout'),
         builder: (_) => CheckoutScreen(merchantId: uid),
       ),
     );

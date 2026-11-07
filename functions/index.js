@@ -91,9 +91,10 @@ class SignatureService {
       try {
         const parsedUrl = new URL(rawSig);
         const objectPath = decodeURIComponent(parsedUrl.pathname.split("/o/")[1] || "");
-        const belongsToOrder = objectPath.startsWith(`signatures/signature_${cleanOrderId}_`) ||
+      const belongsToOrder = objectPath.startsWith(`signatures/signature_${cleanOrderId}_`) ||
                               objectPath.startsWith(`signatures/order_${cleanOrderId}_`);
-        const isProjectBucket = parsedUrl.pathname.includes(`/b/${bucket.name}/`);
+        const isProjectBucket = parsedUrl.pathname.includes(`/b/${bucket.name}/`) ||
+                                parsedUrl.pathname.includes("app-sala-b42dd");
 
         if (parsedUrl.hostname !== "firebasestorage.googleapis.com" ||
             !parsedUrl.searchParams.has("token") || !belongsToOrder || !isProjectBucket) {
@@ -316,9 +317,10 @@ class OrderCalculator {
       const currentDeduction = stockDeductions.get(pId) || 0;
       const totalDeduction = currentDeduction + stockDeductCartons;
 
-      const currentStock = Number(product.stock) || 0;
+    const currentStock = Math.max(0, Number(product.stock) || 0);
       if (currentStock < totalDeduction) {
         outOfStockItems.push({ id: pId, name: product.name || pId });
+        stockDeductions.delete(pId);
         continue;
       }
       stockDeductions.set(pId, totalDeduction);
@@ -389,7 +391,7 @@ class NotificationService {
 
   static async notifyDriversNewOrder(orderId, total) {
     try {
-      await messaging.send({
+    await messaging.send({
         topic: "drivers",
         notification: {
           title: "🚨 طلب جديد جاهز للتوصيل!",
@@ -404,9 +406,9 @@ class NotificationService {
       android: {
           priority: "high",
           notification: {
-            channelId: "wamd_orders_channel",
+            channelId: "wissal_orders_channel",
             priority: "max",
-            sound: "wamd_notification",
+            sound: "wissal_notification",
             clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
         },
@@ -418,7 +420,7 @@ class NotificationService {
                 title: "🚨 طلب جديد جاهز للتوصيل!",
                 body: `طلب جديد بقيمة ${Number(total).toFixed(0)} ر.ي جاهز للاستلام`,
               },
-              sound: "wamd_notification.wav",
+              sound: "wissal_notification.wav",
               badge: 1,
             },
           },
@@ -458,13 +460,10 @@ exports.requestOtp = onCall(
       if (!userExists || userData?.is_banned === true || userData?.is_deleted === true || userData?.account_status === "otp_verified") {
         return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
       }
-    } else if (purpose === "signup") {
-      // السماح لمن وثق هاتفه سابقاً ولم يكمل بيانات المتجر بإعادة إرسال كود التسجيل
+   } else if (purpose === "signup") {
+      // رد موحد ومبهم لمنع استغلال الدالة في كشف وتخمين الأرقام المسجلة
       if (userExists && userData?.is_deleted !== true && userData?.account_status !== "otp_verified") {
-        throw new HttpsError(
-          "already-exists",
-          "هذا الرقم مسجل بالفعل، يرجى تسجيل الدخول إلى حسابك."
-        );
+        return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
       }
     }
     const otpRef = db.collection("otp_codes").doc(phone);
@@ -508,7 +507,7 @@ exports.requestOtp = onCall(
  try {
       await sendWhatsAppMessage({
         phone,
-       text: `رمز التحقق الخاص بك في وَمْض هو: ${code}\nصالح لمدة 5 دقائق ولا تشاركه مع أي شخص.`,
+   text: `رمز التحقق الخاص بك في وصًال هو: ${code}\nصالح لمدة 5 دقائق ولا تشاركه مع أي شخص.`,
         idInstance: smsSenderId.value(),
         apiTokenInstance: smsApiKey.value(),
       });
@@ -633,31 +632,42 @@ if (Date.now() > data.expiresAt.toMillis()) {
       }
       uid = userDoc.id;
       role = userData.role || "merchant";
-    } else {
-    const existingProfile = await db.collection("profiles")
+  } else {
+      const existingProfile = await db.collection("profiles")
         .where("phone_number", "==", phone)
         .limit(1)
         .get();
+
       if (!existingProfile.empty) {
-        return {
-          verified: false,
-          message: "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً",
-        };
+        const existingData = existingProfile.docs[0].data() || {};
+        if (existingData.is_banned === true || (existingData.is_deleted !== true && existingData.account_status !== "otp_verified")) {
+          return {
+            verified: false,
+            message: "رقم الهاتف مسجل مسبقاً، يرجى تسجيل الدخول",
+          };
+        }
+        uid = existingProfile.docs[0].id;
+        await db.collection("profiles").doc(uid).set({
+          phone_number: phone,
+          role: "merchant",
+          is_active: false,
+          is_banned: false,
+          account_status: "otp_verified",
+          updated_at: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } else {
+        uid = db.collection("profiles").doc().id;
+        await db.collection("profiles").doc(uid).set({
+          phone_number: phone,
+          role: "merchant",
+          is_active: false,
+          is_banned: false,
+          account_status: "otp_verified",
+          created_at: FieldValue.serverTimestamp(),
+          updated_at: FieldValue.serverTimestamp(),
+        });
       }
-      uid = db.collection("profiles").doc().id;
-
-      // 🔒 حجز الوثيقة مسبقاً لمنع بقاء حسابات Auth مهجورة بدون مستند مرجعي
-      await db.collection("profiles").doc(uid).set({
-        phone_number: phone,
-        role: "merchant",
-        is_active: false,
-        is_banned: false,
-        account_status: "otp_verified",
-        created_at: FieldValue.serverTimestamp(),
-        updated_at: FieldValue.serverTimestamp(),
-      });
     }
-
     const tokenClaims = { role, purpose, verified_phone: phone };
     const customToken = await auth.createCustomToken(uid, tokenClaims);
     return { verified: true, message: "تم التحقق بنجاح", customToken };
@@ -685,7 +695,7 @@ exports.sendPushNotification = onDocumentCreated(
 
     const fcmToken = userDoc.data().fcm_token;
     if (!fcmToken) return;
-const targetChannel = type === "new_order" ? "wamd_orders_channel" : "wamd_orders_channel_v3";
+const targetChannel = type === "new_order" ? "wissal_orders_channel" : "wissal_orders_channel_v3";
     const isNewOrder = type === "new_order";
 
     const message = {
@@ -708,7 +718,7 @@ const targetChannel = type === "new_order" ? "wamd_orders_channel" : "wamd_order
           priority: "max",
           visibility: "public",
           defaultSound: !isNewOrder,
-          sound: isNewOrder ? "wamd_notification" : undefined,
+        sound: isNewOrder ? "wissal_notification" : undefined,
           defaultVibrateTimings: true,
           defaultLightSettings: true,
           clickAction: "FLUTTER_NOTIFICATION_CLICK"
@@ -725,7 +735,7 @@ const targetChannel = type === "new_order" ? "wamd_orders_channel" : "wamd_order
               title: String(title), 
               body: String(body) 
             },
-            sound: isNewOrder ? "wamd_notification.wav" : "default",
+           sound: isNewOrder ? "wissal_notification.wav" : "default",
             badge: 1
           }
         }
@@ -1109,8 +1119,8 @@ exports.deleteUserAccount = onCall(
       // 1. إبطال كافة الجلسات النشطة على كل أجهزة المستخدم فوراً
       await auth.revokeRefreshTokens(targetUid);
 
-      // 2. تطهير البيانات التعريفية ورمز الإشعارات لمنع وصول أي إشعار بعد الحذف
-      await profileRef.update({
+     // 2. تطهير البيانات التعريفية ورمز الإشعارات لمنع وصول أي إشعار بعد الحذف
+      await profileRef.set({
         is_active: false,
         is_banned: true,
         is_deleted: true,
@@ -1119,7 +1129,7 @@ exports.deleteUserAccount = onCall(
         full_name: "مستخدم محذوف",
         deleted_at: FieldValue.serverTimestamp(),
         updated_at: FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
 
       // 3. حذف الحساب من سجلات Firebase Authentication
       await auth.deleteUser(targetUid);
@@ -1288,16 +1298,27 @@ exports.placeOrder = onCall(
         }
       }
 
-      // تطبيق خصم المخزون الذري
+    // تطبيق خصم المخزون الذري وتوثيق حركة البيع في سجل التدقيق
       for (const [pId, deductQty] of stockDeductions.entries()) {
+        const safeDeduct = Number(deductQty.toFixed(4));
         tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(-deductQty),
+          stock: FieldValue.increment(-safeDeduct),
           updated_at: FieldValue.serverTimestamp(),
         });
-      }
 
-      // 🔒 تثبيت الأصل المالي original_total بشكل دائم وغير قابل للتغيير للأبد
+        const auditRef = db.collection("inventory_audit_log").doc();
+        tx.set(auditRef, {
+          product_id: pId,
+          order_id: cleanOrderId,
+          action: "order_placed",
+          delta: -safeDeduct,
+          merchant_id: uid,
+          created_at: FieldValue.serverTimestamp(),
+        });
+      }
+    // 🔒 احتساب رسوم التوصيل وتثبيت إجمالي الفاتورة المعتمد محاسبياً
       const rawExtra = extraData || {};
+      const grandTotal = serverTotal + deliveryFee;
       const orderDataWithNumber = {
         store_name: String(rawExtra.store_name || profile.store_name || "").trim(),
         customer_name: String(rawExtra.customer_name || rawExtra.merchant_name || profile.full_name || "").trim(),
@@ -1309,9 +1330,10 @@ exports.placeOrder = onCall(
         longitude: rawExtra.longitude != null ? Number(rawExtra.longitude) : (profile.longitude || null),
         payment_method: String(rawExtra.payment_method || "cash").trim().toLowerCase() === "deferred" ? "deferred" : "cash",
         merchant_id: uid,
-        total: serverTotal,
-        total_amount: serverTotal,
-        original_total: serverTotal, // 👈 الحقل المالي المعياري الحاسم
+        subtotal: serverTotal,
+        total: grandTotal,
+        total_amount: grandTotal,
+        original_total: grandTotal,
         returned_amount: 0,
         pending_returns_count: 0,
         delivery_fee: deliveryFee,
@@ -1958,8 +1980,7 @@ const returnDocs = [];
 const returnSeqString = IdGenerator.generateReturnNumber();
         const itemPrice = Number(itemData.price) || 0;
         const refundAmount = itemPrice * returnQty;
-
-        returnDocs.push({
+returnDocs.push({
           ref: db.collection("order_returns").doc(),
           data: {
             order_id: cleanOrderId,
@@ -1971,6 +1992,7 @@ const returnSeqString = IdGenerator.generateReturnNumber();
             unit_label: String(itemData.unit_label || "كرتون").trim(),
             unit_price: itemPrice,
             refund_amount: refundAmount,
+            returned_amount: refundAmount,
             store_name: String(storeName || order.store_name || "").trim(),
             contact: String(contact || order.contact || order.phone_number || "").trim(),
             latitude: latitude != null ? Number(latitude) : (order.latitude || null),
@@ -2193,10 +2215,10 @@ exports.sendBroadcastNotification = onCall(
           route: "/notifications",
           click_action: "FLUTTER_NOTIFICATION_CLICK",
         },
-     android: {
+    android: {
           priority: "high",
           notification: {
-            channelId: "wamd_orders_channel_v3",
+            channelId: "wissal_orders_channel_v3",
             priority: "max",
             clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
@@ -2524,7 +2546,7 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
           });
         }
       }
-    // إذا تحول الطلب لمرتجع بالكامل يتم تثبيت كامل أصل الفاتورة كمرتجع دون مسح ما تم إرجاعه مسبقاً
+// إذا تحول الطلب لمرتجع بالكامل يتم توثيق سندات المرتجع آلياً وتثبيت أصل الفاتورة
       if (cleanStatus === "returned") {
         const fullBaseline = Number(order.original_total) || 
           (Number(order.total_amount || order.total || 0) + Number(order.returned_amount || 0));
@@ -2533,6 +2555,36 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
         updatePayload.original_total = fullBaseline;
         updatePayload.returned_amount = fullBaseline;
         updatePayload.pending_returns_count = 0;
+
+        for (const itemDoc of itemDocs) {
+          const itemData = itemDoc.data();
+          const orderedQty = Number(itemData.quantity) || 0;
+          const returnedQty = Number(itemData.returned_quantity) || 0;
+          const unreturnedQty = Math.max(0, orderedQty - returnedQty);
+          if (unreturnedQty > 0) {
+            const retRef = db.collection("order_returns").doc();
+            const returnSeq = IdGenerator.generateReturnNumber();
+            tx.set(retRef, {
+              order_id: cleanOrderId,
+              order_item_id: itemDoc.id,
+              merchant_id: order.merchant_id,
+              product_id: itemData.product_id || "",
+              product_name: itemData.product_name || "منتج",
+              quantity: unreturnedQty,
+              unit_label: itemData.unit_label || "كرتون",
+              unit_price: Number(itemData.price) || 0,
+              refund_amount: (Number(itemData.price) || 0) * unreturnedQty,
+              store_name: order.store_name || "",
+              contact: order.phone_number || order.contact || "",
+              reason: "إرجاع كامل ومباشر بقرار الإدارة",
+              status: "accepted",
+              return_number: returnSeq,
+              invoice_number: returnSeq,
+              created_at: FieldValue.serverTimestamp(),
+              updated_at: FieldValue.serverTimestamp(),
+            });
+          }
+        }
       }
       tx.update(orderRef, updatePayload);
      // 3. إرسال إشعار فوري للتاجر عبر القوالب المركزية الموحدة
@@ -3037,8 +3089,9 @@ let totalRefund = 0;
           });
         }
         if (!hasPendingDoc) {
-          const retRef = db.collection("order_returns").doc();
-const returnNumber = IdGenerator.generateReturnNumber();          tx.set(retRef, {
+       const retRef = db.collection("order_returns").doc();
+          const returnNumber = IdGenerator.generateReturnNumber();
+          tx.set(retRef, {
             order_id: cleanOrderId,
             order_item_id: itemSnap.id,
             merchant_id: orderData.merchant_id,
@@ -3048,6 +3101,7 @@ const returnNumber = IdGenerator.generateReturnNumber();          tx.set(retRef,
             unit_label: itemData.unit_label || "كرتون",
             unit_price: price,
             refund_amount: itemRefund,
+            returned_amount: itemRefund,
             store_name: orderData.store_name || "",
             contact: orderData.phone_number || orderData.contact || "",
             reason: String(reason || "").trim(),
@@ -3059,11 +3113,22 @@ const returnNumber = IdGenerator.generateReturnNumber();          tx.set(retRef,
           });
         }
       }
-      // استرجاع المخزون الفعلي ذرياً
+    // استرجاع المخزون الفعلي وتوثيقه في سجل التدقيق
       for (const [pId, restoreCartons] of productRestores.entries()) {
+        const safeRestore = Number(restoreCartons.toFixed(4));
         tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(restoreCartons),
+          stock: FieldValue.increment(safeRestore),
           updated_at: FieldValue.serverTimestamp(),
+        });
+
+        const auditRef = db.collection("inventory_audit_log").doc();
+        tx.set(auditRef, {
+          product_id: pId,
+          order_id: cleanOrderId,
+          action: "return_accepted",
+          delta: safeRestore,
+          performed_by: callerUid,
+          created_at: FieldValue.serverTimestamp(),
         });
       }
 
@@ -3094,20 +3159,21 @@ const returnNumber = IdGenerator.generateReturnNumber();          tx.set(retRef,
         updated_at: FieldValue.serverTimestamp(),
       }, { merge: true });
 
-// 🔒 تحديث مستند الأرباح الموحد مباشرة بقيم المرتجع الصحيحة المعرفة في النطاق
-      const statsUpdates = {
-        accumulated_profit: FieldValue.increment(-totalDeductedProfit),
-        accumulated_returns: FieldValue.increment(totalRefund),
-        accumulated_revenue: FieldValue.increment(-totalRefund),
-        last_updated: FieldValue.serverTimestamp(),
-      };
-      if (isFromCurrentCycle) {
-        statsUpdates.cycle_profit = FieldValue.increment(-totalDeductedProfit);
-      } else {
-        statsUpdates.prior_period_adjustments = FieldValue.increment(-totalDeductedProfit);
+// 🔒 لا يتم خصم الأرباح إلا إذا كانت قد سُجلت فعلياً عند التسليم
+      if (orderData.profit_recorded === true) {
+        const statsUpdates = {
+          accumulated_profit: FieldValue.increment(-totalDeductedProfit),
+          accumulated_returns: FieldValue.increment(totalRefund),
+          accumulated_revenue: FieldValue.increment(-totalRefund),
+          last_updated: FieldValue.serverTimestamp(),
+        };
+        if (isFromCurrentCycle) {
+          statsUpdates.cycle_profit = FieldValue.increment(-totalDeductedProfit);
+        } else {
+          statsUpdates.prior_period_adjustments = FieldValue.increment(-totalDeductedProfit);
+        }
+        tx.set(summaryParentRef, statsUpdates, { merge: true });
       }
-      tx.set(summaryParentRef, statsUpdates, { merge: true });
-
       return { success: true, count: returnEntries.length, totalRefund };
     });
   }
@@ -3235,11 +3301,11 @@ exports.saveOrderSignature = onCall(
       throw new HttpsError("invalid-argument", "معرف الطلب غير صالح");
     }
 
-    // السماح لكافة أدوار الإدارة المعتمدة
+ // السماح للإدارة ومندوبي التوصيل المعتمدين بتوثيق التوقيع
     await requireActiveRole(
       callerUid,
-      ["admin", "super_admin", "accountant", "warehouse_manager"],
-      "توثيق التوقيع مقتصر على إدارة النظام",
+      ["admin", "super_admin", "accountant", "warehouse_manager", "driver"],
+      "توثيق التوقيع مقتصر على إدارة النظام ومندوبي التوصيل",
     );
 
     const orderRef = db.collection("orders").doc(cleanOrderId);

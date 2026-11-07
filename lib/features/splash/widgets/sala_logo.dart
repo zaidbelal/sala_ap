@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-/// شعار "وَمْض" الرسمي المتطابق هندسياً بنسبة 100% مع الهوية
-class WamdLogo extends StatelessWidget {
+/// شعار "وصًال" الرسمي المتطابق هندسياً بنسبة 100% مع الهوية
+class WissalLogo extends StatelessWidget {
   final double size;
   final Color color;
 
-  const WamdLogo({
+  const WissalLogo({
     super.key,
     this.size = 120,
     this.color = Colors.white,
@@ -18,19 +18,21 @@ class WamdLogo extends StatelessWidget {
       width: size,
       height: size,
       child: CustomPaint(
-        painter: _WamdLogoPainter(color: color),
+        painter: _WissalLogoPainter(color: color),
       ),
     );
   }
 }
 
 /// للتوافق المؤقت مع أي استدعاء قديم
-typedef SalaLogo = WamdLogo;
+typedef SalaLogo = WissalLogo;
+typedef wissalLogo = WissalLogo;
 
-class _WamdLogoPainter extends CustomPainter {
+// ✅ الحل الصحيح:
+class _WissalLogoPainter extends CustomPainter {
   final Color color;
 
-  _WamdLogoPainter({required this.color});
+  _WissalLogoPainter({required this.color}); // تصحيح اسم الباني
 
   @override
   void paint(Canvas canvas, Size size) {

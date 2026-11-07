@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import '../models/cart_item_model.dart';
 import '../../products/services/products_service.dart';
 import 'dart:io';
@@ -32,10 +32,9 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   }
 
   late final Future<void> _loadFuture;
-
   static String get _key {
     final uid = AppStorage.userId ?? 'guest';
-    return 'wamd_cart_v2_$uid';
+    return 'wissal_cart_v2_$uid';
   }
 
   static const int _maxQuantity = 999;
@@ -43,7 +42,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   bool _isLoaded = false;
   final List<VoidCallback> _pendingMutations = [];
   Future<void> _cartSaveChain = Future.value();
-
+  Timer? _saveDebounceTimer;
   Future<void> _load() async {
     if (kIsWeb) {
       _isLoaded = true;
@@ -54,7 +53,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
       final currentUid = AppStorage.userId;
       if (currentUid != null && currentUid.isNotEmpty) {
-        const guestKey = 'wamd_cart_v2_guest';
+        const guestKey = 'wissal_cart_v2_guest';
         final guestCart = await _repository.readCart(guestKey);
         if (guestCart != null && guestCart.isNotEmpty) {
           final mergedCart = Map<String, CartItem>.from(loaded ?? {});
@@ -104,6 +103,13 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       return;
     }
 
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 250), () {
+      _flushSaveToDisk();
+    });
+  }
+
+  void _flushSaveToDisk() {
     final itemsSnapshot = Map<String, CartItem>.from(state);
 
     _cartSaveChain = _cartSaveChain.then((_) async {
@@ -124,8 +130,17 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   }
 
   Future<void> forceSave() async {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    _flushSaveToDisk();
     await _loadFuture;
     return _cartSaveChain;
+  }
+
+  @override
+  void dispose() {
+    _saveDebounceTimer?.cancel();
+    super.dispose();
   }
 
   void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {

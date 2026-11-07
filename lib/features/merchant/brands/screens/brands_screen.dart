@@ -7,8 +7,8 @@ import '../services/brands_service.dart';
 import '../widgets/brand_card.dart';
 import '../widgets/brands_skeleton.dart';
 import '../../products/screens/products_screen.dart';
-import 'package:wamd/core/services/image_precache_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class BrandsScreen extends ConsumerWidget {
   final String categoryId;

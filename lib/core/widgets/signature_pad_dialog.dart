@@ -70,9 +70,10 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     setState(() => _isSaving = true);
 
     try {
-      // 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
+// 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 360, 180));
+      canvas.drawColor(Colors.white, BlendMode.src);
       final painter = _SignaturePainter(strokes: _strokes);
       painter.paint(canvas, const Size(360, 180));
       final picture = recorder.endRecording();

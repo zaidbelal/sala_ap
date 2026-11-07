@@ -8,7 +8,7 @@ import '../../../../../core/services/local_storage.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final OrderModel order;

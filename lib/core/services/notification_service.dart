@@ -79,8 +79,8 @@ class NotificationService {
   Future<void> initLocalNotifications({bool isBackground = false}) async {
     // 🚀 القناة الرسمية للطلبات العامة (متطابقة تماماً مع السيرفر)
     const ordersChannel = AndroidNotificationChannel(
-      'wamd_orders_channel_v3',
-      'طلبات وَمْض',
+      'wissal_orders_channel_v3',
+      'طلبات وصًال',
       description: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       playSound: true,
@@ -90,13 +90,13 @@ class NotificationService {
 
     // 🚀 قناة إشعارات السائقين المعتمدة (متطابقة تماماً مع السيرفر)
     const driverChannel = AndroidNotificationChannel(
-      'wamd_orders_channel',
+      'wissal_orders_channel',
       'طلبات السائقين',
       description: 'إشعارات الطلبات الجديدة للسائق مع الرنين',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
-      sound: RawResourceAndroidNotificationSound('wamd_notification'),
+      sound: RawResourceAndroidNotificationSound('wissal_notification'),
     );
     final androidPlugin = _localNotif.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -190,10 +190,9 @@ class NotificationService {
         message.notification != null) {
       return;
     }
-
     final androidDetails = AndroidNotificationDetails(
-      'wamd_orders_channel_v3',
-      'طلبات وَمْض',
+      'wissal_orders_channel_v3',
+      'طلبات وصًال',
       channelDescription: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       priority: Priority.high,
@@ -225,8 +224,8 @@ class NotificationService {
     required String title,
     required String body,
     String? payload,
-    String channelId = 'wamd_orders_channel_v3',
-    String channelName = 'طلبات وَمْض',
+    String channelId = 'wissal_orders_channel_v3',
+    String channelName = 'طلبات وصًال',
     String? channelDescription,
     RawResourceAndroidNotificationSound? sound,
   }) async {

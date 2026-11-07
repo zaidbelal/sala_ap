@@ -11,11 +11,11 @@ import '../../orders/services/orders_service.dart';
 import '../../orders/screens/order_status_screen.dart';
 import '../providers/cart_provider.dart';
 import 'location_picker_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/local_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 import '../../../../core/services/connectivity_service.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
@@ -522,10 +522,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       if (!mounted) return;
       safeDismissLoading();
 
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).popUntil(
-            (route) => route.isFirst || route.settings.name == '/checkout');
-      }
+      if (!mounted) return;
 
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(

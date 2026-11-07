@@ -15,7 +15,7 @@ import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
 import '../../../../../core/services/realtime_hub.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/widgets/product_details_sheet.dart';
@@ -50,7 +50,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   void _onSearchChanged(String value) {
     setState(() => _isSearching = value.isNotEmpty);
-    ref.read(_searchQueryProvider.notifier).state = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        ref.read(_searchQueryProvider.notifier).state = value;
+      }
+    });
   }
 
   void _clearAndExit() {

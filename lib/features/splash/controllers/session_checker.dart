@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 import 'dart:async';
 
 enum SessionResult {
@@ -78,9 +78,7 @@ class SessionChecker {
     if (firebaseUser == null || firebaseUser.uid != userId) {
       return SessionResult.unauthenticated;
     }
-
     try {
-      // محاولة فحص حالة الحساب في الخلفية بهدوء دون مسح الحساب إذا تعثرت الشبكة
       final doc = await FirebaseFirestore.instance
           .collection('profiles')
           .doc(userId)
@@ -123,10 +121,21 @@ class SessionChecker {
         };
       }
     } catch (_) {
-      // في حال وجود بطء في الاتصال أو عدم توفر إنترنت، نعتمد الجلسة المحلية فوراً
+      try {
+        final tokenResult = await firebaseUser.getIdTokenResult();
+        final claimsRole =
+            (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+        final isBannedClaim = tokenResult.claims?['is_banned'] == true;
+        if (isBannedClaim) {
+          await AppStorage.clearUserData();
+          return SessionResult.unauthenticated;
+        }
+        if (claimsRole != null && claimsRole.isNotEmpty) {
+          await AppStorage.saveUserData(userId: userId, role: claimsRole);
+        }
+      } catch (_) {}
     }
 
-    // تشغيل القنوات الحية والانتقال مباشرة
     unawaited(RealtimeHub()
         .startForUser(userId, role: AppStorage.normalizedUserRole));
     return localSessionResult();

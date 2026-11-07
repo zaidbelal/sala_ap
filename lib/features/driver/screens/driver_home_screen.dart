@@ -3,18 +3,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/services/local_storage.dart';
 import '../widgets/new_order_sheet.dart';
 import 'driver_order_detail_screen.dart';
 import 'driver_stats_screen.dart';
 import 'driver_history_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
-import 'package:wamd/features/merchant/orders/services/orders_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/widgets/signature_pad_dialog.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/merchant/orders/services/orders_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/widgets/signature_pad_dialog.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});
@@ -34,9 +34,14 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
 
+    bool isFirstSnapshot = true;
     _ordersSubscription = ref.listenManual<List<Map<String, dynamic>>>(
       realtimeConfirmedOrdersProvider,
       (prev, next) {
+        if (isFirstSnapshot) {
+          isFirstSnapshot = false;
+          return;
+        }
         if (prev == null) return;
         final prevIds = prev.map((e) => e['id']).toSet();
         final newOrders = next.where((e) => !prevIds.contains(e['id']));

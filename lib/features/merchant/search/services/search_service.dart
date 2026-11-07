@@ -4,7 +4,7 @@ import '../../../../core/services/app_cache.dart';
 import '../../../../core/services/image_precache_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة استيراد Crashlytics
 
 final _db = FirebaseFirestore.instance;
@@ -145,12 +145,12 @@ class SearchService {
 
     final results = await Future.wait([
       _safeQuery('products', () async {
+        final normalizedQ = normalizeArabic(q);
         final barcodeQuery = await _db
             .collection('products')
-            .where('all_barcodes', arrayContains: q)
+            .where('all_barcodes', arrayContains: normalizedQ)
             .limit(15)
             .get(const GetOptions(source: Source.serverAndCache));
-
         final combinedDocs = <String, Map<String, dynamic>>{};
         for (final d in barcodeQuery.docs) {
           if (d.data()['is_deleted'] != true &&

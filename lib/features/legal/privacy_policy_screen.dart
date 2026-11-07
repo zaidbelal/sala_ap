@@ -4,13 +4,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/app_spacing.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _privacyPolicyWebUrl =
-      'https://sites.google.com/view/view-wamd';
+      'https://sites.google.com/view/view-wissal';
   Future<void> _launchUrl(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);
     try {
@@ -62,7 +62,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'سياسة الخصوصية وحماية البيانات لمنصة وَمْض',
+              'سياسة الخصوصية وحماية البيانات لمنصة وصًال',
               style: AppTextStyles.headlineMedium.copyWith(
                 fontWeight: FontWeight.w800,
                 color: context.textPrimary,

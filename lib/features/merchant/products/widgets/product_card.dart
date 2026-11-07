@@ -7,7 +7,7 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/products_service.dart';
 import '../../cart/providers/cart_provider.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'product_details_sheet.dart';
 
 class ProductCard extends ConsumerStatefulWidget {
@@ -127,8 +127,6 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       cartProvider.select((c) => c[cartKey]?.quantity ?? 0),
     );
 
-    final total = currentUnit.price * _qty;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
@@ -218,6 +216,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                   final safeIndex =
                       (index % units.length + units.length) % units.length;
                   final unit = units[safeIndex];
+                  final pageTotal = unit.price * _qty;
                   final unitImageUrl = (unit.imageUrl != null &&
                           unit.imageUrl!.trim().isNotEmpty)
                       ? unit.imageUrl!.trim()
@@ -242,7 +241,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${total.toStringAsFixed(0)} ر.ي',
+                              '${pageTotal.toStringAsFixed(0)} ر.ي',
                               style: TextStyle(
                                 fontFamily: 'Cairo',
                                 fontSize: 16,

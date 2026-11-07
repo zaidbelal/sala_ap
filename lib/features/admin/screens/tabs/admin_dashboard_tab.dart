@@ -6,7 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../services/admin_service.dart';
 import '../../../auth/login/services/auth_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 // ══ Providers ══
 final _statsProvider = FutureProvider<AdminStats>((ref) async {
@@ -828,21 +828,40 @@ class _PermanentProfitCard extends ConsumerWidget {
                   ? null
                   : () async {
                       Navigator.pop(ctx);
-                      await ref
-                          .read(adminServiceProvider)
-                          .resetPermanentProfit();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text(
-                                'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
-                                style: TextStyle(fontFamily: 'Cairo')),
-                            backgroundColor: AppColors.primary,
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                        );
+                      try {
+                        await ref
+                            .read(adminServiceProvider)
+                            .resetPermanentProfit();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text(
+                                  'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
+                                  style: TextStyle(fontFamily: 'Cairo')),
+                              backgroundColor: AppColors.primary,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                e.toString().contains('permission-denied')
+                                    ? 'عذراً، هذه العملية مخصصة للمدراء الماليين فقط 🔒'
+                                    : 'تعذر تفريغ الأرباح: $e',
+                                style: const TextStyle(fontFamily: 'Cairo'),
+                              ),
+                              backgroundColor: Colors.red,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
                       }
                     },
               style: ElevatedButton.styleFrom(

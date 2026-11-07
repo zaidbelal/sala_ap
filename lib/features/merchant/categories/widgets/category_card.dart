@@ -4,8 +4,8 @@ import '../../../../core/constants/app_radius.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/categories_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/services/prefetch_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/services/prefetch_service.dart';
 
 class CategoryCard extends StatelessWidget {
   final CategoryModel category;

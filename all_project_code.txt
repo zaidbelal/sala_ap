@@ -8,13 +8,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'features/splash/splash_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'features/auth/login/login_screen.dart';
 import 'features/auth/login/otp_screen.dart';
 import 'features/auth/signup/signup_details_screen.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/notification_service.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/services/notification_service.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 import 'features/merchant/home/screens/merchant_home_screen.dart';
 import 'features/admin/screens/admin_home_screen.dart';
 import 'features/merchant/notifications/notifications_screen.dart';
@@ -110,6 +110,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (!hasMatchingFirebaseSession) {
         if (path == AppRoutes.login ||
             path == AppRoutes.signup ||
+            path == AppRoutes.otp ||
+            path == AppRoutes.signupDetails ||
             path == AppRoutes.privacy) {
           return null;
         }
@@ -719,17 +721,17 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:wamd/core/services/firebase_service.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
-import 'package:wamd/core/services/notification_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/core/services/catalog_service.dart';
+import 'package:wissal/core/services/firebase_service.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/notification_service.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/core/services/catalog_service.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_theme.dart';
-import 'package:wamd/app_router.dart';
-import 'package:wamd/core/services/image_precache_service.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/constants/app_theme.dart';
+import 'package:wissal/app_router.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -894,7 +896,7 @@ void main() async {
       container: container,
       child: initError != null
           ? _CriticalErrorApp(error: initError)
-          : const WamdApp(),
+          : const WissalApp(),
     ),
   );
   if (isFirebaseReady) {
@@ -1013,14 +1015,15 @@ void _warmUpCache(ProviderContainer container) {
   });
 }
 
-class WamdApp extends ConsumerStatefulWidget {
-  const WamdApp({super.key});
+class WissalApp extends ConsumerStatefulWidget {
+  const WissalApp({super.key});
 
   @override
-  ConsumerState<WamdApp> createState() => _WamdAppState();
+  ConsumerState<WissalApp> createState() => _WissalAppState();
 }
 
-class _WamdAppState extends ConsumerState<WamdApp> with WidgetsBindingObserver {
+class _WissalAppState extends ConsumerState<WissalApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -1046,7 +1049,7 @@ class _WamdAppState extends ConsumerState<WamdApp> with WidgetsBindingObserver {
     final currentTheme = ref.watch(themeProvider);
 
     return MaterialApp.router(
-      title: 'وَمْض',
+      title: 'وصًال',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
@@ -1741,7 +1744,7 @@ class AppTextStyles {
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/services/local_storage.dart';
 import 'app_colors.dart';
 import 'app_radius.dart';
 import 'app_text_styles.dart';
@@ -2523,7 +2526,7 @@ class ProductUnit {
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:wamd/core/services/background_worker.dart';
+import 'package:wissal/core/services/background_worker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // لـ compute()
 import 'package:path_provider/path_provider.dart';
@@ -2629,7 +2632,7 @@ class AppCache {
     }
 
     await Future.wait(
-      keys.map(prefs.remove),
+      keys.map((key) => prefs.remove(key)),
     );
   }
 
@@ -2742,13 +2745,10 @@ class AppCache {
           } catch (_) {}
         }
 
-        // لا نقوم بتحديث الكاش الشامل إلا إذا كان محملاً مسبقاً لمنع مسح باقي المنتجات
+        // تحديث الكاش الشامل مع إزالة الأصناف المحذوفة التابعة لنفس القسم
         if (all.isNotEmpty) {
-          final ids = data.map((e) => e['id']).toSet();
           final merged = [
-            ...all.where((e) =>
-                e['category_id']?.toString() != categoryId &&
-                !ids.contains(e['id'])),
+            ...all.where((e) => e['category_id']?.toString() != categoryId),
             ...data,
           ];
           _ram[_keyProducts] = _CacheEntry(
@@ -3009,7 +3009,7 @@ class _CacheEntry {
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 /// مسار معالجة خلفي (Isolate) لتنفيذ مهام فك وتشفير الـ JSON والفرز لمنع تعليق الشاشة تماماً (120 FPS)
 class BackgroundWorker {
@@ -3055,8 +3055,10 @@ class BackgroundWorker {
 
   static List<Map<String, dynamic>> _isolateFilterAndSort(
       Map<String, dynamic> args) {
-    final List<Map<String, dynamic>> rawItems =
-        List<Map<String, dynamic>>.from(args['items'] as List);
+    final List<Map<String, dynamic>> rawItems = (args['items'] as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
     final String q = (args['query'] as String? ?? '').trim().toLowerCase();
 
     final normQ = ArabicNormalizer.normalize(q);
@@ -3067,9 +3069,19 @@ class BackgroundWorker {
             final name =
                 ArabicNormalizer.normalize(item['name']?.toString() ?? '');
             final barcode = item['barcode']?.toString() ?? '';
-            return name.contains(normQ) || barcode.contains(normQ);
+            final allBarcodes = item['all_barcodes'];
+            final matchesAllBarcodes = allBarcodes is List &&
+                allBarcodes.any((b) => b?.toString().contains(normQ) ?? false);
+            final units = item['units'];
+            final matchesUnits = units is List &&
+                units.any((u) =>
+                    u is Map &&
+                    (u['barcode']?.toString().contains(normQ) ?? false));
+            return name.contains(normQ) ||
+                barcode.contains(normQ) ||
+                matchesAllBarcodes ||
+                matchesUnits;
           }).toList();
-
     filtered.sort((a, b) {
       final aOrder = (a['sort_order'] as num?)?.toInt() ?? 999;
       final bOrder = (b['sort_order'] as num?)?.toInt() ?? 999;
@@ -3570,7 +3582,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'local_storage.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 
 // ══ العملاء المركزيون ══
 final db = FirebaseFirestore.instance;
@@ -3733,7 +3745,7 @@ class ImagePrecacheService {
   // هذا يمنع إعادة تحميل الصور في حالة الإنترنت البطيء ويوفر تجربة تصفح فورية
   final _cacheManager = CacheManager(
     Config(
-      'wamd_images_cache',
+      'wissal_images_cache',
       stalePeriod: const Duration(days: 30),
       maxNrOfCacheObjects: 2000,
     ),
@@ -3963,7 +3975,7 @@ class AppStorage {
       if (uid != null && !kIsWeb) {
         try {
           final dir = await getApplicationDocumentsDirectory();
-          final file = File('${dir.path}/wamd_cart_v2_$uid.json');
+          final file = File('${dir.path}/wissal_cart_v2_$uid.json');
           if (await file.exists()) await file.delete();
         } catch (_) {}
       }
@@ -3982,7 +3994,7 @@ class AppStorage {
       _db.remove(_kStoreName),
       _db.remove(_kUserPhone),
       _db.remove(_kWarehouseId),
-      if (uid != null) _db.remove('wamd_cart_v2_$uid'),
+      if (uid != null) _db.remove('wissal_cart_v2_$uid'),
     ]);
     if (kDebugMode) {
       debugPrint('🗑️ LocalStorage: user data cleared safely');
@@ -4267,8 +4279,8 @@ class NotificationService {
   Future<void> initLocalNotifications({bool isBackground = false}) async {
     // 🚀 القناة الرسمية للطلبات العامة (متطابقة تماماً مع السيرفر)
     const ordersChannel = AndroidNotificationChannel(
-      'wamd_orders_channel_v3',
-      'طلبات وَمْض',
+      'wissal_orders_channel_v3',
+      'طلبات وصًال',
       description: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       playSound: true,
@@ -4278,13 +4290,13 @@ class NotificationService {
 
     // 🚀 قناة إشعارات السائقين المعتمدة (متطابقة تماماً مع السيرفر)
     const driverChannel = AndroidNotificationChannel(
-      'wamd_orders_channel',
+      'wissal_orders_channel',
       'طلبات السائقين',
       description: 'إشعارات الطلبات الجديدة للسائق مع الرنين',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
-      sound: RawResourceAndroidNotificationSound('wamd_notification'),
+      sound: RawResourceAndroidNotificationSound('wissal_notification'),
     );
     final androidPlugin = _localNotif.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
@@ -4378,10 +4390,9 @@ class NotificationService {
         message.notification != null) {
       return;
     }
-
     final androidDetails = AndroidNotificationDetails(
-      'wamd_orders_channel_v3',
-      'طلبات وَمْض',
+      'wissal_orders_channel_v3',
+      'طلبات وصًال',
       channelDescription: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       priority: Priority.high,
@@ -4413,8 +4424,8 @@ class NotificationService {
     required String title,
     required String body,
     String? payload,
-    String channelId = 'wamd_orders_channel_v3',
-    String channelName = 'طلبات وَمْض',
+    String channelId = 'wissal_orders_channel_v3',
+    String channelName = 'طلبات وصًال',
     String? channelDescription,
     RawResourceAndroidNotificationSound? sound,
   }) async {
@@ -4487,14 +4498,16 @@ class NotificationService {
 
   String _routeFromData(Map<String, dynamic> data) {
     final type = data['type'] as String? ?? '';
-    final bool isDriver =
-        AppStorage.isInitialized ? AppStorage.isDriver : false;
+    final bool hasAdmin = AppStorage.isInitialized && AppStorage.hasAdminAccess;
+    final bool isDriver = AppStorage.isInitialized && AppStorage.isDriver;
+
     return switch (type) {
       'new_order' => isDriver ? '/driver' : '/admin',
-      'order_status' => '/merchant',
-      'return_request' => '/admin',
+      'order_status' =>
+        hasAdmin ? '/admin' : (isDriver ? '/driver' : '/merchant'),
+      'return_request' => hasAdmin ? '/admin' : '/merchant',
       'notification' => '/notifications',
-      _ => '',
+      _ => hasAdmin ? '/admin' : (isDriver ? '/driver' : '/merchant'),
     };
   }
 
@@ -4650,8 +4663,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'local_storage.dart';
 import 'notification_service.dart';
 import 'connectivity_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
 
 // ══════════════════════════════════════════════════════════
 //  RealtimeHub — Production-Grade
@@ -4784,7 +4797,7 @@ class RealtimeHub {
   StreamSubscription? _notificationsSub;
   StreamSubscription? _categoriesSub;
   StreamSubscription? _brandsSub;
-
+  StreamSubscription? _productsSub;
   Future<void> _startForUserLock = Future.value();
   String? _activeUserId;
   String? _activeUserRole;
@@ -4801,6 +4814,7 @@ class RealtimeHub {
 
     _watchCategories();
     _watchBrands();
+    _watchProducts();
 
     final userId = AppStorage.userId ?? '';
     if (userId.isNotEmpty) {
@@ -4904,6 +4918,7 @@ class RealtimeHub {
   void _startUserChannels(String userId, {required String role}) {
     if (_categoriesSub == null) _watchCategories();
     if (_brandsSub == null) _watchBrands();
+    if (_productsSub == null) _watchProducts();
 
     _profileSub?.cancel();
     if (_profileSub != null) {
@@ -5003,6 +5018,16 @@ class RealtimeHub {
         );
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-token-revoked') {
+            await resetOnSignOut();
+            await AppStorage.clearUserData();
+            final navContext = NotificationService.navigatorKey.currentContext;
+            if (navContext != null && navContext.mounted) {
+              navContext.go('/login');
+            }
+            return;
+          }
         } catch (_) {}
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
@@ -5145,9 +5170,33 @@ class RealtimeHub {
     _userSubs.add(sub);
   }
 
+  void _watchProducts() {
+    _productsSub?.cancel();
+    _productsSub = _db
+        .collection('products')
+        .where('is_deleted', isEqualTo: false)
+        .limit(100)
+        .snapshots(includeMetadataChanges: false)
+        .listen(
+      (snap) {
+        final data = snap.docs
+            .where((d) => d.data()['is_active'] != false)
+            .map((d) => {'id': d.id, ...d.data()})
+            .toList()
+          ..sort((a, b) => (a['name']?.toString() ?? '')
+              .compareTo(b['name']?.toString() ?? ''));
+        _container?.read(realtimeProductsProvider.notifier).update(data);
+        AppCache.instance.setProducts(data);
+      },
+      onError: (e) {
+        if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
+      },
+    );
+  }
+
   void watchProducts() {
-    if ((_container?.read(realtimeProductsProvider).length ?? 0) == 0) {
-      unawaited(_container?.read(realtimeProductsProvider.notifier).reload());
+    if (_productsSub == null) {
+      _watchProducts();
     }
   }
 
@@ -5215,7 +5264,6 @@ class RealtimeHub {
   }
 
   void _watchConfirmedOrders() {
-    bool firstLoad = true;
     final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'pending', 'preparing'];
 
@@ -5234,23 +5282,8 @@ class RealtimeHub {
         final currentIds = LinkedHashSet<String>.from(
           snap.docs.map((doc) => doc.id),
         );
-        if (!firstLoad) {
-          final newIds = currentIds.difference(seenIds);
-          for (final id in newIds) {
-            final doc = snap.docs.firstWhere((d) => d.id == id);
-            final order = {'id': doc.id, ...doc.data()};
-            final assignedDriver = order['driver_id'] as String?;
-            if (assignedDriver != null && assignedDriver.isNotEmpty) continue;
+        // 🚀 تم إلغاء showLocalNotification هنا لمنع التكرار المزدوج مع FCM Topic والحوار المنبثق
 
-            NotificationService.instance.showLocalNotification(
-              title: '🚨 طلب جديد وصلك!',
-              body:
-                  'طلب جديد جاهز للتوصيل بقيمة ${(order['total'] ?? order['total_amount'] ?? 0)} ر.ي',
-              payload: '/driver',
-            );
-          }
-        }
-        firstLoad = false;
         for (final id in currentIds) {
           seenIds
             ..remove(id)
@@ -5374,12 +5407,12 @@ class RealtimeHub {
     _reconnectTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
     final subsToCancel = <StreamSubscription?>[
       _profileSub,
       _notificationsSub,
       _categoriesSub,
       _brandsSub,
+      _productsSub,
       ..._userSubs,
     ];
 
@@ -5387,8 +5420,8 @@ class RealtimeHub {
     _notificationsSub = null;
     _categoriesSub = null;
     _brandsSub = null;
+    _productsSub = null;
     _userSubs.clear();
-
     await Future.wait(
       subsToCancel
           .whereType<StreamSubscription>()
@@ -5621,7 +5654,6 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   bool _isLoadingMore = false;
   String? _lastLoadedCursor;
   String? _activeBrandId;
-
   Future<void> reload({String? brandId}) async {
     _activeBrandId = brandId;
     _lastLoadedCursor = null;
@@ -5631,7 +5663,10 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
         if (brandId != null) {
           query = query.where('brand_id', isEqualTo: brandId);
         }
-        final snap = await query.limit(RealtimeHub._productsPageSize).get();
+        final snap = await query
+            .orderBy('name')
+            .limit(RealtimeHub._productsPageSize)
+            .get();
         final list = snap.docs
             .where((d) =>
                 d.data()['is_active'] != false &&
@@ -5974,9 +6009,9 @@ class ThermalPrinterService {
       final context = key.currentContext;
       if (context == null) return null;
       final boundary = context.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null || !boundary.attached) return null;
+      if (boundary == null || !boundary.attached || boundary.size.isEmpty)
+        return null;
 
-      // انتظار اكتمال رسم الشجرة بالكامل مع إعادة محاولة مؤمنة
       await Future.delayed(const Duration(milliseconds: 150));
       WidgetsBinding.instance.scheduleFrame();
       await WidgetsBinding.instance.endOfFrame.timeout(
@@ -5984,13 +6019,18 @@ class ThermalPrinterService {
         onTimeout: () => null,
       );
 
-      ui.Image image;
+      ui.Image? image;
       try {
         image = await boundary.toImage(pixelRatio: 1.0);
       } catch (_) {
         await Future.delayed(const Duration(milliseconds: 200));
-        image = await boundary.toImage(pixelRatio: 1.0);
+        if (boundary.attached && !boundary.size.isEmpty) {
+          try {
+            image = await boundary.toImage(pixelRatio: 1.0);
+          } catch (_) {}
+        }
       }
+      if (image == null) return null;
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       if (byteData == null) return null;
@@ -6061,7 +6101,7 @@ class ThermalReceiptWidget extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    'وَمْـــــض',
+                    'وصًـــــال',
                     style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 28,
@@ -6423,7 +6463,7 @@ class ThermalReceiptWidget extends StatelessWidget {
               children: [
                 QrImageView(
                   data:
-                      'WAMD_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
+                      'WISSAL_INV:$shortId|TOTAL:${order.total}|MERCHANT:${order.merchantName}|DATE:${order.createdAt.toIso8601String()}',
                   version: QrVersions.auto,
                   size: paperSize == PaperSize.mm58 ? 95.0 : 120.0,
                 ),
@@ -6649,7 +6689,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../constants/app_colors.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 enum AppMapStyle {
   streets,
@@ -6740,10 +6780,9 @@ class _AppMapState extends State<AppMap> {
 
     setState(() => _searching = true);
 
-    // ✅ مهلة 1000ms متزنة لمنع حظر خوادم الخرائط (HTTP 429) أثناء الكتابة السريعة
-    _searchDebounce = Timer(const Duration(milliseconds: 1000), () async {
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () async {
       final results = await _SanaaPlacesEngine.search(q);
-      if (mounted) {
+      if (mounted && _searchController.text.trim() == q) {
         setState(() {
           _searchResults = results;
           _searching = false;
@@ -6799,7 +6838,7 @@ class _AppMapState extends State<AppMap> {
                 ],
               ),
               content: const Text(
-                'يجمع تطبيق "وَمْض" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
+                'يجمع تطبيق "وصًال" بيانات موقعك الجغرافي الدقيق لتمكين تحديد موقع متجرك على الخريطة وتوجيه مندوبي الشحن وسائقي التوصيل إليك بدقة. يتم استخدام الموقع فقط أثناء استخدامك للتطبيق ولا يتم تتبعه في الخلفية.',
                 style:
                     TextStyle(fontFamily: 'Cairo', fontSize: 13, height: 1.6),
               ),
@@ -7223,7 +7262,7 @@ class _SanaaPlace {
 // محرك بحث قوقل الحقيقي لصنعاء + كاش أوفلاين دائم
 // ══════════════════════════════════════════════════════════════
 class _SanaaPlacesEngine {
-  static const String _kOfflineCacheKey = 'wamd_sanaa_places_v2';
+  static const String _kOfflineCacheKey = 'wissal_sanaa_places_v2';
   static final Map<String, List<_SanaaPlace>> _memoryCache = {};
   static final List<_SanaaPlace> _offlineStoredPlaces = [];
   static bool _initialized = false;
@@ -7391,7 +7430,7 @@ class _SanaaPlacesEngine {
       );
 
       final request = await client.getUrl(url);
-      request.headers.set('User-Agent', 'WamdAppYemen/1.0');
+      request.headers.set('User-Agent', 'WissalAppYemen/1.0');
       final response = await request.close();
 
       if (response.statusCode == 200) {
@@ -7552,9 +7591,10 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     setState(() => _isSaving = true);
 
     try {
-      // 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
+// 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 360, 180));
+      canvas.drawColor(Colors.white, BlendMode.src);
       final painter = _SignaturePainter(strokes: _strokes);
       painter.paint(canvas, const Size(360, 180));
       final picture = recorder.endRecording();
@@ -7766,7 +7806,7 @@ import 'tabs/admin_catalog_tab.dart';
 import 'tabs/admin_notifications_tab.dart';
 import 'tabs/admin_returns_tab.dart';
 import 'tabs/admin_merchants_tab.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 
 class AdminHomeScreen extends ConsumerStatefulWidget {
@@ -8192,7 +8232,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../services/admin_service.dart';
 import '../../../auth/login/services/auth_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 // ══ Providers ══
 final _statsProvider = FutureProvider<AdminStats>((ref) async {
@@ -8204,10 +8244,6 @@ final _todayStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return ref.read(adminServiceProvider).getTodayStats();
 });
 final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
-  final now = DateTime.now();
-  final startOfDay = DateTime(now.year, now.month, now.day);
-
-  // الاستعلام المرتب تنازلياً لضمان احتواء أحدث طلبات اليوم داخل الـ limit
   return FirebaseFirestore.instance
       .collection('orders')
       .where('status', isEqualTo: 'pending')
@@ -8215,6 +8251,9 @@ final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
       .limit(100)
       .snapshots(includeMetadataChanges: false)
       .map((snap) {
+    // ✅ حساب تاريخ بداية اليوم ديناميكياً داخل معالج التدفق لمواكبة تجاوز منتصف الليل
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
     return snap.docs.where((d) {
       final ts = d.data()['created_at'];
       final date = ts is Timestamp ? ts.toDate() : (ts is DateTime ? ts : null);
@@ -9015,21 +9054,40 @@ class _PermanentProfitCard extends ConsumerWidget {
                   ? null
                   : () async {
                       Navigator.pop(ctx);
-                      await ref
-                          .read(adminServiceProvider)
-                          .resetPermanentProfit();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text(
-                                'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
-                                style: TextStyle(fontFamily: 'Cairo')),
-                            backgroundColor: AppColors.primary,
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                        );
+                      try {
+                        await ref
+                            .read(adminServiceProvider)
+                            .resetPermanentProfit();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text(
+                                  'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
+                                  style: TextStyle(fontFamily: 'Cairo')),
+                              backgroundColor: AppColors.primary,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                e.toString().contains('permission-denied')
+                                    ? 'عذراً، هذه العملية مخصصة للمدراء الماليين فقط 🔒'
+                                    : 'تعذر تفريغ الأرباح: $e',
+                                style: const TextStyle(fontFamily: 'Cairo'),
+                              ),
+                              backgroundColor: Colors.red,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        }
                       }
                     },
               style: ElevatedButton.styleFrom(
@@ -9726,7 +9784,7 @@ class _BroadcastNotificationDialogState
 // FILE: lib\features\admin\screens\tabs\admin_merchants_tab.dart
 // ==================================================
 
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9735,7 +9793,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../services/admin_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:wamd/core/widgets/app_map.dart';
+import 'package:wissal/core/widgets/app_map.dart';
 import 'dart:async';
 
 // ══════════════════════════════════════════
@@ -9919,7 +9977,10 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: TextField(
         onChanged: (v) {
-          setState(() => _search = v);
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+            if (mounted) setState(() => _search = v);
+          });
         },
         decoration: InputDecoration(
           hintText: 'بحث بالاسم، البقالة، أو الهاتف...',
@@ -12049,26 +12110,13 @@ class AdminOrdersTab extends ConsumerStatefulWidget {
 class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-
   static const _tabs = [
     (label: 'الكل', statuses: null, color: AppColors.primary),
     (label: 'معلق', statuses: ['pending'], color: Colors.orange),
-    (
-      label: 'مقبول',
-      statuses: ['confirmed', 'accepted', 'preparing'],
-      color: Colors.blue
-    ),
-    (
-      label: 'في الطريق',
-      statuses: ['shipped', 'on_the_way'],
-      color: Colors.indigo
-    ),
+    (label: 'مقبول', statuses: ['confirmed'], color: Colors.blue),
+    (label: 'في الطريق', statuses: ['shipped'], color: Colors.indigo),
     (label: 'مُسلّم', statuses: ['delivered'], color: Color(0xFF10B981)),
-    (
-      label: 'ملغي ومرفوض',
-      statuses: ['cancelled', 'rejected'],
-      color: Colors.red
-    ),
+    (label: 'ملغي ومرفوض', statuses: ['cancelled'], color: Colors.red),
     (label: 'مُرتجع', statuses: ['returned'], color: Colors.deepOrange),
     (
       label: 'طلب إرجاع',
@@ -12076,7 +12124,6 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
       color: Colors.deepOrange
     ),
   ];
-
   @override
   void initState() {
     super.initState();
@@ -12977,15 +13024,18 @@ class _RejectReasonDialogState extends State<_RejectReasonDialog> {
 // FILE: lib\features\admin\screens\tabs\catalog\brands_tab.dart
 // ==================================================
 
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../services/admin_service.dart';
 import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 
 class BrandsTab extends ConsumerWidget {
   const BrandsTab({super.key});
@@ -13123,11 +13173,15 @@ class _BrandTile extends StatelessWidget {
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: logoUrl != null && logoUrl!.isNotEmpty
-              ? Image.network(logoUrl!,
+              ? CachedNetworkImage(
+                  cacheManager: ImagePrecacheService.instance.cacheManager,
+                  imageUrl: logoUrl!,
                   width: 48,
                   height: 48,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _logoPlaceholder(name))
+                  placeholder: (_, __) => _logoPlaceholder(name),
+                  errorWidget: (_, __, ___) => _logoPlaceholder(name),
+                )
               : _logoPlaceholder(name),
         ),
         title: Text(name,
@@ -13251,8 +13305,9 @@ class _AddBrandBarState extends State<AddBrandBar> {
       if (!mounted) return;
       final text = _ctrl.text.trim();
       final catId = _selectedCategoryId!;
-      _ctrl.clear();
+      await widget.onAdd(text, catId, imageUrl);
       if (mounted) {
+        _ctrl.clear();
         setState(() {
           _image = null;
           _imageBytes = null;
@@ -13260,7 +13315,6 @@ class _AddBrandBarState extends State<AddBrandBar> {
           _loading = false;
         });
       }
-      await widget.onAdd(text, catId, imageUrl);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -13771,9 +13825,10 @@ class AdminProductsPaginationNotifier
     }
     try {
       final adminService = _ref.read(adminServiceProvider);
-      await adminService.ensureFinancialFieldsMigrated();
+      // 🚀 إزالة استدعاء ensureFinancialFieldsMigrated المتكرر لتسريع فتح الكتالوج فوراً
       final snap = await FirebaseFirestore.instance
           .collection('products')
+          .where('is_deleted', isEqualTo: false)
           .orderBy('name')
           .limit(_pageSize)
           .get(const GetOptions(source: Source.serverAndCache));
@@ -13782,11 +13837,7 @@ class AdminProductsPaginationNotifier
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
       _hasMore = snap.docs.length == _pageSize;
 
-      final list = snap.docs
-          .where((d) => d.data()['is_deleted'] != true)
-          .map((d) => {'id': d.id, ...d.data()})
-          .toList();
-
+      final list = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
       list.sort((a, b) =>
           (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''));
 
@@ -13806,9 +13857,9 @@ class AdminProductsPaginationNotifier
     _ref.read(productsLoadingMoreProvider.notifier).state = true;
     try {
       final adminService = _ref.read(adminServiceProvider);
-      await adminService.ensureFinancialFieldsMigrated();
       final snap = await FirebaseFirestore.instance
           .collection('products')
+          .where('is_deleted', isEqualTo: false)
           .orderBy('name')
           .startAfterDocument(_lastDoc!)
           .limit(_pageSize)
@@ -14140,11 +14191,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../services/admin_service.dart';
 import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
 
 class CategoriesTab extends ConsumerWidget {
   const CategoriesTab({super.key});
@@ -14283,16 +14336,17 @@ class _CategoryTile extends StatelessWidget {
             borderRadius:
                 const BorderRadius.horizontal(right: Radius.circular(16)),
             child: imageUrl != null && imageUrl!.isNotEmpty
-                ? Image.network(
-                    imageUrl!,
+                ? CachedNetworkImage(
+                    cacheManager: ImagePrecacheService.instance.cacheManager,
+                    imageUrl: imageUrl!,
                     width: 72,
                     height: 72,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _placeholder(),
+                    placeholder: (_, __) => _placeholder(),
+                    errorWidget: (_, __, ___) => _placeholder(),
                   )
                 : _placeholder(),
           ),
-
           // الاسم والوصف
           Expanded(
             child: Padding(
@@ -14629,7 +14683,7 @@ import 'catalog_providers.dart';
 import 'catalog_helpers.dart';
 import 'catalog_widgets.dart';
 import 'product_units_editor.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../merchant/barcode/barcode_scanner_screen.dart';
 import 'dart:async';
@@ -15782,7 +15836,6 @@ class _ManualDateField extends StatelessWidget {
       controller: ctrl,
       keyboardType: TextInputType.number,
       inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
         DateInputFormatter(),
       ],
       style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
@@ -16258,8 +16311,8 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:image_picker/image_picker.dart';
 import 'catalog_helpers.dart';
 import 'products_tab.dart' show DateInputFormatter;
@@ -17228,7 +17281,7 @@ class AdminService {
         _db
             .collection('product_financials')
             .where(FieldPath.documentId, whereIn: chunk)
-            .get(const GetOptions(source: Source.server)),
+            .get(const GetOptions(source: Source.serverAndCache)),
       );
     }
     final snapshotsList = await Future.wait(queryFutures);
@@ -17396,37 +17449,47 @@ class AdminService {
     // 4. الحساب المباشر الاحتياطي ينفذ فقط إذا فشل استعلام الشظايا تماماً وليس لأن المبيعات أو المرتجعات صفرية
     if (!shardsSucceeded) {
       try {
-        final aggSnap = await _db
-            .collection('orders')
-            .where('status', isEqualTo: 'delivered')
-            .aggregate(
-              sum('total_amount'),
-              sum('total'),
-            )
-            .get();
-        final profitSnap = await _db
-            .collection('order_financials')
-            .where('profit_recorded', isEqualTo: true)
-            .aggregate(sum('total_profit'))
-            .get();
+        double resolvedRevenue = 0.0;
+        try {
+          final aggSnap = await _db
+              .collection('orders')
+              .where('status', isEqualTo: 'delivered')
+              .aggregate(sum('total_amount'))
+              .get();
+          resolvedRevenue = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+        } catch (_) {
+          final aggSnapTotal = await _db
+              .collection('orders')
+              .where('status', isEqualTo: 'delivered')
+              .aggregate(sum('total'))
+              .get();
+          resolvedRevenue = (aggSnapTotal.getSum('total') ?? 0.0).toDouble();
+        }
+        grossRevenue = resolvedRevenue;
 
-        final sumTotalAmount = aggSnap.getSum('total_amount') ?? 0.0;
-        final sumTotal = aggSnap.getSum('total') ?? 0.0;
-        grossRevenue = sumTotalAmount > 0 ? sumTotalAmount : sumTotal;
-        totalProfit = profitSnap.getSum('total_profit') ?? 0.0;
+        try {
+          final profitSnap = await _db
+              .collection('order_financials')
+              .where('profit_recorded', isEqualTo: true)
+              .aggregate(sum('total_profit'))
+              .get();
+          totalProfit = (profitSnap.getSum('total_profit') ?? 0.0).toDouble();
+        } catch (_) {
+          totalProfit = 0.0;
+        }
       } catch (_) {
-        // في حال تعذر التجميع السحابي (غياب فهرس أو اختلاف نوع الحقول)، جلب الوثائق وحسابها مباشرة
+        // في حال تعذر التجميع السحابي، يتم جلب البيانات من الخادم وتوثيق أن الإحصاءات غير مكتملة
         try {
           final deliveredDocsSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .limit(50)
-              .get(const GetOptions(source: Source.cache));
+              .limit(300)
+              .get(const GetOptions(source: Source.serverAndCache));
           final financialDocsSnap = await _db
               .collection('order_financials')
               .where('profit_recorded', isEqualTo: true)
-              .limit(50)
-              .get(const GetOptions(source: Source.cache));
+              .limit(300)
+              .get(const GetOptions(source: Source.serverAndCache));
           double calcRevenue = 0.0;
           for (final doc in deliveredDocsSnap.docs) {
             final data = doc.data();
@@ -17442,6 +17505,8 @@ class AdminService {
           );
           grossRevenue = calcRevenue;
           totalProfit = calcProfit;
+          isPartial = deliveredDocsSnap.docs.length >= 300;
+          if (isPartial) failureReason = 'large_dataset_partial_fallback';
         } catch (_) {
           isPartial = true;
           failureReason ??= 'revenue_calculation_failed';
@@ -17456,7 +17521,17 @@ class AdminService {
             .where('status', isEqualTo: 'accepted')
             .aggregate(sum('refund_amount'))
             .get();
-        returnedRevenue = returnsAggSnap.getSum('refund_amount') ?? 0.0;
+        returnedRevenue =
+            (returnsAggSnap.getSum('refund_amount') ?? 0.0).toDouble();
+        if (returnedRevenue == 0.0) {
+          final retAltSnap = await _db
+              .collection('order_returns')
+              .where('status', isEqualTo: 'accepted')
+              .aggregate(sum('returned_amount'))
+              .get();
+          returnedRevenue =
+              (retAltSnap.getSum('returned_amount') ?? 0.0).toDouble();
+        }
       } catch (_) {
         try {
           final returnsDocsSnap = await _db
@@ -17467,13 +17542,14 @@ class AdminService {
 
           double calcReturns = 0.0;
           for (final doc in returnsDocsSnap.docs) {
-            calcReturns +=
-                (doc.data()['refund_amount'] as num?)?.toDouble() ?? 0.0;
+            final data = doc.data();
+            calcReturns += (data['refund_amount'] as num?)?.toDouble() ??
+                (data['returned_amount'] as num?)?.toDouble() ??
+                0.0;
           }
           returnedRevenue = calcReturns;
         } catch (_) {}
       }
-
       // إذا لم تكن مسجلة في order_returns، فحص المرتجعات المسجلة داخل الطلبات نفسها
       if (returnedRevenue == 0.0) {
         try {
@@ -17964,16 +18040,11 @@ class AdminService {
       options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
     );
 
-    try {
-      await callable.call({'type': 'category', 'id': cleanId});
-      await AppCache.instance.invalidateCategories();
-      await AppCache.instance.invalidateBrands();
-      await AppCache.instance.invalidateProducts();
-      return true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AdminService] deleteCategory error: $e');
-      return false;
-    }
+    await callable.call({'type': 'category', 'id': cleanId});
+    await AppCache.instance.invalidateCategories();
+    await AppCache.instance.invalidateBrands();
+    await AppCache.instance.invalidateProducts();
+    return true;
   }
 
   // ── حذف الشركة والمنتجات التابعة لها سحابياً وبضمان 100% ──
@@ -18001,7 +18072,6 @@ class AdminService {
 // ── المنتجات (مع فرز بالذاكرة لتفادي FAILED_PRECONDITION) ──
   Future<List<Map<String, dynamic>>> getProducts({String? brandId}) async {
     try {
-      await ensureFinancialFieldsMigrated();
       final query = brandId != null
           ? _db.collection('products').where('brand_id', isEqualTo: brandId)
           : _db.collection('products');
@@ -18463,7 +18533,7 @@ import 'package:flutter/material.dart';
 import '../../services/admin_service.dart';
 import 'order_detail_sheet.dart';
 import 'order_widgets.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderCard extends StatelessWidget {
   final AdminOrder order;
@@ -18631,7 +18701,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/services/local_storage.dart';
 
 class OrderDetailSheet extends ConsumerStatefulWidget {
   final AdminOrder order;
@@ -19691,7 +19761,7 @@ class _ActionBtn extends StatelessWidget {
 
 import 'package:flutter/material.dart';
 import '../../../../../core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../merchant/orders/models/order_model.dart';
 
 class OrderSection extends StatelessWidget {
@@ -20409,8 +20479,10 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
         await ImagePrecacheService.instance.cacheManager
             .getSingleFile(widget.signatureUrl!)
             .timeout(const Duration(seconds: 4));
-        if (mounted) setState(() {});
-        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          setState(() {});
+          await WidgetsBinding.instance.endOfFrame;
+        }
       } catch (_) {}
     }
 
@@ -20437,8 +20509,14 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
       name: 'receipt_${widget.order.id}.png',
     );
 
-    // إرسال الصورة فوراً إلى تطبيقات الطابعات الحرارية عبر البلوتوث (مثل RawBT أو طباعة النظام)
-    await Share.shareXFiles([xFile], text: 'طباعة فاتورة حرارية');
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box != null
+        ? (box.localToGlobal(Offset.zero) & box.size)
+        : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+
+    // إرسال الصورة فوراً إلى تطبيقات الطابعات الحرارية عبر البلوتوث مع دعم كامل لأجهزة iPad
+    await Share.shareXFiles([xFile],
+        text: 'طباعة فاتورة حرارية', sharePositionOrigin: origin);
   }
 
   Future<void> _saveToGallery() async {
@@ -20679,7 +20757,7 @@ import 'services/auth_service.dart';
 import '../../../core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 import 'dart:async';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -20821,13 +20899,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 56),
-                  const WamdLogo(size: 95, color: AppColors.primary),
+                  const WissalLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
                   ShaderMask(
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'وَمْض',
+                      'وصًال',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -21077,11 +21155,11 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/services/local_storage.dart';
 import '../../splash/widgets/sala_logo.dart';
 import 'services/auth_service.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 import '../signup/services/signup_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../merchant/cart/providers/cart_provider.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
@@ -21545,7 +21623,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                             if (context.canPop()) {
                               context.pop();
                             } else {
-                              context.go(AppRoutes.login);
+                              context.go(widget.isNewUser
+                                  ? AppRoutes.signup
+                                  : AppRoutes.login);
                             }
                           },
                           icon: const Icon(Icons.arrow_back_ios_new_rounded),
@@ -21577,12 +21657,12 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                       child: Column(
                         children: [
                           const SizedBox(height: 16),
-                          const WamdLogo(size: 70, color: AppColors.primary),
+                          const WissalLogo(size: 70, color: AppColors.primary),
                           const SizedBox(height: 10),
                           ShaderMask(
                             shaderCallback: (bounds) =>
                                 AppColors.primaryGradient.createShader(bounds),
-                            child: Text('وَمْض',
+                            child: Text('وصًال',
                                 style: AppTextStyles.headlineMedium.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
@@ -21997,11 +22077,11 @@ import '../../../../core/services/notification_service.dart';
 import '../../../../core/services/realtime_hub.dart';
 import 'quickconnect_otp_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/core/services/catalog_service.dart';
-import 'package:wamd/core/services/prefetch_service.dart';
-import 'package:wamd/features/merchant/cart/providers/cart_provider.dart';
-import 'package:wamd/features/merchant/search/services/search_service.dart';
-import 'package:wamd/features/merchant/barcode/barcode_scanner_screen.dart';
+import 'package:wissal/core/services/catalog_service.dart';
+import 'package:wissal/core/services/prefetch_service.dart';
+import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
+import 'package:wissal/features/merchant/search/services/search_service.dart';
+import 'package:wissal/features/merchant/barcode/barcode_scanner_screen.dart';
 
 class OtpVerifyResponse {
   final bool success;
@@ -23371,14 +23451,14 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const WamdLogo(
+                              const WissalLogo(
                                   size: 38, color: AppColors.primary),
                               const SizedBox(width: 10),
                               ShaderMask(
                                 shaderCallback: (b) =>
                                     AppColors.primaryGradient.createShader(b),
                                 child: Text(
-                                  'وَمْض',
+                                  'وصًال',
                                   style: AppTextStyles.headlineMedium.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -23823,7 +23903,7 @@ import '../../../splash/widgets/sala_logo.dart';
 import '../../login/widgets/phone_input_field.dart';
 import '../services/signup_service.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 import '../../login/services/auth_service.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
@@ -23949,7 +24029,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                 children: [
                   const SizedBox(height: 56),
                   // ── اللوجو ──
-                  const WamdLogo(size: 95, color: AppColors.primary),
+                  const WissalLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
 
                   // ── اسم التطبيق ──
@@ -23957,7 +24037,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'وَمْض',
+                      'وصًال',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -23982,7 +24062,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen>
                       children: [
                         // ── العنوان ──
                         Text(
-                          'مرحباً بك في وَمْض 🎉',
+                          'مرحباً بك في وصًال 🎉',
                           style: AppTextStyles.headlineMedium,
                         ),
                         const SizedBox(height: 6),
@@ -24410,10 +24490,10 @@ class _MapLocationPickerSheetState extends State<MapLocationPickerSheet> {
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/services/local_storage.dart';
 import 'driver_order_detail_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class DriverHistoryScreen extends StatefulWidget {
   const DriverHistoryScreen({super.key});
@@ -24558,18 +24638,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/services/local_storage.dart';
 import '../widgets/new_order_sheet.dart';
 import 'driver_order_detail_screen.dart';
 import 'driver_stats_screen.dart';
 import 'driver_history_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
-import 'package:wamd/features/merchant/orders/services/orders_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/widgets/signature_pad_dialog.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/merchant/orders/services/orders_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/widgets/signature_pad_dialog.dart';
 
 class DriverHomeScreen extends ConsumerStatefulWidget {
   const DriverHomeScreen({super.key});
@@ -24589,9 +24669,14 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
 
+    bool isFirstSnapshot = true;
     _ordersSubscription = ref.listenManual<List<Map<String, dynamic>>>(
       realtimeConfirmedOrdersProvider,
       (prev, next) {
+        if (isFirstSnapshot) {
+          isFirstSnapshot = false;
+          return;
+        }
         if (prev == null) return;
         final prevIds = prev.map((e) => e['id']).toSet();
         final newOrders = next.where((e) => !prevIds.contains(e['id']));
@@ -25417,7 +25502,9 @@ class _DriverOrderCard extends StatelessWidget {
         (data['total'] as num?)?.toDouble() ??
         0.0;
     final status = data['status'] as String? ?? '';
-    final isConfirmed = status == 'confirmed' || status == 'pending';
+    // ✅ إدراج حالة 'preparing' ضمن الحالات الجاهزة للاستلام من المستودع
+    final isConfirmed =
+        status == 'confirmed' || status == 'pending' || status == 'preparing';
     final orderNum = data['order_number'] ?? data['invoice_number'] ?? '';
     final notes = data['notes'] as String?;
     final itemsCount = (data['items_count'] as num?)?.toInt() ?? 0;
@@ -25903,10 +25990,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/widgets/app_map.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/widgets/app_map.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class DriverOrderDetailScreen extends StatefulWidget {
   final String orderId;
@@ -26690,7 +26777,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/services/local_storage.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 // ══════════════════════════════════════════════════════════
 //  Provider — إحصائيات السائق
@@ -27079,7 +27166,7 @@ class _CompletionRate extends StatelessWidget {
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:wamd/core/constants/app_colors.dart';
+import 'package:wissal/core/constants/app_colors.dart';
 
 /// شيت الطلب الجديد — يظهر فوراً للسائق مع عداد تنازلي
 class NewOrderSheet extends StatefulWidget {
@@ -27430,13 +27517,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/constants/app_spacing.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
 
   static const String _privacyPolicyWebUrl =
-      'https://sites.google.com/view/wamd-yemen-privacy';
+      'https://sites.google.com/view/view-wissal';
   Future<void> _launchUrl(BuildContext context, String urlString) async {
     final uri = Uri.parse(urlString);
     try {
@@ -27488,7 +27575,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'سياسة الخصوصية وحماية البيانات لمنصة وَمْض',
+              'سياسة الخصوصية وحماية البيانات لمنصة وصًال',
               style: AppTextStyles.headlineMedium.copyWith(
                 fontWeight: FontWeight.w800,
                 color: context.textPrimary,
@@ -28663,8 +28750,8 @@ import '../services/brands_service.dart';
 import '../widgets/brand_card.dart';
 import '../widgets/brands_skeleton.dart';
 import '../../products/screens/products_screen.dart';
-import 'package:wamd/core/services/image_precache_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/services/image_precache_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class BrandsScreen extends ConsumerWidget {
   final String categoryId;
@@ -28933,7 +29020,7 @@ class _ErrorState extends StatelessWidget {
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/app_cache.dart';
+import 'package:wissal/core/services/app_cache.dart';
 
 class BrandModel {
   final String id;
@@ -29090,7 +29177,7 @@ import '../../../../core/constants/app_radius.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/services/image_precache_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../services/brands_service.dart';
 
 class BrandCard extends StatefulWidget {
@@ -29306,7 +29393,7 @@ class _LogoSkeletonState extends State<_LogoSkeleton>
 // ==================================================
 
 import '../../products/services/products_service.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 
 class CartItem {
   final ProductModel product;
@@ -29402,8 +29489,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import '../models/cart_item_model.dart';
 import '../../products/services/products_service.dart';
 import 'dart:io';
@@ -29432,10 +29519,9 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   }
 
   late final Future<void> _loadFuture;
-
   static String get _key {
     final uid = AppStorage.userId ?? 'guest';
-    return 'wamd_cart_v2_$uid';
+    return 'wissal_cart_v2_$uid';
   }
 
   static const int _maxQuantity = 999;
@@ -29443,7 +29529,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   bool _isLoaded = false;
   final List<VoidCallback> _pendingMutations = [];
   Future<void> _cartSaveChain = Future.value();
-
+  Timer? _saveDebounceTimer;
   Future<void> _load() async {
     if (kIsWeb) {
       _isLoaded = true;
@@ -29454,7 +29540,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
       final currentUid = AppStorage.userId;
       if (currentUid != null && currentUid.isNotEmpty) {
-        const guestKey = 'wamd_cart_v2_guest';
+        const guestKey = 'wissal_cart_v2_guest';
         final guestCart = await _repository.readCart(guestKey);
         if (guestCart != null && guestCart.isNotEmpty) {
           final mergedCart = Map<String, CartItem>.from(loaded ?? {});
@@ -29504,6 +29590,13 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       return;
     }
 
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 250), () {
+      _flushSaveToDisk();
+    });
+  }
+
+  void _flushSaveToDisk() {
     final itemsSnapshot = Map<String, CartItem>.from(state);
 
     _cartSaveChain = _cartSaveChain.then((_) async {
@@ -29524,8 +29617,17 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   }
 
   Future<void> forceSave() async {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    _flushSaveToDisk();
     await _loadFuture;
     return _cartSaveChain;
+  }
+
+  @override
+  void dispose() {
+    _saveDebounceTimer?.cancel();
+    super.dispose();
   }
 
   void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
@@ -29803,7 +29905,7 @@ import 'checkout_screen.dart';
 import '../../../../../core/services/local_storage.dart';
 import '../../../../../core/services/connectivity_service.dart';
 import '../models/cart_item_model.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class CartScreen extends ConsumerStatefulWidget {
   const CartScreen({super.key});
@@ -29847,7 +29949,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
               .where(FieldPath.documentId, whereIn: chunk)
               .get(const GetOptions(source: Source.server));
           latestProducts
-              .addAll(snap.docs.map((d) => {'id': d.id, ...d.data()}));
+              .addAll(snap.docs.map((d) => {...d.data(), 'id': d.id}));
           successfullyQueriedIds.addAll(chunk);
         } catch (_) {
           // في حال فشل أي Chunk شبكياً، لا نعتبر منتجاته محذوفة ونحفظها للمحاولة القادمة
@@ -29937,6 +30039,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     HapticFeedback.mediumImpact();
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: '/checkout'),
         builder: (_) => CheckoutScreen(merchantId: uid),
       ),
     );
@@ -30193,11 +30296,11 @@ import '../../orders/services/orders_service.dart';
 import '../../orders/screens/order_status_screen.dart';
 import '../providers/cart_provider.dart';
 import 'location_picker_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/local_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:wamd/features/auth/login/services/auth_service.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 import '../../../../core/services/connectivity_service.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
@@ -30704,10 +30807,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       if (!mounted) return;
       safeDismissLoading();
 
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).popUntil(
-            (route) => route.isFirst || route.settings.name == '/checkout');
-      }
+      if (!mounted) return;
 
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
@@ -31515,7 +31615,7 @@ class _CartFloatingButtonState extends ConsumerState<CartFloatingButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseCtrl;
   late Animation<double> _pulse;
-  int _prevCount = 0;
+  int prevCount = 0;
 
   @override
   void initState() {
@@ -31538,18 +31638,13 @@ class _CartFloatingButtonState extends ConsumerState<CartFloatingButton>
     final count = ref.watch(cartCountProvider);
     final total = ref.watch(cartTotalProvider);
 
-    // نبض عند إضافة منتج جديد
-    if (count > _prevCount) {
-      _prevCount = count;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    ref.listen<int>(cartCountProvider, (prev, next) {
+      if (next > (prev ?? 0)) {
         _pulseCtrl.forward().then((_) => _pulseCtrl.reverse());
-      });
-    } else {
-      _prevCount = count;
-    }
+      }
+    });
 
     if (count == 0) return const SizedBox.shrink();
-
     return GestureDetector(
       onTap: () {
         HapticFeedback.mediumImpact();
@@ -31653,7 +31748,7 @@ import '../models/cart_item_model.dart';
 import '../../products/services/products_service.dart';
 import '../../products/widgets/product_details_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class CartItemCard extends ConsumerStatefulWidget {
   final CartItem item;
@@ -32285,15 +32380,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // 👈 تمت إضافة هذا السطر لحل الأخطاء الثلاثة فوراً
 import '../../cart/providers/cart_provider.dart';
-import 'package:wamd/core/constants/app_colors.dart';
-import 'package:wamd/core/constants/app_radius.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/constants/app_colors.dart';
+import 'package:wissal/core/constants/app_radius.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../products/services/products_service.dart';
-import 'package:wamd/core/services/app_cache.dart';
-import 'package:wamd/core/services/catalog_service.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/services/app_cache.dart';
+import 'package:wissal/core/services/catalog_service.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class QuickAddSheet extends ConsumerStatefulWidget {
   const QuickAddSheet({super.key});
@@ -33039,7 +33134,7 @@ import '../services/categories_service.dart';
 import '../widgets/category_card.dart';
 import '../../widgets/categories_skeleton.dart';
 import '../../brands/screens/brands_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/catalog_service.dart'; // 🚀 ربط نظام الكاش
 
 class CategoriesScreen extends ConsumerWidget {
@@ -33280,8 +33375,8 @@ import '../../../../core/constants/app_radius.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/categories_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/services/prefetch_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/services/prefetch_service.dart';
 
 class CategoryCard extends StatelessWidget {
   final CategoryModel category;
@@ -33452,7 +33547,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../auth/login/services/auth_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 /// شاشة مستقلة لحذف الحساب — مطلوبة من سياسة Google Play لأي تطبيق
 /// يسمح بإنشاء حساب داخل التطبيق نفسه (وليس فقط عبر الدعم/البريد).
@@ -33914,7 +34009,7 @@ import '../../../orders/models/order_model.dart';
 import '../../../orders/services/orders_service.dart';
 import '../../../invoice/invoice_screen.dart';
 import '../../../invoice/return_invoice_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class HistoryTab extends ConsumerStatefulWidget {
   const HistoryTab({super.key});
@@ -34890,7 +34985,7 @@ import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
 import '../../../../../core/services/realtime_hub.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/widgets/product_details_sheet.dart';
@@ -34925,7 +35020,12 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   void _onSearchChanged(String value) {
     setState(() => _isSearching = value.isNotEmpty);
-    ref.read(_searchQueryProvider.notifier).state = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        ref.read(_searchQueryProvider.notifier).state = value;
+      }
+    });
   }
 
   void _clearAndExit() {
@@ -35518,9 +35618,9 @@ import '../../../../../core/services/local_storage.dart';
 import '../../../orders/models/order_model.dart';
 import '../../../orders/screens/order_status_screen.dart';
 import '../../../widgets/order_card.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'dart:async';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 
 class OrdersTab extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToHistory;
@@ -35563,12 +35663,16 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
   void _onTabAnimation() {
     final val = _tabController.animation!.value;
     final lastIdx = (_tabs.length - 1).toDouble();
-    if (val > lastIdx + 0.4 && !_historyTriggered) {
-      _historyTriggered = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onNavigateToHistory?.call();
-      });
-    } else if (val <= lastIdx + 0.1) {
+    if (val >= lastIdx &&
+        _tabController.index == _tabs.length - 1 &&
+        !_historyTriggered) {
+      if (_tabController.indexIsChanging) {
+        _historyTriggered = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onNavigateToHistory?.call();
+        });
+      }
+    } else if (val < lastIdx) {
       _historyTriggered = false;
     }
   }
@@ -35836,37 +35940,42 @@ class _OrdersList extends StatelessWidget {
   Widget build(BuildContext context) {
     // ✅ عدم إظهار زر التصفح إذا كانت القائمة الحالية فارغة لمنع تداخله مع شاشة الفراغ
     final bool showPaginationButton = orders.isNotEmpty && hasMore;
-
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount:
-          (orders.isEmpty ? 1 : orders.length) + (showPaginationButton ? 1 : 0),
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        if (orders.isEmpty && i == 0) {
-          return _EmptyState(emptyType: emptyType);
-        }
-        if (i >= orders.length) {
-          return Center(
-            child: TextButton.icon(
-              onPressed: isLoadingMore ? null : onLoadMore,
-              icon: isLoadingMore
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.expand_more_rounded),
-              label: Text(loadMoreError ?? 'تحميل الطلبات الأقدم'),
-            ),
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async => onLoadMore(),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics()),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        itemCount: (orders.isEmpty ? 1 : orders.length) +
+            (showPaginationButton ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, i) {
+          if (orders.isEmpty && i == 0) {
+            return _EmptyState(emptyType: emptyType);
+          }
+          if (i >= orders.length) {
+            return Center(
+              child: TextButton.icon(
+                onPressed: isLoadingMore ? null : onLoadMore,
+                icon: isLoadingMore
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more_rounded),
+                label: Text(loadMoreError ?? 'تحميل الطلبات الأقدم'),
+              ),
+            );
+          }
+          return _TappableCard(
+            key: ValueKey(orders[i]['id']?.toString() ?? '$i'),
+            order: orders[i],
+            onTap: () => _openOrder(context, orders[i]),
           );
-        }
-        return _TappableCard(
-          key: ValueKey(orders[i]['id']?.toString() ?? '$i'),
-          order: orders[i],
-          onTap: () => _openOrder(context, orders[i]),
-        );
-      },
+        },
+      ),
     );
   }
 }
@@ -35888,45 +35997,12 @@ class _TappableCard extends StatefulWidget {
   State<_TappableCard> createState() => _TappableCardState();
 }
 
-class _TappableCardState extends State<_TappableCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-    );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
+class _TappableCardState extends State<_TappableCard> {
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _ctrl.forward(),
-      onTapUp: (_) {
-        _ctrl.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _ctrl.reverse(),
-      child: ScaleTransition(
-        scale: _scale,
-        child: OrderCard(
-          order: widget.order,
-          onTap: widget.onTap,
-        ),
-      ),
+    return OrderCard(
+      order: widget.order,
+      onTap: widget.onTap,
     );
   }
 }
@@ -36113,8 +36189,8 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/services/local_storage.dart';
 import '../../../../auth/login/services/auth_service.dart';
 import '../../../cart/providers/cart_provider.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/core/constants/app_theme.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_theme.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -36875,7 +36951,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_radius.dart';
 import '../../../../core/constants/app_text_styles.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'dart:async';
 
 class MerchantSearchBar extends StatefulWidget {
@@ -37031,7 +37107,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import 'package:gal/gal.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 Color _statusColorFromEnum(OrderStatus s) => switch (s) {
       OrderStatus.delivered => const Color(0xFF10B981),
@@ -37119,7 +37195,12 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final fileName = 'فاتورة_${widget.order.invoiceNumber ?? shortId}.png';
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
-      await Share.shareXFiles([xFile], text: 'فاتورة وَمْض');
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? (box.localToGlobal(Offset.zero) & box.size)
+          : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+      await Share.shareXFiles([xFile],
+          text: 'فاتورة وصًال', sharePositionOrigin: origin);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -37391,7 +37472,7 @@ class _InvoiceHeader extends StatelessWidget {
               ],
             ),
             child: const Center(
-              child: Text('وَمْض',
+              child: Text('وصًال',
                   style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 16,
@@ -37932,7 +38013,7 @@ class _InvoiceFooter extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                   color: AppColors.primary)),
           const SizedBox(height: 2),
-          Text('وَمْض — المنصة الرقمية الأولى في اليمن',
+          Text('وصًال — المنصة الرقمية الأولى في اليمن',
               style: TextStyle(
                   fontFamily: 'Cairo', fontSize: 11, color: Colors.grey[500])),
         ],
@@ -38050,7 +38131,12 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
       final fileName = 'فاتورة_مرتجع_$shortId.png';
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
-      await Share.shareXFiles([xFile], text: 'فاتورة إرجاع وَمْض');
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? (box.localToGlobal(Offset.zero) & box.size)
+          : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+      await Share.shareXFiles([xFile],
+          text: 'فاتورة إرجاع وصًال', sharePositionOrigin: origin);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -38286,7 +38372,7 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
                                             fontSize: 22,
                                             fontWeight: FontWeight.w900,
                                             color: Color(0xFF1A1A2E))),
-                                    Text('سند مرتجع رسمي • وَمْض',
+                                    Text('سند مرتجع رسمي • وصًال',
                                         style: TextStyle(
                                             fontFamily: 'Cairo',
                                             fontSize: 11,
@@ -38735,7 +38821,7 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
                               ),
                               const SizedBox(height: 2),
                               const Text(
-                                  'وَمْض — المنصة الرقمية الأولى في اليمن',
+                                  'وصًال — المنصة الرقمية الأولى في اليمن',
                                   style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontSize: 10,
@@ -38767,7 +38853,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/services/local_storage.dart';
 import '../../../../core/services/realtime_hub.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 
@@ -39309,7 +39395,7 @@ import '../../../../../core/services/local_storage.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final OrderModel order;
@@ -41082,7 +41168,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_radius.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderStatusScreen extends StatefulWidget {
   final OrderModel order;
@@ -41905,9 +41991,13 @@ class _OrderSummaryCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFF8E7),
+                color: context.isDark
+                    ? Colors.amber.withValues(alpha: 0.12)
+                    : const Color(0xFFFFF8E7),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                border: Border.all(
+                    color: Colors.orange
+                        .withValues(alpha: context.isDark ? 0.4 : 0.3)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -41916,11 +42006,17 @@ class _OrderSummaryCard extends StatelessWidget {
                       size: 16, color: Colors.orange),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(order.notes!,
-                        style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 13,
-                            color: Color(0xFF7A5C00))),
+                    child: Text(
+                      order.notes!,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: context.isDark
+                            ? const Color(0xFFFFD54F)
+                            : const Color(0xFF7A5C00),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -41988,13 +42084,17 @@ class _OrderSummaryCard extends StatelessWidget {
                     color: context.textSecondary,
                   ),
                 ),
-                const Text(
-                  '0 ر.ي (تمت التسوية)',
+                Text(
+                  order.status == OrderStatus.returned
+                      ? '0 ر.ي (تمت التسوية بالكامل)'
+                      : '${order.total.toStringAsFixed(0)} ر.ي (قيد مراجعة المرتجع)',
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: Colors.green,
+                    color: order.status == OrderStatus.returned
+                        ? Colors.green
+                        : Colors.orange,
                   ),
                 ),
               ],
@@ -42199,10 +42299,10 @@ class _InfoItem {
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/order_model.dart';
-import 'package:wamd/core/services/app_cache.dart';
+import 'package:wissal/core/services/app_cache.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
-import 'package:wamd/core/services/local_storage.dart';
+import 'package:wissal/core/services/local_storage.dart';
 
 class OrdersService {
   static final _db = FirebaseFirestore.instance;
@@ -42546,8 +42646,8 @@ import '../../../../core/constants/app_text_styles.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../../cart/screens/cart_screen.dart';
 import '../widgets/product_card.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
-import 'package:wamd/features/merchant/products/services/products_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/features/merchant/products/services/products_service.dart';
 
 class ProductsScreen extends ConsumerWidget {
   final String brandId;
@@ -43124,7 +43224,7 @@ class ProductDetailScreen extends StatelessWidget {
 
 import 'dart:async';
 
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43341,11 +43441,11 @@ class ProductCatalogNotifier
   String? firstPageLastId;
   bool _hasMore = true;
   bool _isLoadingMore = false;
-
   Query<Map<String, dynamic>> get _baseQuery => _db
       .collection('products')
       .where('brand_id', isEqualTo: brandId)
-      .where('is_deleted', isEqualTo: false);
+      .where('is_deleted', isEqualTo: false)
+      .orderBy('name');
   void _subscribeToFirstPage() {
     _subscription = _baseQuery
         .limit(_pageSize)
@@ -43353,6 +43453,10 @@ class ProductCatalogNotifier
         .listen(
       (snapshot) {
         firstPageLastId = snapshot.docs.isEmpty ? null : snapshot.docs.last.id;
+        if (_loadedPages.isEmpty) {
+          _cursor = snapshot.docs.isEmpty ? null : snapshot.docs.last;
+          _hasMore = snapshot.docs.length == _pageSize;
+        }
         _firstPage
           ..clear()
           ..addEntries(
@@ -43461,7 +43565,7 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/products_service.dart';
 import '../../cart/providers/cart_provider.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'product_details_sheet.dart';
 
 class ProductCard extends ConsumerStatefulWidget {
@@ -43581,8 +43685,6 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       cartProvider.select((c) => c[cartKey]?.quantity ?? 0),
     );
 
-    final total = currentUnit.price * _qty;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
@@ -43672,6 +43774,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                   final safeIndex =
                       (index % units.length + units.length) % units.length;
                   final unit = units[safeIndex];
+                  final pageTotal = unit.price * _qty;
                   final unitImageUrl = (unit.imageUrl != null &&
                           unit.imageUrl!.trim().isNotEmpty)
                       ? unit.imageUrl!.trim()
@@ -43696,7 +43799,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${total.toStringAsFixed(0)} ر.ي',
+                              '${pageTotal.toStringAsFixed(0)} ر.ي',
                               style: TextStyle(
                                 fontFamily: 'Cairo',
                                 fontSize: 16,
@@ -44130,7 +44233,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_radius.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../services/products_service.dart';
-import 'package:wamd/core/models/product_unit.dart';
+import 'package:wissal/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/services/image_precache_service.dart';
 
@@ -44810,7 +44913,7 @@ import '../../../../core/services/app_cache.dart';
 import '../../../../core/services/image_precache_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // ✅ إضافة استيراد Crashlytics
 
 final _db = FirebaseFirestore.instance;
@@ -44951,12 +45054,12 @@ class SearchService {
 
     final results = await Future.wait([
       _safeQuery('products', () async {
+        final normalizedQ = normalizeArabic(q);
         final barcodeQuery = await _db
             .collection('products')
-            .where('all_barcodes', arrayContains: q)
+            .where('all_barcodes', arrayContains: normalizedQ)
             .limit(15)
             .get(const GetOptions(source: Source.serverAndCache));
-
         final combinedDocs = <String, Map<String, dynamic>>{};
         for (final d in barcodeQuery.docs) {
           if (d.data()['is_deleted'] != true &&
@@ -45264,7 +45367,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../orders/models/order_model.dart';
 import '../orders/screens/order_detail_screen.dart';
 import '../orders/screens/order_status_screen.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderCard extends StatefulWidget {
   final Map<String, dynamic> order;
@@ -45792,7 +45895,7 @@ import '../brands/screens/brands_screen.dart';
 import '../products/screens/products_screen.dart';
 import '../products/widgets/product_details_sheet.dart';
 import '../products/services/products_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class SearchResultsView extends ConsumerWidget {
   final String query;
@@ -46154,7 +46257,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/services/notification_service.dart';
 import 'animations/splash_animator.dart';
 import 'controllers/session_checker.dart';
-import 'widgets/sala_logo.dart'; // يتضمن WamdLogo الجديد
+import 'widgets/sala_logo.dart'; // يتضمن WissalLogo الجديد
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -46236,11 +46339,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             // ── الأنيميشن الرئيسي ──
             Center(
               child: SplashAnimator(
-                logo: const WamdLogo(
+                logo: const WissalLogo(
                   size: 140,
                   color: Colors.white,
                 ),
-                appName: 'وَمْـــــض',
+                appName: 'وصًـــــال',
                 textColor: Colors.white,
                 sessionFuture: sessionFuture,
                 onAnimationComplete: _onAnimationComplete,
@@ -46403,7 +46506,7 @@ class _SplashAnimatorState extends State<SplashAnimator>
       CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
     );
 
-    // 4. انزلاق وبزوغ الاسم "وَمْـــــض" مع تموج ضوئي ذهبي
+    // 4. انزلاق وبزوغ الاسم "وصًـــــال" مع تموج ضوئي ذهبي
     _textRevealCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -46567,8 +46670,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wamd/core/services/local_storage.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 import 'dart:async';
 
 enum SessionResult {
@@ -46643,9 +46746,7 @@ class SessionChecker {
     if (firebaseUser == null || firebaseUser.uid != userId) {
       return SessionResult.unauthenticated;
     }
-
     try {
-      // محاولة فحص حالة الحساب في الخلفية بهدوء دون مسح الحساب إذا تعثرت الشبكة
       final doc = await FirebaseFirestore.instance
           .collection('profiles')
           .doc(userId)
@@ -46688,10 +46789,21 @@ class SessionChecker {
         };
       }
     } catch (_) {
-      // في حال وجود بطء في الاتصال أو عدم توفر إنترنت، نعتمد الجلسة المحلية فوراً
+      try {
+        final tokenResult = await firebaseUser.getIdTokenResult();
+        final claimsRole =
+            (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+        final isBannedClaim = tokenResult.claims?['is_banned'] == true;
+        if (isBannedClaim) {
+          await AppStorage.clearUserData();
+          return SessionResult.unauthenticated;
+        }
+        if (claimsRole != null && claimsRole.isNotEmpty) {
+          await AppStorage.saveUserData(userId: userId, role: claimsRole);
+        }
+      } catch (_) {}
     }
 
-    // تشغيل القنوات الحية والانتقال مباشرة
     unawaited(RealtimeHub()
         .startForUser(userId, role: AppStorage.normalizedUserRole));
     return localSessionResult();
@@ -46734,12 +46846,12 @@ extension SessionResultNavigation on SessionResult {
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
-/// شعار "وَمْض" الرسمي المتطابق هندسياً بنسبة 100% مع الهوية
-class WamdLogo extends StatelessWidget {
+/// شعار "وصًال" الرسمي المتطابق هندسياً بنسبة 100% مع الهوية
+class WissalLogo extends StatelessWidget {
   final double size;
   final Color color;
 
-  const WamdLogo({
+  const WissalLogo({
     super.key,
     this.size = 120,
     this.color = Colors.white,
@@ -46751,19 +46863,21 @@ class WamdLogo extends StatelessWidget {
       width: size,
       height: size,
       child: CustomPaint(
-        painter: _WamdLogoPainter(color: color),
+        painter: _WissalLogoPainter(color: color),
       ),
     );
   }
 }
 
 /// للتوافق المؤقت مع أي استدعاء قديم
-typedef SalaLogo = WamdLogo;
+typedef SalaLogo = WissalLogo;
+typedef wissalLogo = WissalLogo;
 
-class _WamdLogoPainter extends CustomPainter {
+// ✅ الحل الصحيح:
+class _WissalLogoPainter extends CustomPainter {
   final Color color;
 
-  _WamdLogoPainter({required this.color});
+  _WissalLogoPainter({required this.color}); // تصحيح اسم الباني
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../auth/login/services/auth_service.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 /// شاشة مستقلة لحذف الحساب — مطلوبة من سياسة Google Play لأي تطبيق
 /// يسمح بإنشاء حساب داخل التطبيق نفسه (وليس فقط عبر الدعم/البريد).

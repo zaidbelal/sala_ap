@@ -45,26 +45,13 @@ class AdminOrdersTab extends ConsumerStatefulWidget {
 class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-
   static const _tabs = [
     (label: 'الكل', statuses: null, color: AppColors.primary),
     (label: 'معلق', statuses: ['pending'], color: Colors.orange),
-    (
-      label: 'مقبول',
-      statuses: ['confirmed', 'accepted', 'preparing'],
-      color: Colors.blue
-    ),
-    (
-      label: 'في الطريق',
-      statuses: ['shipped', 'on_the_way'],
-      color: Colors.indigo
-    ),
+    (label: 'مقبول', statuses: ['confirmed'], color: Colors.blue),
+    (label: 'في الطريق', statuses: ['shipped'], color: Colors.indigo),
     (label: 'مُسلّم', statuses: ['delivered'], color: Color(0xFF10B981)),
-    (
-      label: 'ملغي ومرفوض',
-      statuses: ['cancelled', 'rejected'],
-      color: Colors.red
-    ),
+    (label: 'ملغي ومرفوض', statuses: ['cancelled'], color: Colors.red),
     (label: 'مُرتجع', statuses: ['returned'], color: Colors.deepOrange),
     (
       label: 'طلب إرجاع',
@@ -72,7 +59,6 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
       color: Colors.deepOrange
     ),
   ];
-
   @override
   void initState() {
     super.initState();

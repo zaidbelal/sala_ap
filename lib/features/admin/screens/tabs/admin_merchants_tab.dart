@@ -1,4 +1,4 @@
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,7 +7,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../services/admin_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:wamd/core/widgets/app_map.dart';
+import 'package:wissal/core/widgets/app_map.dart';
 import 'dart:async';
 
 // ══════════════════════════════════════════
@@ -191,7 +191,10 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: TextField(
         onChanged: (v) {
-          setState(() => _search = v);
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+            if (mounted) setState(() => _search = v);
+          });
         },
         decoration: InputDecoration(
           hintText: 'بحث بالاسم، البقالة، أو الهاتف...',

@@ -180,7 +180,7 @@ class AdminService {
         _db
             .collection('product_financials')
             .where(FieldPath.documentId, whereIn: chunk)
-            .get(const GetOptions(source: Source.server)),
+            .get(const GetOptions(source: Source.serverAndCache)),
       );
     }
     final snapshotsList = await Future.wait(queryFutures);
@@ -348,37 +348,47 @@ class AdminService {
     // 4. الحساب المباشر الاحتياطي ينفذ فقط إذا فشل استعلام الشظايا تماماً وليس لأن المبيعات أو المرتجعات صفرية
     if (!shardsSucceeded) {
       try {
-        final aggSnap = await _db
-            .collection('orders')
-            .where('status', isEqualTo: 'delivered')
-            .aggregate(
-              sum('total_amount'),
-              sum('total'),
-            )
-            .get();
-        final profitSnap = await _db
-            .collection('order_financials')
-            .where('profit_recorded', isEqualTo: true)
-            .aggregate(sum('total_profit'))
-            .get();
+        double resolvedRevenue = 0.0;
+        try {
+          final aggSnap = await _db
+              .collection('orders')
+              .where('status', isEqualTo: 'delivered')
+              .aggregate(sum('total_amount'))
+              .get();
+          resolvedRevenue = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+        } catch (_) {
+          final aggSnapTotal = await _db
+              .collection('orders')
+              .where('status', isEqualTo: 'delivered')
+              .aggregate(sum('total'))
+              .get();
+          resolvedRevenue = (aggSnapTotal.getSum('total') ?? 0.0).toDouble();
+        }
+        grossRevenue = resolvedRevenue;
 
-        final sumTotalAmount = aggSnap.getSum('total_amount') ?? 0.0;
-        final sumTotal = aggSnap.getSum('total') ?? 0.0;
-        grossRevenue = sumTotalAmount > 0 ? sumTotalAmount : sumTotal;
-        totalProfit = profitSnap.getSum('total_profit') ?? 0.0;
+        try {
+          final profitSnap = await _db
+              .collection('order_financials')
+              .where('profit_recorded', isEqualTo: true)
+              .aggregate(sum('total_profit'))
+              .get();
+          totalProfit = (profitSnap.getSum('total_profit') ?? 0.0).toDouble();
+        } catch (_) {
+          totalProfit = 0.0;
+        }
       } catch (_) {
-        // في حال تعذر التجميع السحابي (غياب فهرس أو اختلاف نوع الحقول)، جلب الوثائق وحسابها مباشرة
+        // في حال تعذر التجميع السحابي، يتم جلب البيانات من الخادم وتوثيق أن الإحصاءات غير مكتملة
         try {
           final deliveredDocsSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .limit(50)
-              .get(const GetOptions(source: Source.cache));
+              .limit(300)
+              .get(const GetOptions(source: Source.serverAndCache));
           final financialDocsSnap = await _db
               .collection('order_financials')
               .where('profit_recorded', isEqualTo: true)
-              .limit(50)
-              .get(const GetOptions(source: Source.cache));
+              .limit(300)
+              .get(const GetOptions(source: Source.serverAndCache));
           double calcRevenue = 0.0;
           for (final doc in deliveredDocsSnap.docs) {
             final data = doc.data();
@@ -394,6 +404,8 @@ class AdminService {
           );
           grossRevenue = calcRevenue;
           totalProfit = calcProfit;
+          isPartial = deliveredDocsSnap.docs.length >= 300;
+          if (isPartial) failureReason = 'large_dataset_partial_fallback';
         } catch (_) {
           isPartial = true;
           failureReason ??= 'revenue_calculation_failed';
@@ -408,7 +420,17 @@ class AdminService {
             .where('status', isEqualTo: 'accepted')
             .aggregate(sum('refund_amount'))
             .get();
-        returnedRevenue = returnsAggSnap.getSum('refund_amount') ?? 0.0;
+        returnedRevenue =
+            (returnsAggSnap.getSum('refund_amount') ?? 0.0).toDouble();
+        if (returnedRevenue == 0.0) {
+          final retAltSnap = await _db
+              .collection('order_returns')
+              .where('status', isEqualTo: 'accepted')
+              .aggregate(sum('returned_amount'))
+              .get();
+          returnedRevenue =
+              (retAltSnap.getSum('returned_amount') ?? 0.0).toDouble();
+        }
       } catch (_) {
         try {
           final returnsDocsSnap = await _db
@@ -419,13 +441,14 @@ class AdminService {
 
           double calcReturns = 0.0;
           for (final doc in returnsDocsSnap.docs) {
-            calcReturns +=
-                (doc.data()['refund_amount'] as num?)?.toDouble() ?? 0.0;
+            final data = doc.data();
+            calcReturns += (data['refund_amount'] as num?)?.toDouble() ??
+                (data['returned_amount'] as num?)?.toDouble() ??
+                0.0;
           }
           returnedRevenue = calcReturns;
         } catch (_) {}
       }
-
       // إذا لم تكن مسجلة في order_returns، فحص المرتجعات المسجلة داخل الطلبات نفسها
       if (returnedRevenue == 0.0) {
         try {
@@ -948,7 +971,6 @@ class AdminService {
 // ── المنتجات (مع فرز بالذاكرة لتفادي FAILED_PRECONDITION) ──
   Future<List<Map<String, dynamic>>> getProducts({String? brandId}) async {
     try {
-      await ensureFinancialFieldsMigrated();
       final query = brandId != null
           ? _db.collection('products').where('brand_id', isEqualTo: brandId)
           : _db.collection('products');

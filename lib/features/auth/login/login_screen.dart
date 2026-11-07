@@ -10,7 +10,7 @@ import 'services/auth_service.dart';
 import '../../../core/constants/app_adaptive_colors.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 import 'dart:async';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -152,13 +152,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 56),
-                  const WamdLogo(size: 95, color: AppColors.primary),
+                  const WissalLogo(size: 95, color: AppColors.primary),
                   const SizedBox(height: 14),
                   ShaderMask(
                     shaderCallback: (bounds) =>
                         AppColors.primaryGradient.createShader(bounds),
                     child: Text(
-                      'وَمْض',
+                      'وصًال',
                       style: AppTextStyles.displaySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,

@@ -7,9 +7,9 @@ import '../../../../../core/services/local_storage.dart';
 import '../../../orders/models/order_model.dart';
 import '../../../orders/screens/order_status_screen.dart';
 import '../../../widgets/order_card.dart';
-import 'package:wamd/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'dart:async';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 
 class OrdersTab extends ConsumerStatefulWidget {
   final VoidCallback? onNavigateToHistory;
@@ -52,12 +52,16 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
   void _onTabAnimation() {
     final val = _tabController.animation!.value;
     final lastIdx = (_tabs.length - 1).toDouble();
-    if (val > lastIdx + 0.4 && !_historyTriggered) {
-      _historyTriggered = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onNavigateToHistory?.call();
-      });
-    } else if (val <= lastIdx + 0.1) {
+    if (val >= lastIdx &&
+        _tabController.index == _tabs.length - 1 &&
+        !_historyTriggered) {
+      if (_tabController.indexIsChanging) {
+        _historyTriggered = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onNavigateToHistory?.call();
+        });
+      }
+    } else if (val < lastIdx) {
       _historyTriggered = false;
     }
   }
@@ -325,37 +329,42 @@ class _OrdersList extends StatelessWidget {
   Widget build(BuildContext context) {
     // ✅ عدم إظهار زر التصفح إذا كانت القائمة الحالية فارغة لمنع تداخله مع شاشة الفراغ
     final bool showPaginationButton = orders.isNotEmpty && hasMore;
-
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      itemCount:
-          (orders.isEmpty ? 1 : orders.length) + (showPaginationButton ? 1 : 0),
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, i) {
-        if (orders.isEmpty && i == 0) {
-          return _EmptyState(emptyType: emptyType);
-        }
-        if (i >= orders.length) {
-          return Center(
-            child: TextButton.icon(
-              onPressed: isLoadingMore ? null : onLoadMore,
-              icon: isLoadingMore
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.expand_more_rounded),
-              label: Text(loadMoreError ?? 'تحميل الطلبات الأقدم'),
-            ),
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async => onLoadMore(),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics()),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        itemCount: (orders.isEmpty ? 1 : orders.length) +
+            (showPaginationButton ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, i) {
+          if (orders.isEmpty && i == 0) {
+            return _EmptyState(emptyType: emptyType);
+          }
+          if (i >= orders.length) {
+            return Center(
+              child: TextButton.icon(
+                onPressed: isLoadingMore ? null : onLoadMore,
+                icon: isLoadingMore
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more_rounded),
+                label: Text(loadMoreError ?? 'تحميل الطلبات الأقدم'),
+              ),
+            );
+          }
+          return _TappableCard(
+            key: ValueKey(orders[i]['id']?.toString() ?? '$i'),
+            order: orders[i],
+            onTap: () => _openOrder(context, orders[i]),
           );
-        }
-        return _TappableCard(
-          key: ValueKey(orders[i]['id']?.toString() ?? '$i'),
-          order: orders[i],
-          onTap: () => _openOrder(context, orders[i]),
-        );
-      },
+        },
+      ),
     );
   }
 }
@@ -377,45 +386,12 @@ class _TappableCard extends StatefulWidget {
   State<_TappableCard> createState() => _TappableCardState();
 }
 
-class _TappableCardState extends State<_TappableCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-    );
-    _scale = Tween<double>(begin: 1.0, end: 0.97).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
+class _TappableCardState extends State<_TappableCard> {
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _ctrl.forward(),
-      onTapUp: (_) {
-        _ctrl.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _ctrl.reverse(),
-      child: ScaleTransition(
-        scale: _scale,
-        child: OrderCard(
-          order: widget.order,
-          onTap: widget.onTap,
-        ),
-      ),
+    return OrderCard(
+      order: widget.order,
+      onTap: widget.onTap,
     );
   }
 }

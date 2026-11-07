@@ -102,7 +102,12 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
       final fileName = 'فاتورة_مرتجع_$shortId.png';
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
-      await Share.shareXFiles([xFile], text: 'فاتورة إرجاع وَمْض');
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null
+          ? (box.localToGlobal(Offset.zero) & box.size)
+          : Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, 100);
+      await Share.shareXFiles([xFile],
+          text: 'فاتورة إرجاع وصًال', sharePositionOrigin: origin);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -338,7 +343,7 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
                                             fontSize: 22,
                                             fontWeight: FontWeight.w900,
                                             color: Color(0xFF1A1A2E))),
-                                    Text('سند مرتجع رسمي • وَمْض',
+                                    Text('سند مرتجع رسمي • وصًال',
                                         style: TextStyle(
                                             fontFamily: 'Cairo',
                                             fontSize: 11,
@@ -787,7 +792,7 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
                               ),
                               const SizedBox(height: 2),
                               const Text(
-                                  'وَمْض — المنصة الرقمية الأولى في اليمن',
+                                  'وصًال — المنصة الرقمية الأولى في اليمن',
                                   style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontSize: 10,

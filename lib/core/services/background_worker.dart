@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:wamd/core/utils/arabic_normalizer.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 /// مسار معالجة خلفي (Isolate) لتنفيذ مهام فك وتشفير الـ JSON والفرز لمنع تعليق الشاشة تماماً (120 FPS)
 class BackgroundWorker {
@@ -46,8 +46,10 @@ class BackgroundWorker {
 
   static List<Map<String, dynamic>> _isolateFilterAndSort(
       Map<String, dynamic> args) {
-    final List<Map<String, dynamic>> rawItems =
-        List<Map<String, dynamic>>.from(args['items'] as List);
+    final List<Map<String, dynamic>> rawItems = (args['items'] as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
     final String q = (args['query'] as String? ?? '').trim().toLowerCase();
 
     final normQ = ArabicNormalizer.normalize(q);
@@ -58,9 +60,19 @@ class BackgroundWorker {
             final name =
                 ArabicNormalizer.normalize(item['name']?.toString() ?? '');
             final barcode = item['barcode']?.toString() ?? '';
-            return name.contains(normQ) || barcode.contains(normQ);
+            final allBarcodes = item['all_barcodes'];
+            final matchesAllBarcodes = allBarcodes is List &&
+                allBarcodes.any((b) => b?.toString().contains(normQ) ?? false);
+            final units = item['units'];
+            final matchesUnits = units is List &&
+                units.any((u) =>
+                    u is Map &&
+                    (u['barcode']?.toString().contains(normQ) ?? false));
+            return name.contains(normQ) ||
+                barcode.contains(normQ) ||
+                matchesAllBarcodes ||
+                matchesUnits;
           }).toList();
-
     filtered.sort((a, b) {
       final aOrder = (a['sort_order'] as num?)?.toInt() ?? 999;
       final bOrder = (b['sort_order'] as num?)?.toInt() ?? 999;

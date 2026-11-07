@@ -11,11 +11,11 @@ import '../../../core/constants/app_text_styles.dart';
 import '../../../core/services/local_storage.dart';
 import '../../splash/widgets/sala_logo.dart';
 import 'services/auth_service.dart';
-import 'package:wamd/core/services/realtime_hub.dart';
+import 'package:wissal/core/services/realtime_hub.dart';
 import '../signup/services/signup_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../merchant/cart/providers/cart_provider.dart';
-import 'package:wamd/app_router.dart';
+import 'package:wissal/app_router.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
@@ -479,7 +479,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                             if (context.canPop()) {
                               context.pop();
                             } else {
-                              context.go(AppRoutes.login);
+                              context.go(widget.isNewUser
+                                  ? AppRoutes.signup
+                                  : AppRoutes.login);
                             }
                           },
                           icon: const Icon(Icons.arrow_back_ios_new_rounded),
@@ -511,12 +513,12 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                       child: Column(
                         children: [
                           const SizedBox(height: 16),
-                          const WamdLogo(size: 70, color: AppColors.primary),
+                          const WissalLogo(size: 70, color: AppColors.primary),
                           const SizedBox(height: 10),
                           ShaderMask(
                             shaderCallback: (bounds) =>
                                 AppColors.primaryGradient.createShader(bounds),
-                            child: Text('وَمْض',
+                            child: Text('وصًال',
                                 style: AppTextStyles.headlineMedium.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,

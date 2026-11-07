@@ -352,14 +352,14 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const WamdLogo(
+                              const WissalLogo(
                                   size: 38, color: AppColors.primary),
                               const SizedBox(width: 10),
                               ShaderMask(
                                 shaderCallback: (b) =>
                                     AppColors.primaryGradient.createShader(b),
                                 child: Text(
-                                  'وَمْض',
+                                  'وصًال',
                                   style: AppTextStyles.headlineMedium.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
