@@ -35,18 +35,19 @@ class MerchantsPaginationNotifier
     currentQuery = query.trim();
     state = const AsyncValue.loading();
     try {
+      // 🚀 رفع سقف الاستعلام الأولي إلى 300 لمنع حجب الحسابات المحظورة والمعطلة عن الفلترة
       Query<Map<String, dynamic>> dbQuery = FirebaseFirestore.instance
           .collection('profiles')
           .where('role', isEqualTo: 'merchant')
           .orderBy('created_at', descending: true);
 
       final QuerySnapshot<Map<String, dynamic>> snap = await dbQuery
-          .limit(_pageSize)
+          .limit(300)
           .get(const GetOptions(source: Source.serverAndCache));
       if (!mounted) return;
 
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
-      _hasMore = snap.docs.length == _pageSize;
+      _hasMore = snap.docs.length == 300;
 
       final list = snap.docs.map((doc) {
         final data = doc.data();
@@ -271,7 +272,7 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     if (merchants.isEmpty) {
       return _buildEmpty('لا يوجد تجار مسجلون', Icons.store_outlined);
     }
-    if (filtered.isEmpty) {
+    if (filtered.isEmpty && !pagination.hasMore) {
       return _buildEmpty(
           _search.isNotEmpty
               ? 'لا نتائج لـ "$_search"'

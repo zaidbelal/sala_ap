@@ -361,14 +361,11 @@ class RealtimeHub {
         return;
       }
       if (newRole != AppStorage.userRole) {
-        await AppStorage.saveUserData(
-          userId: userId,
-          role: newRole,
-          name: data['full_name'] as String?,
-          phone: data['phone_number'] as String?,
-        );
+        // 🔒 فرض سحب وفحص التوكن المشفر الصادر من خادم Firebase Auth
+        IdTokenResult? tokenResult;
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          tokenResult =
+              await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-token-revoked') {
             await resetOnSignOut();
@@ -380,13 +377,38 @@ class RealtimeHub {
             return;
           }
         } catch (_) {}
+
+        final verifiedClaimRole =
+            (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+        const privileged = {
+          'admin',
+          'super_admin',
+          'accountant',
+          'warehouse_manager',
+          'driver'
+        };
+
+        // منع رفع الصلاحيات إذا لم تكن مصدقّة وموقّعة من الخادم في Custom Claims
+        final secureRole =
+            (privileged.contains(newRole) && verifiedClaimRole != newRole)
+                ? 'merchant'
+                : newRole;
+
+        await AppStorage.saveUserData(
+          userId: userId,
+          role: secureRole,
+          name: data['full_name'] as String?,
+          phone: data['phone_number'] as String?,
+        );
+
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
           if (AppStorage.userId == userId && _initialized) {
-            await startForUser(userId, role: newRole);
+            await startForUser(userId, role: secureRole);
           }
         });
-        final targetRoute = switch (newRole) {
+
+        final targetRoute = switch (secureRole) {
           'admin' ||
           'super_admin' ||
           'accountant' ||
@@ -467,7 +489,6 @@ class RealtimeHub {
       _userSubs.remove(_notificationsSub);
       _notificationsSub = null;
     }
-
     final sub = _db
         .collection('user_notifications')
         .where('user_id', isEqualTo: userId)
@@ -519,6 +540,24 @@ class RealtimeHub {
     );
     _notificationsSub = sub;
     _userSubs.add(sub);
+
+    final broadcastSub = _db
+        .collection('broadcast_notifications')
+        .orderBy('created_at', descending: true)
+        .limit(20)
+        .snapshots()
+        .listen((snap) {
+      final broadcastData = snap.docs
+          .map((d) => {
+                'id': d.id,
+                'is_read': true,
+                'user_id': userId,
+                ...d.data(),
+              })
+          .toList();
+      _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
+    }, onError: (_) {});
+    _userSubs.add(broadcastSub);
   }
 
   void _watchProducts() {
@@ -537,7 +576,8 @@ class RealtimeHub {
           ..sort((a, b) => (a['name']?.toString() ?? '')
               .compareTo(b['name']?.toString() ?? ''));
         _container?.read(realtimeProductsProvider.notifier).update(data);
-        AppCache.instance.setProducts(data);
+        // دمج ذري بالـ ID لحماية الـ 2,500 منتج المحفوظة مسبقاً من الحذف
+        unawaited(AppCache.instance.mergeProducts(data));
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
@@ -616,7 +656,7 @@ class RealtimeHub {
 
   void _watchConfirmedOrders() {
     final seenIds = LinkedHashSet<String>();
-    const targetStatuses = ['confirmed', 'pending', 'preparing'];
+    const targetStatuses = ['confirmed', 'preparing'];
 
     // تصفية سحابية موثقة بالفهرس (status ASC, created_at DESC)
     final sub = _db
@@ -697,7 +737,6 @@ class RealtimeHub {
   }
 
   void _scheduleReconnect() {
-    // 🔒 حظر جدولة إعادة الاتصال إذا كان التطبيق غير مهيأ أو المستخدم مسجل خروجه نهائياً
     if (!_initialized || !AppStorage.isLoggedIn || _activeUserId == null)
       return;
 
@@ -705,14 +744,16 @@ class RealtimeHub {
         RealtimeStatus.disconnected;
 
     reconnectAttempts++;
-    if (reconnectAttempts < 6) {
-      _reconnectTimer?.cancel();
-      _reconnectTimer = Timer(Duration(seconds: 3 * reconnectAttempts), () {
-        if (_initialized && AppStorage.isLoggedIn && _activeUserId != null) {
-          restart();
-        }
-      });
-    }
+    _reconnectTimer?.cancel();
+
+    // 🚀 مرونة واستمرارية دائمة (Infinite Resilient Loop with Jitter): التراجع التدريجي بسقف 25 ثانية مع الاستمرار التلقائي حتى عودة الإنترنت
+    final delaySeconds =
+        (reconnectAttempts <= 5 ? (3 * reconnectAttempts) : 25);
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (_initialized && AppStorage.isLoggedIn && _activeUserId != null) {
+        restart();
+      }
+    });
   }
 
   void restart() {

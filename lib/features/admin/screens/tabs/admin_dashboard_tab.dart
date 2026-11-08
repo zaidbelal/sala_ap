@@ -26,8 +26,10 @@ final _liveNewOrdersProvider = StreamProvider.autoDispose<int>((ref) {
       .snapshots(includeMetadataChanges: false)
       .map((snap) {
     // ✅ حساب تاريخ بداية اليوم ديناميكياً داخل معالج التدفق لمواكبة تجاوز منتصف الليل
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
+    // 🔒 توحيد معيار بداية اليوم مع توقيت صنعاء (UTC+3) المتطابق مع السيرفر
+    final nowYemen = DateTime.now().toUtc().add(const Duration(hours: 3));
+    final startOfDay = DateTime.utc(nowYemen.year, nowYemen.month, nowYemen.day)
+        .subtract(const Duration(hours: 3));
     return snap.docs.where((d) {
       final ts = d.data()['created_at'];
       final date = ts is Timestamp ? ts.toDate() : (ts is DateTime ? ts : null);

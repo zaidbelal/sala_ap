@@ -190,13 +190,25 @@ class NotificationService {
         message.notification != null) {
       return;
     }
+    final type = message.data['type']?.toString() ?? '';
+    final isNewOrder = type == 'new_order';
+    final channelId =
+        isNewOrder ? 'wissal_orders_channel' : 'wissal_orders_channel_v3';
+    final channelName = isNewOrder ? 'طلبات السائقين' : 'طلبات وصًال';
+    final sound = isNewOrder
+        ? const RawResourceAndroidNotificationSound('wissal_notification')
+        : null;
+
     final androidDetails = AndroidNotificationDetails(
-      'wissal_orders_channel_v3',
-      'طلبات وصًال',
-      channelDescription: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
+      channelId,
+      channelName,
+      channelDescription: isNewOrder
+          ? 'إشعارات الطلبات الجديدة للسائق مع الرنين'
+          : 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      sound: sound,
       enableVibration: true,
       visibility: NotificationVisibility.public,
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,

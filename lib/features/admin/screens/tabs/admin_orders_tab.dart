@@ -51,7 +51,11 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
     (label: 'مقبول', statuses: ['confirmed'], color: Colors.blue),
     (label: 'في الطريق', statuses: ['shipped'], color: Colors.indigo),
     (label: 'مُسلّم', statuses: ['delivered'], color: Color(0xFF10B981)),
-    (label: 'ملغي ومرفوض', statuses: ['cancelled'], color: Colors.red),
+    (
+      label: 'ملغي ومرفوض',
+      statuses: ['cancelled', 'rejected'],
+      color: Colors.red
+    ),
     (label: 'مُرتجع', statuses: ['returned'], color: Colors.deepOrange),
     (
       label: 'طلب إرجاع',

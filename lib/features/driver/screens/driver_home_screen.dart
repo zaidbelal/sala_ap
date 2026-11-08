@@ -34,21 +34,30 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
 
+    final Set<String> knownOrderIds = {};
     bool isFirstSnapshot = true;
     _ordersSubscription = ref.listenManual<List<Map<String, dynamic>>>(
       realtimeConfirmedOrdersProvider,
       (prev, next) {
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
+          for (final order in next) {
+            final id = order['id']?.toString();
+            if (id != null && id.isNotEmpty) knownOrderIds.add(id);
+          }
           return;
         }
-        if (prev == null) return;
-        final prevIds = prev.map((e) => e['id']).toSet();
-        final newOrders = next.where((e) => !prevIds.contains(e['id']));
+        final newOrders = next.where((e) {
+          final id = e['id']?.toString() ?? '';
+          return id.isNotEmpty && !knownOrderIds.contains(id);
+        }).toList();
+
         for (final order in newOrders) {
+          final id = order['id']?.toString() ?? '';
+          knownOrderIds.add(id);
           final assignedDriver = order['driver_id'] as String?;
           if (assignedDriver == null || assignedDriver.isEmpty) {
-            _onNewOrder(order['id'] ?? '', order);
+            _onNewOrder(id, order);
           }
         }
       },
@@ -868,8 +877,7 @@ class _DriverOrderCard extends StatelessWidget {
         0.0;
     final status = data['status'] as String? ?? '';
     // ✅ إدراج حالة 'preparing' ضمن الحالات الجاهزة للاستلام من المستودع
-    final isConfirmed =
-        status == 'confirmed' || status == 'pending' || status == 'preparing';
+    final isConfirmed = status == 'confirmed' || status == 'preparing';
     final orderNum = data['order_number'] ?? data['invoice_number'] ?? '';
     final notes = data['notes'] as String?;
     final itemsCount = (data['items_count'] as num?)?.toInt() ?? 0;

@@ -353,16 +353,13 @@ class AdminService {
           final aggSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .aggregate(sum('total_amount'))
+              .aggregate(sum('total_amount'), sum('total'))
               .get();
-          resolvedRevenue = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+          final s1 = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+          final s2 = (aggSnap.getSum('total') ?? 0.0).toDouble();
+          resolvedRevenue = s1 > s2 ? s1 : s2;
         } catch (_) {
-          final aggSnapTotal = await _db
-              .collection('orders')
-              .where('status', isEqualTo: 'delivered')
-              .aggregate(sum('total'))
-              .get();
-          resolvedRevenue = (aggSnapTotal.getSum('total') ?? 0.0).toDouble();
+          resolvedRevenue = 0.0;
         }
         grossRevenue = resolvedRevenue;
 
@@ -377,34 +374,43 @@ class AdminService {
           totalProfit = 0.0;
         }
       } catch (_) {
-        // في حال تعذر التجميع السحابي، يتم جلب البيانات من الخادم وتوثيق أن الإحصاءات غير مكتملة
+        // 🔒 مطابقة محاسبية مرتبطة 100%: حساب الأرباح بناءً على نفس معرفات طلبات الإيراد بدقة متناهية
         try {
           final deliveredDocsSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .limit(300)
+              .limit(200)
               .get(const GetOptions(source: Source.serverAndCache));
-          final financialDocsSnap = await _db
-              .collection('order_financials')
-              .where('profit_recorded', isEqualTo: true)
-              .limit(300)
-              .get(const GetOptions(source: Source.serverAndCache));
+
           double calcRevenue = 0.0;
+          final deliveredOrderIds = <String>[];
           for (final doc in deliveredDocsSnap.docs) {
             final data = doc.data();
             final amt = (data['total_amount'] as num?)?.toDouble() ??
                 (data['total'] as num?)?.toDouble() ??
                 0.0;
             calcRevenue += amt;
+            deliveredOrderIds.add(doc.id);
           }
-          final calcProfit = financialDocsSnap.docs.fold<double>(
-            0,
-            (total, doc) =>
-                total + ((doc.data()['total_profit'] as num?)?.toDouble() ?? 0),
-          );
+
+          double calcProfit = 0.0;
+          if (deliveredOrderIds.isNotEmpty) {
+            final chunkedIds = chunked(deliveredOrderIds, size: 30);
+            for (final chunk in chunkedIds) {
+              final finSnap = await _db
+                  .collection('order_financials')
+                  .where(FieldPath.documentId, whereIn: chunk)
+                  .get(const GetOptions(source: Source.serverAndCache));
+              for (final fDoc in finSnap.docs) {
+                calcProfit +=
+                    (fDoc.data()['total_profit'] as num?)?.toDouble() ?? 0.0;
+              }
+            }
+          }
+
           grossRevenue = calcRevenue;
           totalProfit = calcProfit;
-          isPartial = deliveredDocsSnap.docs.length >= 300;
+          isPartial = deliveredDocsSnap.docs.length >= 200;
           if (isPartial) failureReason = 'large_dataset_partial_fallback';
         } catch (_) {
           isPartial = true;
@@ -502,9 +508,10 @@ class AdminService {
           .get();
 
       final countOrders = aggSnap.count ?? 0;
+      final sumTotalAmount = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+      final sumTotalLegacy = (aggSnap.getSum('total') ?? 0.0).toDouble();
       final sumTotal =
-          (aggSnap.getSum('total_amount') ?? aggSnap.getSum('total') ?? 0.0)
-              .toDouble();
+          sumTotalAmount > sumTotalLegacy ? sumTotalAmount : sumTotalLegacy;
 
       return {
         'revenue': sumTotal,
@@ -555,7 +562,7 @@ class AdminService {
         return {
           'revenue': 0.0,
           'orders': 0.0,
-          'is_error': false, // إرجاع صفر بدلاً من خطأ لعدم تشويه الواجهة
+          'is_error': true,
         };
       }
     }

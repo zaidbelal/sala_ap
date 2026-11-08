@@ -276,7 +276,10 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
                 rawReturn['id'].toString():
                     ReturnInvoiceModel.fromMap(rawReturn),
             };
-            final returnInvoices = returnsById.values.toList();
+            // 🔒 إظهار فواتير الإرجاع المقبولة والمعتمدة مالياً فقط في سجل الفواتير المكتملة
+            final returnInvoices = returnsById.values
+                .where((r) => r.status == 'accepted')
+                .toList();
 
             // دمج الفواتير العادية مع فواتير الإرجاع وترتيبها تنازلياً حسب التاريخ
             final combinedItems = <dynamic>[...orders, ...returnInvoices]

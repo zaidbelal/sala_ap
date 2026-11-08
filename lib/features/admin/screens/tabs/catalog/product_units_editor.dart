@@ -301,6 +301,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   late final TextEditingController _costCtrl;
   late final TextEditingController _qtyCtrl;
   late final TextEditingController _sizeCtrl;
+  late final TextEditingController _barcodeCtrl;
   late final TextEditingController _prodDateCtrl;
   late final TextEditingController _expDateCtrl;
 
@@ -321,6 +322,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _qtyCtrl = TextEditingController(text: ex != null ? '${ex.qty}' : '1');
     _sizeCtrl = TextEditingController(
         text: ex?.sizeMl != null ? ex!.sizeMl!.toStringAsFixed(0) : '');
+    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -334,6 +336,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _costCtrl.dispose();
     _qtyCtrl.dispose();
     _sizeCtrl.dispose();
+    _barcodeCtrl.dispose();
     _prodDateCtrl.dispose();
     _expDateCtrl.dispose();
     super.dispose();
@@ -425,7 +428,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
           expiryDate: _expDateCtrl.text.trim().isEmpty
               ? null
               : DateTime.tryParse(_expDateCtrl.text.trim()),
-          barcode: widget.existing?.barcode,
+          barcode: _barcodeCtrl.text.trim().isEmpty
+              ? null
+              : _barcodeCtrl.text.trim(),
         ),
       );
     } catch (e) {
@@ -650,6 +655,15 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _barcodeCtrl,
+                        textDirection: TextDirection.ltr,
+                        decoration:
+                            _dec('باركود الوحدة (أدخل يدوياً أو امسحه)'),
+                        style:
+                            const TextStyle(fontFamily: 'Cairo', fontSize: 13),
                       ),
                       const SizedBox(height: 10),
                       Row(

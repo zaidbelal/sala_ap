@@ -84,33 +84,65 @@ class SessionChecker {
           .doc(userId)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 3));
+// 🔒 المصدر السيادي الوحيد للأمان: التحقق الصارم من التوكن المشفر (Cryptographic Custom Claims)
+      final tokenResult = await firebaseUser.getIdTokenResult(true);
+      final verifiedRole =
+          (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+      final isBannedClaim = tokenResult.claims?['is_banned'] == true;
+
+      if (isBannedClaim) {
+        await FirebaseAuth.instance.signOut();
+        await AppStorage.clearUserData();
+        return SessionResult.unauthenticated;
+      }
 
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
         final isActive = data['is_active'] as bool? ?? false;
         final isBanned = data['is_banned'] == true;
-        final role = (data['role'] as String?)?.trim().toLowerCase() ??
-            AppStorage.normalizedUserRole;
+        final docRole =
+            (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
 
         if (isBanned) {
+          await FirebaseAuth.instance.signOut();
           await AppStorage.clearUserData();
           return SessionResult.unauthenticated;
         }
 
+        // 🛡️ قاعدة أمنية قطعية: حظر أي رتبة إدارية أو سائق ما لم تكن موقعة ومثبتة في Claims
+        const privilegedRoles = {
+          'admin',
+          'super_admin',
+          'accountant',
+          'warehouse_manager',
+          'driver'
+        };
+        final String effectiveRole;
+        if (privilegedRoles.contains(docRole)) {
+          if (verifiedRole == docRole) {
+            effectiveRole = docRole;
+          } else {
+            // تراجع آمن وتجريد من الصلاحيات إذا لم تتطابق التوقيعات المشفرة
+            effectiveRole = 'merchant';
+          }
+        } else {
+          effectiveRole = verifiedRole ?? 'merchant';
+        }
+
         await AppStorage.setIsActive(isActive);
-        await AppStorage.setIsBanned(isBanned);
+        await AppStorage.setIsBanned(false);
         await AppStorage.saveUserData(
           userId: userId,
-          role: role,
+          role: effectiveRole,
           name: data['full_name'] as String?,
           phone: data['phone_number'] as String?,
         );
 
-        unawaited(RealtimeHub().startForUser(userId, role: role));
+        unawaited(RealtimeHub().startForUser(userId, role: effectiveRole));
 
         if (!isActive) return SessionResult.pending;
 
-        return switch (role) {
+        return switch (effectiveRole) {
           'admin' ||
           'super_admin' ||
           'accountant' ||
@@ -121,21 +153,9 @@ class SessionChecker {
         };
       }
     } catch (_) {
-      try {
-        final tokenResult = await firebaseUser.getIdTokenResult();
-        final claimsRole =
-            (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
-        final isBannedClaim = tokenResult.claims?['is_banned'] == true;
-        if (isBannedClaim) {
-          await AppStorage.clearUserData();
-          return SessionResult.unauthenticated;
-        }
-        if (claimsRole != null && claimsRole.isNotEmpty) {
-          await AppStorage.saveUserData(userId: userId, role: claimsRole);
-        }
-      } catch (_) {}
+      // التعامل الآمن مع انقطاع الشبكة دون تصعيد الصلاحيات
+      return localSessionResult();
     }
-
     unawaited(RealtimeHub()
         .startForUser(userId, role: AppStorage.normalizedUserRole));
     return localSessionResult();

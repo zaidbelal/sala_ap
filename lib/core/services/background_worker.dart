@@ -54,11 +54,15 @@ class BackgroundWorker {
 
     final normQ = ArabicNormalizer.normalize(q);
 
+    final qTokens = normQ.split(' ').where((t) => t.isNotEmpty).toList();
+
     final filtered = normQ.isEmpty
         ? rawItems
         : rawItems.where((item) {
             final name =
                 ArabicNormalizer.normalize(item['name']?.toString() ?? '');
+            final matchesName = qTokens.isNotEmpty &&
+                qTokens.every((token) => name.contains(token));
             final barcode = item['barcode']?.toString() ?? '';
             final allBarcodes = item['all_barcodes'];
             final matchesAllBarcodes = allBarcodes is List &&
@@ -68,7 +72,7 @@ class BackgroundWorker {
                 units.any((u) =>
                     u is Map &&
                     (u['barcode']?.toString().contains(normQ) ?? false));
-            return name.contains(normQ) ||
+            return matchesName ||
                 barcode.contains(normQ) ||
                 matchesAllBarcodes ||
                 matchesUnits;

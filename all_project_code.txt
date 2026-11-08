@@ -2698,6 +2698,50 @@ class AppCache {
 
   Future<void> _productsWriteLock = Future.value();
 
+  /// دمج ذري للمنتجات الحية الواردة من السيرفر دون مسح باقي الكتالوج الضخم
+  Future<void> mergeProducts(List<Map<String, dynamic>> liveBatch) async {
+    if (liveBatch.isEmpty) return;
+    final previousLock = _productsWriteLock;
+    final completer = Completer<void>();
+    _productsWriteLock = completer.future;
+
+    try {
+      await previousLock;
+    } catch (_) {}
+
+    try {
+      final currentList = getProducts() ?? [];
+      final Map<String, Map<String, dynamic>> productMap = {
+        for (final p in currentList) p['id'].toString(): p,
+      };
+
+      // تحديث أو إضافة الأصناف المحدثة فقط
+      for (final liveItem in liveBatch) {
+        final id = liveItem['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          if (liveItem['is_deleted'] == true ||
+              liveItem['is_active'] == false) {
+            productMap.remove(id);
+          } else {
+            productMap[id] = liveItem;
+          }
+        }
+      }
+
+      final merged = productMap.values.toList()
+        ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+            .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+      _ram[_keyProducts] = _CacheEntry(
+        data: merged,
+        savedAt: DateTime.now(),
+      );
+      await _saveToDisk(_keyProducts, merged);
+    } finally {
+      completer.complete();
+    }
+  }
+
   Future<void> setProducts(
     List<Map<String, dynamic>> data, {
     String? categoryId,
@@ -2714,7 +2758,6 @@ class AppCache {
       final key =
           categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
 
-      // ✅ تحديث الـ RAM أولاً قبل القرص لمنع أي Race Condition
       _ram[key] = _CacheEntry(
         data: data,
         savedAt: DateTime.now(),
@@ -2745,18 +2788,26 @@ class AppCache {
           } catch (_) {}
         }
 
-        // تحديث الكاش الشامل مع إزالة الأصناف المحذوفة التابعة لنفس القسم
-        if (all.isNotEmpty) {
-          final merged = [
-            ...all.where((e) => e['category_id']?.toString() != categoryId),
-            ...data,
-          ];
-          _ram[_keyProducts] = _CacheEntry(
-            data: merged,
-            savedAt: DateTime.now(),
-          );
-          await _saveToDisk(_keyProducts, merged);
+        // دمج القسم داخل الكاش الشامل حتى لو كان الكاش العام فارغاً مبدئياً
+        final Map<String, Map<String, dynamic>> mergedMap = {
+          for (final item in all) item['id'].toString(): item,
+        };
+        // حذف العناصر القديمة للقسم وإدخال الجديدة
+        mergedMap.removeWhere(
+            (_, item) => item['category_id']?.toString() == categoryId);
+        for (final item in data) {
+          final id = item['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            mergedMap[id] = item;
+          }
         }
+
+        final mergedList = mergedMap.values.toList();
+        _ram[_keyProducts] = _CacheEntry(
+          data: mergedList,
+          savedAt: DateTime.now(),
+        );
+        await _saveToDisk(_keyProducts, mergedList);
       }
     } finally {
       completer.complete();
@@ -3380,7 +3431,7 @@ class ProductsNotifier
         (_, next) {
           if (next.isNotEmpty && !_isDisposed) {
             state = AsyncData(next);
-            unawaited(AppCache.instance.setProducts(next));
+            unawaited(AppCache.instance.mergeProducts(next));
             _precache(next);
           }
         },
@@ -3407,15 +3458,18 @@ class ProductsNotifier
   }
 
   void listenRealtime() {
-    // 🔒 إغلاق الاشتراك السابق لمنع تراكم مستمعين في الذاكرة
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeProductsProvider,
       (_, next) {
         if (next.isNotEmpty && !_isDisposed) {
-          state = AsyncData(next);
-          unawaited(AppCache.instance.setProducts(next));
-          _precache(next);
+          // عزل وتصفية المنتجات بحسب القسم المفتوح ومنع تلويث القائمة بمنتجات الأقسام الأخرى
+          final filtered = arg == null
+              ? next
+              : next.where((p) => p['category_id']?.toString() == arg).toList();
+          state = AsyncData(filtered);
+          unawaited(AppCache.instance.setProducts(filtered, categoryId: arg));
+          _precache(filtered);
         }
       },
     );
@@ -3450,20 +3504,19 @@ class ProductsNotifier
     String? categoryId,
   }) async {
     const maxInitialCacheSize = 2500;
-    Query<Map<String, dynamic>> query = _db.collection('products');
+    Query<Map<String, dynamic>> query =
+        _db.collection('products').where('is_deleted', isEqualTo: false);
 
     if (categoryId != null) {
       query = query.where('category_id', isEqualTo: categoryId);
     }
 
-    // استيعاب كتالوج ضخم حتى 2500 منتج دفعة واحدة مع الفرز السريع بالذاكرة
     query = query.limit(maxInitialCacheSize);
     final snap =
         await query.get(const GetOptions(source: Source.serverAndCache));
 
     final List<Map<String, dynamic>> results = snap.docs
-        .where((d) =>
-            d.data()['is_deleted'] != true && d.data()['is_active'] != false)
+        .where((d) => d.data()['is_active'] != false)
         .map((d) => {'id': d.id, ...d.data()})
         .toList()
       ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
@@ -4390,13 +4443,25 @@ class NotificationService {
         message.notification != null) {
       return;
     }
+    final type = message.data['type']?.toString() ?? '';
+    final isNewOrder = type == 'new_order';
+    final channelId =
+        isNewOrder ? 'wissal_orders_channel' : 'wissal_orders_channel_v3';
+    final channelName = isNewOrder ? 'طلبات السائقين' : 'طلبات وصًال';
+    final sound = isNewOrder
+        ? const RawResourceAndroidNotificationSound('wissal_notification')
+        : null;
+
     final androidDetails = AndroidNotificationDetails(
-      'wissal_orders_channel_v3',
-      'طلبات وصًال',
-      channelDescription: 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
+      channelId,
+      channelName,
+      channelDescription: isNewOrder
+          ? 'إشعارات الطلبات الجديدة للسائق مع الرنين'
+          : 'إشعارات الطلبات وتحديثات الحالة والمرتجعات',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      sound: sound,
       enableVibration: true,
       visibility: NotificationVisibility.public,
       audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
@@ -5010,14 +5075,11 @@ class RealtimeHub {
         return;
       }
       if (newRole != AppStorage.userRole) {
-        await AppStorage.saveUserData(
-          userId: userId,
-          role: newRole,
-          name: data['full_name'] as String?,
-          phone: data['phone_number'] as String?,
-        );
+        // 🔒 فرض سحب وفحص التوكن المشفر الصادر من خادم Firebase Auth
+        IdTokenResult? tokenResult;
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          tokenResult =
+              await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-token-revoked') {
             await resetOnSignOut();
@@ -5029,13 +5091,38 @@ class RealtimeHub {
             return;
           }
         } catch (_) {}
+
+        final verifiedClaimRole =
+            (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+        const privileged = {
+          'admin',
+          'super_admin',
+          'accountant',
+          'warehouse_manager',
+          'driver'
+        };
+
+        // منع رفع الصلاحيات إذا لم تكن مصدقّة وموقّعة من الخادم في Custom Claims
+        final secureRole =
+            (privileged.contains(newRole) && verifiedClaimRole != newRole)
+                ? 'merchant'
+                : newRole;
+
+        await AppStorage.saveUserData(
+          userId: userId,
+          role: secureRole,
+          name: data['full_name'] as String?,
+          phone: data['phone_number'] as String?,
+        );
+
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
           if (AppStorage.userId == userId && _initialized) {
-            await startForUser(userId, role: newRole);
+            await startForUser(userId, role: secureRole);
           }
         });
-        final targetRoute = switch (newRole) {
+
+        final targetRoute = switch (secureRole) {
           'admin' ||
           'super_admin' ||
           'accountant' ||
@@ -5116,7 +5203,6 @@ class RealtimeHub {
       _userSubs.remove(_notificationsSub);
       _notificationsSub = null;
     }
-
     final sub = _db
         .collection('user_notifications')
         .where('user_id', isEqualTo: userId)
@@ -5168,6 +5254,24 @@ class RealtimeHub {
     );
     _notificationsSub = sub;
     _userSubs.add(sub);
+
+    final broadcastSub = _db
+        .collection('broadcast_notifications')
+        .orderBy('created_at', descending: true)
+        .limit(20)
+        .snapshots()
+        .listen((snap) {
+      final broadcastData = snap.docs
+          .map((d) => {
+                'id': d.id,
+                'is_read': true,
+                'user_id': userId,
+                ...d.data(),
+              })
+          .toList();
+      _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
+    }, onError: (_) {});
+    _userSubs.add(broadcastSub);
   }
 
   void _watchProducts() {
@@ -5186,7 +5290,8 @@ class RealtimeHub {
           ..sort((a, b) => (a['name']?.toString() ?? '')
               .compareTo(b['name']?.toString() ?? ''));
         _container?.read(realtimeProductsProvider.notifier).update(data);
-        AppCache.instance.setProducts(data);
+        // دمج ذري بالـ ID لحماية الـ 2,500 منتج المحفوظة مسبقاً من الحذف
+        unawaited(AppCache.instance.mergeProducts(data));
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
@@ -5265,7 +5370,7 @@ class RealtimeHub {
 
   void _watchConfirmedOrders() {
     final seenIds = LinkedHashSet<String>();
-    const targetStatuses = ['confirmed', 'pending', 'preparing'];
+    const targetStatuses = ['confirmed', 'preparing'];
 
     // تصفية سحابية موثقة بالفهرس (status ASC, created_at DESC)
     final sub = _db
@@ -5346,7 +5451,6 @@ class RealtimeHub {
   }
 
   void _scheduleReconnect() {
-    // 🔒 حظر جدولة إعادة الاتصال إذا كان التطبيق غير مهيأ أو المستخدم مسجل خروجه نهائياً
     if (!_initialized || !AppStorage.isLoggedIn || _activeUserId == null)
       return;
 
@@ -5354,14 +5458,16 @@ class RealtimeHub {
         RealtimeStatus.disconnected;
 
     reconnectAttempts++;
-    if (reconnectAttempts < 6) {
-      _reconnectTimer?.cancel();
-      _reconnectTimer = Timer(Duration(seconds: 3 * reconnectAttempts), () {
-        if (_initialized && AppStorage.isLoggedIn && _activeUserId != null) {
-          restart();
-        }
-      });
-    }
+    _reconnectTimer?.cancel();
+
+    // 🚀 مرونة واستمرارية دائمة (Infinite Resilient Loop with Jitter): التراجع التدريجي بسقف 25 ثانية مع الاستمرار التلقائي حتى عودة الإنترنت
+    final delaySeconds =
+        (reconnectAttempts <= 5 ? (3 * reconnectAttempts) : 25);
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (_initialized && AppStorage.isLoggedIn && _activeUserId != null) {
+        restart();
+      }
+    });
   }
 
   void restart() {
@@ -6971,7 +7077,11 @@ class _AppMapState extends State<AppMap> {
                 ),
             zoom: widget.initialZoom,
           ),
-          mapType: _isSatellite ? gmaps.MapType.hybrid : gmaps.MapType.normal,
+          mapType: _isSatellite
+              ? gmaps.MapType.hybrid
+              : (widget.style == AppMapStyle.terrain
+                  ? gmaps.MapType.terrain
+                  : gmaps.MapType.normal),
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
@@ -10057,7 +10167,7 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     if (merchants.isEmpty) {
       return _buildEmpty('لا يوجد تجار مسجلون', Icons.store_outlined);
     }
-    if (filtered.isEmpty) {
+    if (filtered.isEmpty && !pagination.hasMore) {
       return _buildEmpty(
           _search.isNotEmpty
               ? 'لا نتائج لـ "$_search"'
@@ -12116,7 +12226,11 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
     (label: 'مقبول', statuses: ['confirmed'], color: Colors.blue),
     (label: 'في الطريق', statuses: ['shipped'], color: Colors.indigo),
     (label: 'مُسلّم', statuses: ['delivered'], color: Color(0xFF10B981)),
-    (label: 'ملغي ومرفوض', statuses: ['cancelled'], color: Colors.red),
+    (
+      label: 'ملغي ومرفوض',
+      statuses: ['cancelled', 'rejected'],
+      color: Colors.red
+    ),
     (label: 'مُرتجع', statuses: ['returned'], color: Colors.deepOrange),
     (
       label: 'طلب إرجاع',
@@ -16271,7 +16385,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         if (itemsCtrl.text.isNotEmpty)
           'items_per_carton': int.tryParse(itemsCtrl.text),
         'size_text': customSizeText,
-        if (numericSize != null) 'size_ml': numericSize,
+        'size_ml': numericSize, // يمرر null صراحة ليحذفه السيرفر عند التفريغ
         'barcode': barcodeCtrl.text.trim().isNotEmpty
             ? barcodeCtrl.text.trim()
             : FieldValue.delete(),
@@ -16612,6 +16726,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   late final TextEditingController _costCtrl;
   late final TextEditingController _qtyCtrl;
   late final TextEditingController _sizeCtrl;
+  late final TextEditingController _barcodeCtrl;
   late final TextEditingController _prodDateCtrl;
   late final TextEditingController _expDateCtrl;
 
@@ -16632,6 +16747,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _qtyCtrl = TextEditingController(text: ex != null ? '${ex.qty}' : '1');
     _sizeCtrl = TextEditingController(
         text: ex?.sizeMl != null ? ex!.sizeMl!.toStringAsFixed(0) : '');
+    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -16645,6 +16761,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _costCtrl.dispose();
     _qtyCtrl.dispose();
     _sizeCtrl.dispose();
+    _barcodeCtrl.dispose();
     _prodDateCtrl.dispose();
     _expDateCtrl.dispose();
     super.dispose();
@@ -16736,7 +16853,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
           expiryDate: _expDateCtrl.text.trim().isEmpty
               ? null
               : DateTime.tryParse(_expDateCtrl.text.trim()),
-          barcode: widget.existing?.barcode,
+          barcode: _barcodeCtrl.text.trim().isEmpty
+              ? null
+              : _barcodeCtrl.text.trim(),
         ),
       );
     } catch (e) {
@@ -16961,6 +17080,15 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _barcodeCtrl,
+                        textDirection: TextDirection.ltr,
+                        decoration:
+                            _dec('باركود الوحدة (أدخل يدوياً أو امسحه)'),
+                        style:
+                            const TextStyle(fontFamily: 'Cairo', fontSize: 13),
                       ),
                       const SizedBox(height: 10),
                       Row(
@@ -17454,16 +17582,13 @@ class AdminService {
           final aggSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .aggregate(sum('total_amount'))
+              .aggregate(sum('total_amount'), sum('total'))
               .get();
-          resolvedRevenue = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+          final s1 = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+          final s2 = (aggSnap.getSum('total') ?? 0.0).toDouble();
+          resolvedRevenue = s1 > s2 ? s1 : s2;
         } catch (_) {
-          final aggSnapTotal = await _db
-              .collection('orders')
-              .where('status', isEqualTo: 'delivered')
-              .aggregate(sum('total'))
-              .get();
-          resolvedRevenue = (aggSnapTotal.getSum('total') ?? 0.0).toDouble();
+          resolvedRevenue = 0.0;
         }
         grossRevenue = resolvedRevenue;
 
@@ -17478,34 +17603,43 @@ class AdminService {
           totalProfit = 0.0;
         }
       } catch (_) {
-        // في حال تعذر التجميع السحابي، يتم جلب البيانات من الخادم وتوثيق أن الإحصاءات غير مكتملة
+        // 🔒 مطابقة محاسبية مرتبطة 100%: حساب الأرباح بناءً على نفس معرفات طلبات الإيراد بدقة متناهية
         try {
           final deliveredDocsSnap = await _db
               .collection('orders')
               .where('status', isEqualTo: 'delivered')
-              .limit(300)
+              .limit(200)
               .get(const GetOptions(source: Source.serverAndCache));
-          final financialDocsSnap = await _db
-              .collection('order_financials')
-              .where('profit_recorded', isEqualTo: true)
-              .limit(300)
-              .get(const GetOptions(source: Source.serverAndCache));
+
           double calcRevenue = 0.0;
+          final deliveredOrderIds = <String>[];
           for (final doc in deliveredDocsSnap.docs) {
             final data = doc.data();
             final amt = (data['total_amount'] as num?)?.toDouble() ??
                 (data['total'] as num?)?.toDouble() ??
                 0.0;
             calcRevenue += amt;
+            deliveredOrderIds.add(doc.id);
           }
-          final calcProfit = financialDocsSnap.docs.fold<double>(
-            0,
-            (total, doc) =>
-                total + ((doc.data()['total_profit'] as num?)?.toDouble() ?? 0),
-          );
+
+          double calcProfit = 0.0;
+          if (deliveredOrderIds.isNotEmpty) {
+            final chunkedIds = chunked(deliveredOrderIds, size: 30);
+            for (final chunk in chunkedIds) {
+              final finSnap = await _db
+                  .collection('order_financials')
+                  .where(FieldPath.documentId, whereIn: chunk)
+                  .get(const GetOptions(source: Source.serverAndCache));
+              for (final fDoc in finSnap.docs) {
+                calcProfit +=
+                    (fDoc.data()['total_profit'] as num?)?.toDouble() ?? 0.0;
+              }
+            }
+          }
+
           grossRevenue = calcRevenue;
           totalProfit = calcProfit;
-          isPartial = deliveredDocsSnap.docs.length >= 300;
+          isPartial = deliveredDocsSnap.docs.length >= 200;
           if (isPartial) failureReason = 'large_dataset_partial_fallback';
         } catch (_) {
           isPartial = true;
@@ -17603,9 +17737,10 @@ class AdminService {
           .get();
 
       final countOrders = aggSnap.count ?? 0;
+      final sumTotalAmount = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+      final sumTotalLegacy = (aggSnap.getSum('total') ?? 0.0).toDouble();
       final sumTotal =
-          (aggSnap.getSum('total_amount') ?? aggSnap.getSum('total') ?? 0.0)
-              .toDouble();
+          sumTotalAmount > sumTotalLegacy ? sumTotalAmount : sumTotalLegacy;
 
       return {
         'revenue': sumTotal,
@@ -17656,7 +17791,7 @@ class AdminService {
         return {
           'revenue': 0.0,
           'orders': 0.0,
-          'is_error': false, // إرجاع صفر بدلاً من خطأ لعدم تشويه الواجهة
+          'is_error': true,
         };
       }
     }
@@ -22082,6 +22217,7 @@ import 'package:wissal/core/services/prefetch_service.dart';
 import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
 import 'package:wissal/features/merchant/search/services/search_service.dart';
 import 'package:wissal/features/merchant/barcode/barcode_scanner_screen.dart';
+import 'package:wissal/core/services/connectivity_service.dart';
 
 class OtpVerifyResponse {
   final bool success;
@@ -22194,7 +22330,13 @@ class AuthService {
       );
     } on FormatException catch (error) {
       throw StateError(error.message);
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(
+          error.message ?? 'تعذر إرسال رمز التحقق، يرجى المحاولة لاحقاً');
     } catch (e) {
+      if (ConnectivityHelper.isNetworkException(e)) {
+        throw StateError('تعذر الاتصال بخدمة التحقق، تأكد من اتصال الإنترنت');
+      }
       rethrow;
     } finally {
       _otpRequestRunning = false;
@@ -22272,19 +22414,37 @@ class AuthService {
     String userId,
   ) async {
     try {
-      final document =
-          await _db.collection('profiles').doc(userId).get().timeout(
-                const Duration(seconds: 10),
-              );
+      var document = await _db.collection('profiles').doc(userId).get().timeout(
+            const Duration(seconds: 10),
+          );
+
+      if (!document.exists) {
+        final currentUserPhone = FirebaseAuth.instance.currentUser?.phoneNumber;
+        if (currentUserPhone != null && currentUserPhone.isNotEmpty) {
+          final querySnap = await _db
+              .collection('profiles')
+              .where('phone_number', isEqualTo: currentUserPhone)
+              .limit(1)
+              .get()
+              .timeout(const Duration(seconds: 5));
+          if (querySnap.docs.isNotEmpty) {
+            // 🛡️ ترحيل وتوحيد الوثيقة تحت المعرف السيادي الفعلي لمنع تناقض الجلسة
+            final legacyData = querySnap.docs.first.data();
+            await _db.collection('profiles').doc(userId).set({
+              ...legacyData,
+              'updated_at': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+            document = await _db.collection('profiles').doc(userId).get();
+          }
+        }
+      }
 
       if (!document.exists) {
         throw StateError(
           'User profile was not found',
         );
       }
-
       final data = document.data();
-
       if (data == null) {
         throw StateError(
           'User profile data is empty',
@@ -22298,16 +22458,28 @@ class AuthService {
       } catch (_) {
         idTokenResult = null;
       }
-
       final claimsRole =
           (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-      final docRole = (data['role'] as String?)?.trim().toLowerCase();
-      final role =
-          (claimsRole != null && claimsRole.isNotEmpty) ? claimsRole : docRole;
-      if (role == null || role.isEmpty) {
-        throw StateError(
-          'User role is missing',
-        );
+      final docRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      const privilegedRoles = {
+        'admin',
+        'super_admin',
+        'accountant',
+        'warehouse_manager',
+        'driver'
+      };
+
+      // 🔒 التحقق الصارم: حظر استرجاع أي رتبة خاصة ما لم تكن موقعة من خادم المصادقة
+      final String role;
+      if (privilegedRoles.contains(docRole)) {
+        if (claimsRole == docRole) {
+          role = docRole;
+        } else {
+          role = 'merchant';
+        }
+      } else {
+        role = claimsRole ?? docRole;
       }
       final isActive = data['is_active'] as bool? ?? false;
       final isBanned = data['is_banned'] == true;
@@ -24669,21 +24841,30 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
 
+    final Set<String> knownOrderIds = {};
     bool isFirstSnapshot = true;
     _ordersSubscription = ref.listenManual<List<Map<String, dynamic>>>(
       realtimeConfirmedOrdersProvider,
       (prev, next) {
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
+          for (final order in next) {
+            final id = order['id']?.toString();
+            if (id != null && id.isNotEmpty) knownOrderIds.add(id);
+          }
           return;
         }
-        if (prev == null) return;
-        final prevIds = prev.map((e) => e['id']).toSet();
-        final newOrders = next.where((e) => !prevIds.contains(e['id']));
+        final newOrders = next.where((e) {
+          final id = e['id']?.toString() ?? '';
+          return id.isNotEmpty && !knownOrderIds.contains(id);
+        }).toList();
+
         for (final order in newOrders) {
+          final id = order['id']?.toString() ?? '';
+          knownOrderIds.add(id);
           final assignedDriver = order['driver_id'] as String?;
           if (assignedDriver == null || assignedDriver.isEmpty) {
-            _onNewOrder(order['id'] ?? '', order);
+            _onNewOrder(id, order);
           }
         }
       },
@@ -25503,8 +25684,7 @@ class _DriverOrderCard extends StatelessWidget {
         0.0;
     final status = data['status'] as String? ?? '';
     // ✅ إدراج حالة 'preparing' ضمن الحالات الجاهزة للاستلام من المستودع
-    final isConfirmed =
-        status == 'confirmed' || status == 'pending' || status == 'preparing';
+    final isConfirmed = status == 'confirmed' || status == 'preparing';
     final orderNum = data['order_number'] ?? data['invoice_number'] ?? '';
     final notes = data['notes'] as String?;
     final itemsCount = (data['items_count'] as num?)?.toInt() ?? 0;
@@ -29833,11 +30013,20 @@ class CartStorageRepository {
   }
 
   Future<Map<String, CartItem>?> readCart(String key) async {
+    String? raw;
     final file = await _getFile('$key.json');
-    if (file == null || !await file.exists()) return null;
+    if (file != null && await file.exists()) {
+      try {
+        raw = await file.readAsString();
+      } catch (_) {}
+    }
 
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty || raw.trim() == '{}') return null;
+    // 🛡️ تراجع آمن (Fallback): إذا لم يتوفر الملف يُقرأ الكاش البديل من AppStorage فوراً
+    if (raw == null || raw.trim().isEmpty || raw.trim() == '{}') {
+      raw = AppStorage.getString(key);
+    }
+
+    if (raw == null || raw.trim().isEmpty || raw.trim() == '{}') return null;
 
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
@@ -35649,32 +35838,11 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     (label: 'مرتجعات', icon: Icons.assignment_return_rounded),
   ];
 
-  bool _historyTriggered = false;
-
+  bool historyTriggered = false;
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
-    _tabController.animation!.addListener(_onTabAnimation);
-    // ⚡ إلغاء فتح استعلام جديد: الاعتماد على مزود الطلبات المركزي الموحد في RealtimeHub
-    // لتوفير 66% من فواتير قراءات قاعدة البيانات واستهلاك البطارية
-  }
-
-  void _onTabAnimation() {
-    final val = _tabController.animation!.value;
-    final lastIdx = (_tabs.length - 1).toDouble();
-    if (val >= lastIdx &&
-        _tabController.index == _tabs.length - 1 &&
-        !_historyTriggered) {
-      if (_tabController.indexIsChanging) {
-        _historyTriggered = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onNavigateToHistory?.call();
-        });
-      }
-    } else if (val < lastIdx) {
-      _historyTriggered = false;
-    }
   }
 
   Future<void> _loadMoreOrders(String merchantId) async {
@@ -35729,9 +35897,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
 
   @override
   void dispose() {
-    try {
-      _tabController.animation?.removeListener(_onTabAnimation);
-    } catch (_) {}
     _tabController.dispose();
     super.dispose();
   }
@@ -39420,6 +39585,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _listenToOrderRealtime();
   }
 
+  StreamSubscription<QuerySnapshot>? _returnsSubscription;
+
   void _listenToOrderRealtime() {
     _orderSubscription = FirebaseFirestore.instance
         .collection('orders')
@@ -39440,11 +39607,38 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       },
       cancelOnError: true,
     );
+
+    _returnsSubscription = FirebaseFirestore.instance
+        .collection('order_returns')
+        .where('order_id', isEqualTo: widget.order.id)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final returnsList = snap.docs
+          .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>})
+          .toList();
+      returnsList.sort((a, b) {
+        DateTime parseDate(dynamic v) {
+          if (v is Timestamp) return v.toDate();
+          if (v is DateTime) return v;
+          if (v is String && v.isNotEmpty) {
+            return DateTime.tryParse(v) ?? DateTime(2000);
+          }
+          return DateTime(2000);
+        }
+
+        return parseDate(b['created_at']).compareTo(parseDate(a['created_at']));
+      });
+      setState(() {
+        _returns = returnsList;
+      });
+    }, onError: (_) {});
   }
 
   @override
   void dispose() {
     _orderSubscription?.cancel();
+    _returnsSubscription?.cancel();
     super.dispose();
   }
 
@@ -46752,33 +46946,65 @@ class SessionChecker {
           .doc(userId)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 3));
+// 🔒 المصدر السيادي الوحيد للأمان: التحقق الصارم من التوكن المشفر (Cryptographic Custom Claims)
+      final tokenResult = await firebaseUser.getIdTokenResult(true);
+      final verifiedRole =
+          (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+      final isBannedClaim = tokenResult.claims?['is_banned'] == true;
+
+      if (isBannedClaim) {
+        await FirebaseAuth.instance.signOut();
+        await AppStorage.clearUserData();
+        return SessionResult.unauthenticated;
+      }
 
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
         final isActive = data['is_active'] as bool? ?? false;
         final isBanned = data['is_banned'] == true;
-        final role = (data['role'] as String?)?.trim().toLowerCase() ??
-            AppStorage.normalizedUserRole;
+        final docRole =
+            (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
 
         if (isBanned) {
+          await FirebaseAuth.instance.signOut();
           await AppStorage.clearUserData();
           return SessionResult.unauthenticated;
         }
 
+        // 🛡️ قاعدة أمنية قطعية: حظر أي رتبة إدارية أو سائق ما لم تكن موقعة ومثبتة في Claims
+        const privilegedRoles = {
+          'admin',
+          'super_admin',
+          'accountant',
+          'warehouse_manager',
+          'driver'
+        };
+        final String effectiveRole;
+        if (privilegedRoles.contains(docRole)) {
+          if (verifiedRole == docRole) {
+            effectiveRole = docRole;
+          } else {
+            // تراجع آمن وتجريد من الصلاحيات إذا لم تتطابق التوقيعات المشفرة
+            effectiveRole = 'merchant';
+          }
+        } else {
+          effectiveRole = verifiedRole ?? 'merchant';
+        }
+
         await AppStorage.setIsActive(isActive);
-        await AppStorage.setIsBanned(isBanned);
+        await AppStorage.setIsBanned(false);
         await AppStorage.saveUserData(
           userId: userId,
-          role: role,
+          role: effectiveRole,
           name: data['full_name'] as String?,
           phone: data['phone_number'] as String?,
         );
 
-        unawaited(RealtimeHub().startForUser(userId, role: role));
+        unawaited(RealtimeHub().startForUser(userId, role: effectiveRole));
 
         if (!isActive) return SessionResult.pending;
 
-        return switch (role) {
+        return switch (effectiveRole) {
           'admin' ||
           'super_admin' ||
           'accountant' ||
@@ -46789,21 +47015,9 @@ class SessionChecker {
         };
       }
     } catch (_) {
-      try {
-        final tokenResult = await firebaseUser.getIdTokenResult();
-        final claimsRole =
-            (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
-        final isBannedClaim = tokenResult.claims?['is_banned'] == true;
-        if (isBannedClaim) {
-          await AppStorage.clearUserData();
-          return SessionResult.unauthenticated;
-        }
-        if (claimsRole != null && claimsRole.isNotEmpty) {
-          await AppStorage.saveUserData(userId: userId, role: claimsRole);
-        }
-      } catch (_) {}
+      // التعامل الآمن مع انقطاع الشبكة دون تصعيد الصلاحيات
+      return localSessionResult();
     }
-
     unawaited(RealtimeHub()
         .startForUser(userId, role: AppStorage.normalizedUserRole));
     return localSessionResult();

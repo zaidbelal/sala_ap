@@ -144,26 +144,18 @@ class OrdersService {
     List<String> statuses,
   ) {
     if (statuses.isEmpty) return const Stream.empty();
-    final statusSet = statuses.toSet();
 
     return _db
         .collection('orders')
         .where('merchant_id', isEqualTo: merchantId)
+        .where('status', whereIn: statuses.take(30).toList())
         .orderBy('created_at', descending: true)
         .limit(200)
         .snapshots(includeMetadataChanges: false)
         .map((snap) {
       return snap.docs
           .map((d) => OrderModel.fromJson({'id': d.id, ...d.data()}))
-          .where((order) {
-        final rawStatus = order.status.name.toLowerCase();
-        return statusSet.contains(rawStatus) ||
-            (rawStatus == 'ontheway' &&
-                (statusSet.contains('shipped') ||
-                    statusSet.contains('on_the_way'))) ||
-            (rawStatus == 'returnrequested' &&
-                statusSet.contains('return_requested'));
-      }).toList();
+          .toList();
     });
   }
 

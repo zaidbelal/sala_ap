@@ -346,11 +346,20 @@ class CartStorageRepository {
   }
 
   Future<Map<String, CartItem>?> readCart(String key) async {
+    String? raw;
     final file = await _getFile('$key.json');
-    if (file == null || !await file.exists()) return null;
+    if (file != null && await file.exists()) {
+      try {
+        raw = await file.readAsString();
+      } catch (_) {}
+    }
 
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty || raw.trim() == '{}') return null;
+    // 🛡️ تراجع آمن (Fallback): إذا لم يتوفر الملف يُقرأ الكاش البديل من AppStorage فوراً
+    if (raw == null || raw.trim().isEmpty || raw.trim() == '{}') {
+      raw = AppStorage.getString(key);
+    }
+
+    if (raw == null || raw.trim().isEmpty || raw.trim() == '{}') return null;
 
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;

@@ -15,6 +15,7 @@ import 'package:wissal/core/services/prefetch_service.dart';
 import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
 import 'package:wissal/features/merchant/search/services/search_service.dart';
 import 'package:wissal/features/merchant/barcode/barcode_scanner_screen.dart';
+import 'package:wissal/core/services/connectivity_service.dart';
 
 class OtpVerifyResponse {
   final bool success;
@@ -127,7 +128,13 @@ class AuthService {
       );
     } on FormatException catch (error) {
       throw StateError(error.message);
+    } on FirebaseFunctionsException catch (error) {
+      throw StateError(
+          error.message ?? 'تعذر إرسال رمز التحقق، يرجى المحاولة لاحقاً');
     } catch (e) {
+      if (ConnectivityHelper.isNetworkException(e)) {
+        throw StateError('تعذر الاتصال بخدمة التحقق، تأكد من اتصال الإنترنت');
+      }
       rethrow;
     } finally {
       _otpRequestRunning = false;
@@ -205,19 +212,37 @@ class AuthService {
     String userId,
   ) async {
     try {
-      final document =
-          await _db.collection('profiles').doc(userId).get().timeout(
-                const Duration(seconds: 10),
-              );
+      var document = await _db.collection('profiles').doc(userId).get().timeout(
+            const Duration(seconds: 10),
+          );
+
+      if (!document.exists) {
+        final currentUserPhone = FirebaseAuth.instance.currentUser?.phoneNumber;
+        if (currentUserPhone != null && currentUserPhone.isNotEmpty) {
+          final querySnap = await _db
+              .collection('profiles')
+              .where('phone_number', isEqualTo: currentUserPhone)
+              .limit(1)
+              .get()
+              .timeout(const Duration(seconds: 5));
+          if (querySnap.docs.isNotEmpty) {
+            // 🛡️ ترحيل وتوحيد الوثيقة تحت المعرف السيادي الفعلي لمنع تناقض الجلسة
+            final legacyData = querySnap.docs.first.data();
+            await _db.collection('profiles').doc(userId).set({
+              ...legacyData,
+              'updated_at': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+            document = await _db.collection('profiles').doc(userId).get();
+          }
+        }
+      }
 
       if (!document.exists) {
         throw StateError(
           'User profile was not found',
         );
       }
-
       final data = document.data();
-
       if (data == null) {
         throw StateError(
           'User profile data is empty',
@@ -231,16 +256,28 @@ class AuthService {
       } catch (_) {
         idTokenResult = null;
       }
-
       final claimsRole =
           (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-      final docRole = (data['role'] as String?)?.trim().toLowerCase();
-      final role =
-          (claimsRole != null && claimsRole.isNotEmpty) ? claimsRole : docRole;
-      if (role == null || role.isEmpty) {
-        throw StateError(
-          'User role is missing',
-        );
+      final docRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      const privilegedRoles = {
+        'admin',
+        'super_admin',
+        'accountant',
+        'warehouse_manager',
+        'driver'
+      };
+
+      // 🔒 التحقق الصارم: حظر استرجاع أي رتبة خاصة ما لم تكن موقعة من خادم المصادقة
+      final String role;
+      if (privilegedRoles.contains(docRole)) {
+        if (claimsRole == docRole) {
+          role = docRole;
+        } else {
+          role = 'merchant';
+        }
+      } else {
+        role = claimsRole ?? docRole;
       }
       final isActive = data['is_active'] as bool? ?? false;
       final isBanned = data['is_banned'] == true;

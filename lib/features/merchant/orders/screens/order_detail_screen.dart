@@ -33,6 +33,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _listenToOrderRealtime();
   }
 
+  StreamSubscription<QuerySnapshot>? _returnsSubscription;
+
   void _listenToOrderRealtime() {
     _orderSubscription = FirebaseFirestore.instance
         .collection('orders')
@@ -53,11 +55,38 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       },
       cancelOnError: true,
     );
+
+    _returnsSubscription = FirebaseFirestore.instance
+        .collection('order_returns')
+        .where('order_id', isEqualTo: widget.order.id)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final returnsList = snap.docs
+          .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>})
+          .toList();
+      returnsList.sort((a, b) {
+        DateTime parseDate(dynamic v) {
+          if (v is Timestamp) return v.toDate();
+          if (v is DateTime) return v;
+          if (v is String && v.isNotEmpty) {
+            return DateTime.tryParse(v) ?? DateTime(2000);
+          }
+          return DateTime(2000);
+        }
+
+        return parseDate(b['created_at']).compareTo(parseDate(a['created_at']));
+      });
+      setState(() {
+        _returns = returnsList;
+      });
+    }, onError: (_) {});
   }
 
   @override
   void dispose() {
     _orderSubscription?.cancel();
+    _returnsSubscription?.cancel();
     super.dispose();
   }
 

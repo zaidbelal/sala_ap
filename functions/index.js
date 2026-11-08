@@ -503,36 +503,37 @@ exports.requestOtp = onCall(
     if (!reserved) {
       return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
     }
-
- try {
+try {
       await sendWhatsAppMessage({
         phone,
-   text: `رمز التحقق الخاص بك في وصًال هو: ${code}\nصالح لمدة 5 دقائق ولا تشاركه مع أي شخص.`,
+        text: `رمز التحقق الخاص بك في وصًال هو: ${code}\nصالح لمدة 5 دقائق ولا تشاركه مع أي شخص.`,
         idInstance: smsSenderId.value(),
         apiTokenInstance: smsApiKey.value(),
       });
     } catch (error) {
       console.error("[requestOtp] WhatsApp send failed:", error);
-      // 🔒 إبطال الكود فقط دون حذف المستند، للحفاظ على الـ Cooldown والحد الساعي ومنع الهجمات
+      // 🚀 استعادة مرنة عادلة: إلغاء الكود، تصفير وقت الإرسال، واسترجاع المحاولة من العداد الساعي
       await db.runTransaction(async (tx) => {
         const current = await tx.get(otpRef);
         if (current.exists && current.data().codeHash === codeHash) {
           tx.update(otpRef, {
             codeHash: null,
             expiresAt: Timestamp.fromMillis(0),
+            lastSentAt: Timestamp.fromMillis(0),
+            hourlyRequests: FieldValue.increment(-1),
             sendFailed: true,
           });
         }
       });
-  return { 
-        success: true, 
-        message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق",
-        verificationId: phone 
-      };
+
+      throw new HttpsError(
+        "unavailable",
+        "تعذر إرسال رمز التحقق عبر واتساب حالياً. تحقق من اتصالك بالإنترنت وأعد المحاولة."
+      );
     }
     return { 
       success: true, 
-      message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق",
+      message: "تم إرسال رمز التحقق بنجاح",
       verificationId: phone 
     };
   }
@@ -1263,20 +1264,14 @@ exports.placeOrder = onCall(
       }
 // 🚀 توليد رقم الفاتورة عبر المحرك الموحد
       const invoiceNumberString = IdGenerator.generateInvoiceNumber();
-
-      // ✅ التحقق الديناميكي من الحد الأدنى
+// ✅ التحقق الديناميكي من الحد الأدنى بدون تحميل التاجر أي رسوم توصيل إضافية
       let minOrderValue = 4250.0;
-      let deliveryFee = 500.0;
       try {
         const configDoc = await tx.get(db.collection("system_config").doc("app_config"));
         if (configDoc.exists) {
           const fetchedMin = Number(configDoc.data()?.min_order_value);
           if (Number.isFinite(fetchedMin) && fetchedMin > 0) {
             minOrderValue = fetchedMin;
-          }
-          const fetchedFee = Number(configDoc.data()?.delivery_fee);
-          if (Number.isFinite(fetchedFee) && fetchedFee >= 0) {
-            deliveryFee = fetchedFee;
           }
         }
       } catch (_) {
@@ -1287,7 +1282,7 @@ exports.placeOrder = onCall(
         throw new HttpsError("failed-precondition", `الحد الأدنى للطلب هو ${minOrderValue} ريال يمني`);
       }
 
-      // 🔒 حماية مالية صارمة: فحص تطابق الإجمالي
+      // 🔒 حماية مالية صارمة: فحص تطابق الإجمالي الصافي للسلة
       if (expectedTotal != null) {
         const clientTotal = Number(expectedTotal);
         if (Number.isFinite(clientTotal) && Math.abs(serverTotal - clientTotal) > 1.0) {
@@ -1298,7 +1293,6 @@ exports.placeOrder = onCall(
         }
       }
 
-    // تطبيق خصم المخزون الذري وتوثيق حركة البيع في سجل التدقيق
       for (const [pId, deductQty] of stockDeductions.entries()) {
         const safeDeduct = Number(deductQty.toFixed(4));
         tx.update(db.collection("products").doc(pId), {
@@ -1316,9 +1310,12 @@ exports.placeOrder = onCall(
           created_at: FieldValue.serverTimestamp(),
         });
       }
-    // 🔒 احتساب رسوم التوصيل وتثبيت إجمالي الفاتورة المعتمد محاسبياً
+
+      // 🔒 التوصيل مجاني للتاجر: إجمالي الفاتورة يطابق سلتَه 100% دون زيادة
       const rawExtra = extraData || {};
-      const grandTotal = serverTotal + deliveryFee;
+      const grandTotal = serverTotal;
+      const driverRewardFee = 500.0; // أجر السائق عند التسليم المكتمل
+
       const orderDataWithNumber = {
         store_name: String(rawExtra.store_name || profile.store_name || "").trim(),
         customer_name: String(rawExtra.customer_name || rawExtra.merchant_name || profile.full_name || "").trim(),
@@ -1336,7 +1333,7 @@ exports.placeOrder = onCall(
         original_total: grandTotal,
         returned_amount: 0,
         pending_returns_count: 0,
-        delivery_fee: deliveryFee,
+        delivery_fee: driverRewardFee, // تُحفظ كاستحقاق للسائق في أرباحه
         notes: notes ? String(notes).trim() : null,
         status: "pending",
         profit_recorded: false,
@@ -1454,10 +1451,21 @@ const cleanOrderId = String(orderId).trim();
         }
       }
 
-      for (const [pId, restoreAmount] of stockRestores.entries()) {
+   for (const [pId, restoreAmount] of stockRestores.entries()) {
+        const safeRestore = Number(restoreAmount.toFixed(4));
         tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(Number(restoreAmount.toFixed(4))),
+          stock: FieldValue.increment(safeRestore),
           updated_at: FieldValue.serverTimestamp(),
+        });
+
+        const auditRef = db.collection("inventory_audit_log").doc();
+        tx.set(auditRef, {
+          product_id: pId,
+          order_id: cleanOrderId,
+          action: "order_cancelled",
+          delta: safeRestore,
+          performed_by: uid,
+          created_at: FieldValue.serverTimestamp(),
         });
       }
       tx.update(orderRef, {
@@ -1697,9 +1705,9 @@ exports.assignOrderToDriver = onCall(
       if (order.driver_id && order.driver_id !== uid) {
         throw new HttpsError("failed-precondition", "تم استلام هذا الطلب من قبل مندوب آخر");
       }
-     const allowedPickupStatuses = ["confirmed", "pending", "preparing"];
+  const allowedPickupStatuses = ["confirmed", "preparing"];
       if (!allowedPickupStatuses.includes(order.status)) {
-        throw new HttpsError("failed-precondition", `لا يمكن استلام طلب بحالة: ${order.status}`);
+        throw new HttpsError("failed-precondition", `لا يمكن استلام الطلب إلا بعد اعتماده أو تحضيره (الحالة الحالية: ${order.status})`);
       }
 
       tx.update(orderRef, {
@@ -1806,11 +1814,12 @@ const validDeliveryStatuses = ["shipped", "on_the_way", "confirmed", "preparing"
       ) || 0;
       const totalAmount = Number(order.total_amount) || Number(order.total) || 0;
 
-     const updatePayload = { 
+    const updatePayload = { 
         status: "delivered",
         delivered_at: FieldValue.serverTimestamp(),
         updated_at: FieldValue.serverTimestamp(),
         profit_recorded: true,
+        delivery_fee: Number(order.delivery_fee) > 0 ? Number(order.delivery_fee) : 500.0, // تثبيت الـ 500 ر.ي في حساب السائق
       };
 
       if (!order.driver_id && callerRole === "driver") {
@@ -2480,33 +2489,37 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
           profit_recorded: true,
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
-     } else if (cleanStatus === "returned" && isProfitRecorded) {
-        // 🔒 حساب صافي المبلغ المتبقي فقط دون تكرار إضافة ما تم إرجاعه مسبقاً
-        const totalProfit = Number(
-          financialSnap.data()?.total_profit ?? order.total_profit,
-        ) || 0;
+    } else if (cleanStatus === "returned" && isProfitRecorded) {
+        // 🔒 نزاهة محاسبية 100%: خصم الربح المتبقي فقط بعد استبعاد ما تم خصمه في المرتجعات السابقة
+        const remainingProfitToDeduct = Math.max(0, Number(
+          financialSnap.data()?.total_profit ?? order.total_profit ?? 0
+        ));
         const netRemainingAmount = Math.max(0, Number(order.total_amount) || Number(order.total) || 0);
 
-           const summaryParentRef = db.collection("stats").doc("profit_summary");
+        const summaryParentRef = db.collection("stats").doc("profit_summary");
         const summarySnap = await tx.get(summaryParentRef);
         const lastResetAt = summarySnap.data()?.last_reset_at?.toMillis?.() ?? 0;
         const orderDeliveredAt = order.delivered_at?.toMillis?.() ?? (order.created_at?.toMillis?.() ?? 0);
         const isFromCurrentCycle = orderDeliveredAt >= lastResetAt;
-      const statsUpdates = {
-          accumulated_profit: FieldValue.increment(-totalProfit),
+
+        const statsUpdates = {
+          accumulated_profit: FieldValue.increment(-remainingProfitToDeduct),
           accumulated_returns: FieldValue.increment(netRemainingAmount),
           accumulated_revenue: FieldValue.increment(-netRemainingAmount),
           last_updated: FieldValue.serverTimestamp(),
         };
+
         if (isFromCurrentCycle) {
-          statsUpdates.cycle_profit = FieldValue.increment(-totalProfit);
+          statsUpdates.cycle_profit = FieldValue.increment(-remainingProfitToDeduct);
         } else {
-          statsUpdates.prior_period_adjustments = FieldValue.increment(-totalProfit);
+          statsUpdates.prior_period_adjustments = FieldValue.increment(-remainingProfitToDeduct);
         }
+
         tx.set(summaryParentRef, statsUpdates, { merge: true });
         updatePayload.profit_recorded = false;
         tx.set(financialRef, {
           order_id: cleanOrderId,
+          total_profit: 0.0, // تصفير صافي ربح الطلب لانتهاء دورته بالكامل
           profit_recorded: false,
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
@@ -2539,10 +2552,21 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
           }
         }
 
-        for (const [pId, restoreAmount] of stockRestores.entries()) {
+   for (const [pId, restoreAmount] of stockRestores.entries()) {
+          const safeRestore = Number(restoreAmount.toFixed(4));
           tx.update(db.collection("products").doc(pId), {
-            stock: FieldValue.increment(Number(restoreAmount.toFixed(4))),
+            stock: FieldValue.increment(safeRestore),
             updated_at: FieldValue.serverTimestamp(),
+          });
+
+          const auditRef = db.collection("inventory_audit_log").doc();
+          tx.set(auditRef, {
+            product_id: pId,
+            order_id: cleanOrderId,
+            action: `admin_status_${cleanStatus}`,
+            delta: safeRestore,
+            performed_by: callerUid,
+            created_at: FieldValue.serverTimestamp(),
           });
         }
       }
@@ -2641,6 +2665,19 @@ exports.adminAddProduct = onCall(
     const categoryId = brandSnap.data()?.category_id || "";
 const cleanMainBarcode = Normalizer.barcode(data.barcode);
     const allBarcodes = Normalizer.extractAllBarcodes(data.barcode, data.units);
+
+    // 🔒 منع تكرار الباركود: التحقق من عدم وجود أي باركود مطابق لمنتج نشط آخر
+    if (allBarcodes.length > 0) {
+      const existingBarcodeSnap = await db.collection("products")
+        .where("is_deleted", "==", false)
+        .where("all_barcodes", "array-contains-any", allBarcodes.slice(0, 10))
+        .limit(1)
+        .get();
+
+      if (!existingBarcodeSnap.empty) {
+        throw new HttpsError("already-exists", "الباركود المدخل مسجل بالفعل لمنتج آخر نشط في المستودع");
+      }
+    }
 
     const unitFinancials = Array.isArray(data.units)
       ? data.units.map((u) => ({
@@ -2769,7 +2806,13 @@ exports.adminUpdateProduct = onCall(
           valid = true;
         }
         else if (field === "name") valid = typeof v === "string" && v.trim().length >= 2 && v.length <= 200;
-        else if (field === "size_ml") valid = v === null || (Number.isFinite(v) && v >= 0);
+      else if (field === "size_ml") {
+          valid = v === null || (Number.isFinite(v) && v >= 0);
+          if (v === null) {
+            safeUpdates[field] = FieldValue.delete();
+            continue;
+          }
+        }
         else if (field === "brand_id" || field === "category_id") {
           valid = typeof v === "string" && v.trim().length > 0 && !v.includes("/");
         }
@@ -3301,8 +3344,8 @@ exports.saveOrderSignature = onCall(
       throw new HttpsError("invalid-argument", "معرف الطلب غير صالح");
     }
 
- // السماح للإدارة ومندوبي التوصيل المعتمدين بتوثيق التوقيع
-    await requireActiveRole(
+// السماح للإدارة ومندوبي التوصيل المعتمدين بتوثيق التوقيع
+    const { role: callerRole } = await requireActiveRole(
       callerUid,
       ["admin", "super_admin", "accountant", "warehouse_manager", "driver"],
       "توثيق التوقيع مقتصر على إدارة النظام ومندوبي التوصيل",
@@ -3311,9 +3354,15 @@ exports.saveOrderSignature = onCall(
     const orderRef = db.collection("orders").doc(cleanOrderId);
     const snap = await orderRef.get();
     if (!snap.exists) throw new HttpsError("not-found", "الطلب غير موجود");
-    const sigOrderStatus = String(snap.data()?.status || "").toLowerCase();
+    const orderData = snap.data() || {};
+    const sigOrderStatus = String(orderData.status || "").toLowerCase();
     if (["cancelled", "rejected"].includes(sigOrderStatus)) {
       throw new HttpsError("failed-precondition", "لا يمكن توثيق توقيع لطلب ملغي أو مرفوض");
+    }
+
+    // 🔒 التحقق الصارم: منع السائق من توقيع أو تعديل طلب غير مسند إليه
+    if (callerRole === "driver" && orderData.driver_id && orderData.driver_id !== callerUid) {
+      throw new HttpsError("permission-denied", "هذا الطلب غير مسند إليك، لا يمكنك توثيق توقيعه");
     }
 
     const finalUrl = await SignatureService.processSignature(cleanOrderId, signatureUrl);

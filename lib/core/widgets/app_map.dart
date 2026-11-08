@@ -213,7 +213,15 @@ class _AppMapState extends State<AppMap> {
       );
 
       final myLoc = gmaps.LatLng(pos.latitude, pos.longitude);
-      _selectLocation(myLoc, moveCamera: true);
+      if (widget.allowPick) {
+        _selectLocation(myLoc, moveCamera: true);
+      } else {
+        // 🔒 في وضع العرض فقط: يتم تحريك الكاميرا لموقع السائق دون تبديل أو نقل دبوس العميل
+        final ctrl = await _controller.future;
+        if (mounted) {
+          ctrl.animateCamera(gmaps.CameraUpdate.newLatLngZoom(myLoc, 16.5));
+        }
+      }
     } catch (_) {
       if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -293,7 +301,11 @@ class _AppMapState extends State<AppMap> {
                 ),
             zoom: widget.initialZoom,
           ),
-          mapType: _isSatellite ? gmaps.MapType.hybrid : gmaps.MapType.normal,
+          mapType: _isSatellite
+              ? gmaps.MapType.hybrid
+              : (widget.style == AppMapStyle.terrain
+                  ? gmaps.MapType.terrain
+                  : gmaps.MapType.normal),
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,

@@ -38,32 +38,11 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     (label: 'مرتجعات', icon: Icons.assignment_return_rounded),
   ];
 
-  bool _historyTriggered = false;
-
+  bool historyTriggered = false;
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
-    _tabController.animation!.addListener(_onTabAnimation);
-    // ⚡ إلغاء فتح استعلام جديد: الاعتماد على مزود الطلبات المركزي الموحد في RealtimeHub
-    // لتوفير 66% من فواتير قراءات قاعدة البيانات واستهلاك البطارية
-  }
-
-  void _onTabAnimation() {
-    final val = _tabController.animation!.value;
-    final lastIdx = (_tabs.length - 1).toDouble();
-    if (val >= lastIdx &&
-        _tabController.index == _tabs.length - 1 &&
-        !_historyTriggered) {
-      if (_tabController.indexIsChanging) {
-        _historyTriggered = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onNavigateToHistory?.call();
-        });
-      }
-    } else if (val < lastIdx) {
-      _historyTriggered = false;
-    }
   }
 
   Future<void> _loadMoreOrders(String merchantId) async {
@@ -118,9 +97,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
 
   @override
   void dispose() {
-    try {
-      _tabController.animation?.removeListener(_onTabAnimation);
-    } catch (_) {}
     _tabController.dispose();
     super.dispose();
   }

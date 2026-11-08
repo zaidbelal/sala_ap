@@ -173,6 +173,50 @@ class AppCache {
 
   Future<void> _productsWriteLock = Future.value();
 
+  /// دمج ذري للمنتجات الحية الواردة من السيرفر دون مسح باقي الكتالوج الضخم
+  Future<void> mergeProducts(List<Map<String, dynamic>> liveBatch) async {
+    if (liveBatch.isEmpty) return;
+    final previousLock = _productsWriteLock;
+    final completer = Completer<void>();
+    _productsWriteLock = completer.future;
+
+    try {
+      await previousLock;
+    } catch (_) {}
+
+    try {
+      final currentList = getProducts() ?? [];
+      final Map<String, Map<String, dynamic>> productMap = {
+        for (final p in currentList) p['id'].toString(): p,
+      };
+
+      // تحديث أو إضافة الأصناف المحدثة فقط
+      for (final liveItem in liveBatch) {
+        final id = liveItem['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          if (liveItem['is_deleted'] == true ||
+              liveItem['is_active'] == false) {
+            productMap.remove(id);
+          } else {
+            productMap[id] = liveItem;
+          }
+        }
+      }
+
+      final merged = productMap.values.toList()
+        ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+            .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+      _ram[_keyProducts] = _CacheEntry(
+        data: merged,
+        savedAt: DateTime.now(),
+      );
+      await _saveToDisk(_keyProducts, merged);
+    } finally {
+      completer.complete();
+    }
+  }
+
   Future<void> setProducts(
     List<Map<String, dynamic>> data, {
     String? categoryId,
@@ -189,7 +233,6 @@ class AppCache {
       final key =
           categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
 
-      // ✅ تحديث الـ RAM أولاً قبل القرص لمنع أي Race Condition
       _ram[key] = _CacheEntry(
         data: data,
         savedAt: DateTime.now(),
@@ -220,18 +263,26 @@ class AppCache {
           } catch (_) {}
         }
 
-        // تحديث الكاش الشامل مع إزالة الأصناف المحذوفة التابعة لنفس القسم
-        if (all.isNotEmpty) {
-          final merged = [
-            ...all.where((e) => e['category_id']?.toString() != categoryId),
-            ...data,
-          ];
-          _ram[_keyProducts] = _CacheEntry(
-            data: merged,
-            savedAt: DateTime.now(),
-          );
-          await _saveToDisk(_keyProducts, merged);
+        // دمج القسم داخل الكاش الشامل حتى لو كان الكاش العام فارغاً مبدئياً
+        final Map<String, Map<String, dynamic>> mergedMap = {
+          for (final item in all) item['id'].toString(): item,
+        };
+        // حذف العناصر القديمة للقسم وإدخال الجديدة
+        mergedMap.removeWhere(
+            (_, item) => item['category_id']?.toString() == categoryId);
+        for (final item in data) {
+          final id = item['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            mergedMap[id] = item;
+          }
         }
+
+        final mergedList = mergedMap.values.toList();
+        _ram[_keyProducts] = _CacheEntry(
+          data: mergedList,
+          savedAt: DateTime.now(),
+        );
+        await _saveToDisk(_keyProducts, mergedList);
       }
     } finally {
       completer.complete();

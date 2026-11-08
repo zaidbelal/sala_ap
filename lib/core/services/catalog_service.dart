@@ -278,14 +278,32 @@ class ProductsNotifier
         realtimeProductsProvider,
         (_, next) {
           if (next.isNotEmpty && !_isDisposed) {
-            state = AsyncData(next);
-            unawaited(AppCache.instance.setProducts(next));
-            _precache(next);
+            final currentList =
+                state.valueOrNull ?? AppCache.instance.getProducts() ?? [];
+            final Map<String, Map<String, dynamic>> productMap = {
+              for (final p in currentList) p['id'].toString(): p,
+            };
+            for (final liveItem in next) {
+              final id = liveItem['id']?.toString();
+              if (id != null && id.isNotEmpty) {
+                if (liveItem['is_deleted'] == true ||
+                    liveItem['is_active'] == false) {
+                  productMap.remove(id);
+                } else {
+                  productMap[id] = liveItem;
+                }
+              }
+            }
+            final merged = productMap.values.toList()
+              ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+                  .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+            state = AsyncData(merged);
+            unawaited(AppCache.instance.mergeProducts(next));
+            _precache(merged);
           }
         },
       );
     }
-
     return _load(categoryId: arg);
   }
 
@@ -306,15 +324,18 @@ class ProductsNotifier
   }
 
   void listenRealtime() {
-    // 🔒 إغلاق الاشتراك السابق لمنع تراكم مستمعين في الذاكرة
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeProductsProvider,
       (_, next) {
         if (next.isNotEmpty && !_isDisposed) {
-          state = AsyncData(next);
-          unawaited(AppCache.instance.setProducts(next));
-          _precache(next);
+          // عزل وتصفية المنتجات بحسب القسم المفتوح ومنع تلويث القائمة بمنتجات الأقسام الأخرى
+          final filtered = arg == null
+              ? next
+              : next.where((p) => p['category_id']?.toString() == arg).toList();
+          state = AsyncData(filtered);
+          unawaited(AppCache.instance.setProducts(filtered, categoryId: arg));
+          _precache(filtered);
         }
       },
     );
@@ -349,20 +370,19 @@ class ProductsNotifier
     String? categoryId,
   }) async {
     const maxInitialCacheSize = 2500;
-    Query<Map<String, dynamic>> query = _db.collection('products');
+    Query<Map<String, dynamic>> query =
+        _db.collection('products').where('is_deleted', isEqualTo: false);
 
     if (categoryId != null) {
       query = query.where('category_id', isEqualTo: categoryId);
     }
 
-    // استيعاب كتالوج ضخم حتى 2500 منتج دفعة واحدة مع الفرز السريع بالذاكرة
     query = query.limit(maxInitialCacheSize);
     final snap =
         await query.get(const GetOptions(source: Source.serverAndCache));
 
     final List<Map<String, dynamic>> results = snap.docs
-        .where((d) =>
-            d.data()['is_deleted'] != true && d.data()['is_active'] != false)
+        .where((d) => d.data()['is_active'] != false)
         .map((d) => {'id': d.id, ...d.data()})
         .toList()
       ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)

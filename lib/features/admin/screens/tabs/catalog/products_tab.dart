@@ -756,7 +756,7 @@ class _AddProductBarState extends State<AddProductBar> {
         'expiry_date':
             _expCtrl.text.trim().isEmpty ? null : _expCtrl.text.trim(),
         'imageUrl': imageUrl,
-        'units': _units.map((u) => u.toMap()).toList(),
+        'units': _units.map((u) => u.toJson()).toList(),
       };
 
       // تنفيذ الحفظ كاملاً أولاً
@@ -1596,7 +1596,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         if (itemsCtrl.text.isNotEmpty)
           'items_per_carton': int.tryParse(itemsCtrl.text),
         'size_text': customSizeText,
-        if (numericSize != null) 'size_ml': numericSize,
+        'size_ml': numericSize, // يمرر null صراحة ليحذفه السيرفر عند التفريغ
         'barcode': barcodeCtrl.text.trim().isNotEmpty
             ? barcodeCtrl.text.trim()
             : FieldValue.delete(),
@@ -1608,7 +1608,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                 DateTime.tryParse(expCtrl.text.trim()) != null
             ? Timestamp.fromDate(DateTime.parse(expCtrl.text.trim()))
             : FieldValue.delete(),
-        'units': editUnits.map((u) => u.toMap()).toList(),
+        'units': editUnits.map((u) => u.toJson()).toList(),
       });
 
       widget.onSaved();
