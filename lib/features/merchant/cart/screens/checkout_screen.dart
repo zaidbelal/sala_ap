@@ -38,7 +38,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String _paymentMethod = 'cash';
   bool _isLoading = false;
   String? _orderIdempotencyKey;
-  String? lastSubmittedPayloadSignature; // 🔒 بصمة التحقق من ثبات محتوى الطلب
   @override
   void initState() {
     super.initState();
@@ -462,16 +461,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final List<Map<String, dynamic>> itemsList = cart.values
         .map((e) => <String, dynamic>{
               'product_id': e.product.id,
-              'product_name': e.product.name,
+              'product_name': e.displayName,
               'quantity': e.quantity,
               'price': e.unitPrice,
+              if (e.selectedVariant != null) ...{
+                'variant_id': e.selectedVariant!.id,
+                'variant_label': e.selectedVariant!.label,
+              },
               if (e.selectedUnit != null) ...{
                 'unit_label': e.selectedUnit!.label,
                 'unit_qty': e.selectedUnit!.qty,
               },
             })
         .toList();
-
     final String? notesString =
         _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim();
 
@@ -558,13 +560,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             if (cleanToken.isEmpty) continue;
 
             if (cleanToken.contains(':')) {
-              final splitIndex = cleanToken.indexOf(':');
-              final badProdId = cleanToken.substring(0, splitIndex).trim();
-              final badUnit = cleanToken.substring(splitIndex + 1).trim();
+              final parts = cleanToken.split(':');
+              final badProdId = parts[0].trim();
+              final badVarId = parts.length >= 3 ? parts[1].trim() : '';
+              final badUnit = parts.length >= 3
+                  ? parts.sublist(2).join(':').trim()
+                  : parts[1].trim();
 
               for (final entry in cart.entries) {
                 final itemUnit = entry.value.unitLabel.trim();
+                final itemVarId = entry.value.selectedVariant?.id ?? '';
                 if (entry.value.product.id == badProdId &&
+                    (badVarId.isEmpty || itemVarId == badVarId) &&
                     (itemUnit == badUnit || badUnit.isEmpty)) {
                   keysToRemove.add(entry.key);
                 }

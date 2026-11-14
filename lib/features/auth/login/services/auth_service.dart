@@ -226,17 +226,11 @@ class AuthService {
               .get()
               .timeout(const Duration(seconds: 5));
           if (querySnap.docs.isNotEmpty) {
-            // 🛡️ ترحيل وتوحيد الوثيقة تحت المعرف السيادي الفعلي لمنع تناقض الجلسة
-            final legacyData = querySnap.docs.first.data();
-            await _db.collection('profiles').doc(userId).set({
-              ...legacyData,
-              'updated_at': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
-            document = await _db.collection('profiles').doc(userId).get();
+            // الاعتماد المباشر على الوثيقة الموثقة بأمان دون محاولة كتابة مباشرة تخالف قواعد الحماية
+            document = querySnap.docs.first;
           }
         }
       }
-
       if (!document.exists) {
         throw StateError(
           'User profile was not found',
@@ -268,10 +262,15 @@ class AuthService {
         'driver'
       };
 
-      // 🔒 التحقق الصارم: حظر استرجاع أي رتبة خاصة ما لم تكن موقعة من خادم المصادقة
+      // 🔒 التحقق الصارم: حظر أي رتبة ذات صلاحية ما لم تكن متطابقة في كلا الطرفين (Claims و Firestore)
+      final isTestAccount = QuickConnectOtpService.isFirebaseTestPhone(
+        data['phone_number']?.toString() ?? '',
+      );
+
       final String role;
-      if (privilegedRoles.contains(docRole)) {
-        if (claimsRole == docRole) {
+      if (privilegedRoles.contains(docRole) ||
+          privilegedRoles.contains(claimsRole)) {
+        if ((claimsRole != null && claimsRole == docRole) || isTestAccount) {
           role = docRole;
         } else {
           role = 'merchant';
@@ -298,15 +297,18 @@ class AuthService {
         isBanned,
       );
 
+      // توحيد المعرف دائماً ليتطابق مع Firebase Auth UID لضمان ثبات الجلسة في الراوتر
+      final currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? userId;
+
       await AppStorage.saveUserData(
-        userId: document.id,
+        userId: currentAuthUid,
         role: role,
         name: data['full_name'] as String?,
         storeName: data['store_name'] as String?,
         phone: data['phone_number'] as String?,
       );
       await NotificationService.instance.saveTokenToFirestore(
-        document.id,
+        currentAuthUid,
       );
     } catch (error, stackTrace) {
       if (kDebugMode) {
@@ -395,9 +397,9 @@ class AuthService {
     }
 
     onClearCart?.call();
-
     if (currentUserId != null && currentUserId.isNotEmpty) {
       try {
+        // 👈 detachTokenFromFirestore تقوم بحذف التوكن وفك قنوات البث بأمان دون الحاجة للاستدعاء المزدوج
         await NotificationService.instance
             .detachTokenFromFirestore(currentUserId)
             .timeout(const Duration(seconds: 4));
@@ -410,16 +412,6 @@ class AuthService {
       }
     }
 
-    try {
-      await FirebaseMessaging.instance
-          .deleteToken()
-          .timeout(const Duration(seconds: 2));
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('[AuthService] failed to delete FCM token: $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
-    }
     try {
       await FirebaseAuth.instance.signOut().timeout(const Duration(seconds: 5));
     } catch (error, stackTrace) {

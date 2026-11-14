@@ -74,6 +74,7 @@ class NotificationService {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
   static String? pendingRoute;
+  static bool isSplashActive = false;
 
   // ── تهيئة المكتبة المحلية مع فرض تشغيل صوت الإشعار الرسمي لأندرويد ──
   Future<void> initLocalNotifications({bool isBackground = false}) async {
@@ -226,8 +227,7 @@ class NotificationService {
       title,
       body,
       NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload:
-          message.data['route']?.toString() ?? _routeFromData(message.data),
+      payload: _routeFromData(message.data),
     );
   }
 
@@ -280,8 +280,8 @@ class NotificationService {
 
   // ✅ إصلاح: تنقل حقيقي عند الضغط على إشعار FCM
   void _handleFcmTap(RemoteMessage message) {
-    final route =
-        message.data['route'] as String? ?? _routeFromData(message.data);
+    // 🚀 التوجيه الديناميكي وفق رتبة الحساب النشط لمنع توجيه الأدمن أو السائق لمسار التاجر
+    final route = _routeFromData(message.data);
     if (route.isEmpty) return;
     _navigateTo(route);
   }
@@ -290,7 +290,7 @@ class NotificationService {
     if (route.isEmpty) return;
 
     // حفظ المسار لتقوم شاشة البداية بالانتقال إليه بأمان بعد فحص المصادقة والجلسة
-    if (!AppStorage.isLoggedIn || pendingRoute != null) {
+    if (!AppStorage.isLoggedIn || isSplashActive) {
       pendingRoute = route;
       return;
     }

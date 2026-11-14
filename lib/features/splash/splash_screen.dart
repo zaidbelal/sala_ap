@@ -20,17 +20,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationService.isSplashActive = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   @override
   void dispose() {
+    NotificationService.isSplashActive = false;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   void _onAnimationComplete(SessionResult result) {
     if (!mounted) return;
+    NotificationService.isSplashActive = false;
 
     // الحفاظ على مسار الإشعار المعلق وعدم الكتابة فوقه بالمسار الافتراضي
     final pending = NotificationService.pendingRoute;

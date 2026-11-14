@@ -33,18 +33,21 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-
-    final Set<String> knownOrderIds = {};
-    bool isFirstSnapshot = true;
+    final initialOrders = ref.read(realtimeConfirmedOrdersProvider);
+    bool initialSeeded = initialOrders.isNotEmpty;
+    final Set<String> knownOrderIds = {
+      for (final order in initialOrders)
+        if ((order['id']?.toString() ?? '').isNotEmpty) order['id'].toString(),
+    };
     _ordersSubscription = ref.listenManual<List<Map<String, dynamic>>>(
       realtimeConfirmedOrdersProvider,
       (prev, next) {
-        if (isFirstSnapshot) {
-          isFirstSnapshot = false;
+        if (!initialSeeded) {
           for (final order in next) {
-            final id = order['id']?.toString();
-            if (id != null && id.isNotEmpty) knownOrderIds.add(id);
+            final id = order['id']?.toString() ?? '';
+            if (id.isNotEmpty) knownOrderIds.add(id);
           }
+          initialSeeded = true;
           return;
         }
         final newOrders = next.where((e) {
@@ -1242,24 +1245,23 @@ class _SwipeActionButton extends StatefulWidget {
 class _SwipeActionButtonState extends State<_SwipeActionButton> {
   double _dragX = 0;
   bool _confirmed = false;
-  static const double _maxDrag = 220;
   static const double _threshold = 0.75;
 
-  void _onDragUpdate(DragUpdateDetails d) {
+  void _onDragUpdate(DragUpdateDetails d, double maxDrag) {
     if (_confirmed) return;
     setState(() {
-      _dragX = (_dragX - d.delta.dx).clamp(0, _maxDrag);
+      _dragX = (_dragX - d.delta.dx).clamp(0.0, maxDrag);
     });
   }
 
-  void _onDragEnd(DragEndDetails d) {
+  void _onDragEnd(DragEndDetails d, double maxDrag) {
     if (_confirmed) return;
-    if (_dragX / _maxDrag >= _threshold) {
+    if (maxDrag > 0 && _dragX / maxDrag >= _threshold) {
       setState(() => _confirmed = true);
       HapticFeedback.mediumImpact();
       Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
         widget.onConfirmed();
-        // 🔒 إعادة ضبط الزر بعد ثانيتين في حال تراجع السائق أو ألغى المستلم التوقيع
         if (mounted) {
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) {
@@ -1278,74 +1280,77 @@ class _SwipeActionButtonState extends State<_SwipeActionButton> {
 
   @override
   Widget build(BuildContext context) {
-    final progress = (_dragX / _maxDrag).clamp(0.0, 1.0);
+    return LayoutBuilder(builder: (context, constraints) {
+      final maxDrag = (constraints.maxWidth - 52.0).clamp(100.0, 600.0);
+      final progress = (_dragX / maxDrag).clamp(0.0, 1.0);
 
-    return Container(
-      height: 52,
-      decoration: BoxDecoration(
-        color: widget.color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: widget.color.withValues(alpha: 0.3)),
-      ),
-      child: Stack(
-        children: [
-          // شريط التقدم
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 50),
-            width: _dragX + 52,
-            decoration: BoxDecoration(
-              color: widget.color.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(16),
+      return Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: widget.color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: widget.color.withValues(alpha: 0.3)),
+        ),
+        child: Stack(
+          children: [
+            // شريط التقدم
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 50),
+              width: _dragX + 52,
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-          ),
-          // النص المركزي
-          Center(
-            child: AnimatedOpacity(
-              opacity: 1 - progress,
-              duration: const Duration(milliseconds: 100),
-              child: Text(
-                widget.label,
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: widget.color,
+            // النص المركزي
+            Center(
+              child: AnimatedOpacity(
+                opacity: 1 - progress,
+                duration: const Duration(milliseconds: 100),
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: widget.color,
+                  ),
                 ),
               ),
             ),
-          ),
-          // المقبض القابل للسحب (من اليمين للشمال)
-          Positioned(
-            right: _dragX,
-            top: 4,
-            child: GestureDetector(
-              onHorizontalDragUpdate: _onDragUpdate,
-              onHorizontalDragEnd: _onDragEnd,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 50),
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: _confirmed ? Colors.green : widget.color,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: widget.color.withValues(alpha: 0.4),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _confirmed ? Icons.check_rounded : widget.icon,
-                  color: Colors.white,
-                  size: 22,
+            // المقبض القابل للسحب (من اليمين للشمال)
+            Positioned(
+              right: _dragX + 4,
+              top: 4,
+              child: GestureDetector(
+                onHorizontalDragUpdate: (d) => _onDragUpdate(d, maxDrag),
+                onHorizontalDragEnd: (d) => _onDragEnd(d, maxDrag),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 50),
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _confirmed ? Colors.green : widget.color,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: widget.color.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _confirmed ? Icons.check_rounded : widget.icon,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    });
   }
 }

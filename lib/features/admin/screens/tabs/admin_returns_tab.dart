@@ -272,9 +272,14 @@ class _ReturnCard extends ConsumerWidget {
 
     final orderId = data['order_id']?.toString() ?? '';
     final phone = contact;
-    final invoiceNum = orderId.isNotEmpty && orderId.length >= 8
-        ? orderId.substring(0, 8).toUpperCase()
-        : orderId;
+    final serverRetNum =
+        (data['return_number'] ?? data['invoice_number'])?.toString().trim() ??
+            '';
+    final invoiceNum = serverRetNum.isNotEmpty
+        ? serverRetNum
+        : (orderId.isNotEmpty && orderId.length >= 8
+            ? orderId.substring(0, 8).toUpperCase()
+            : orderId);
     final displayStore = storeName.isNotEmpty
         ? storeName
         : (contact.isNotEmpty ? 'هاتف: $contact' : 'عميل #$invoiceNum');
@@ -544,33 +549,34 @@ class _ReturnCard extends ConsumerWidget {
 
     final messenger = ScaffoldMessenger.of(context);
 
-    // 🚀 تطبيق التحديث فوراً في جزء من الثانية (0ms) بدون أي تعليق أو انتظار
     ref.read(adminReturnsPaginationProvider.notifier).updateLocally(
           returnId,
           newStatus,
           rejectionReason: rejectionReason,
         );
 
-    messenger.clearSnackBars();
-    messenger.showSnackBar(SnackBar(
-      content: Text(
-        newStatus == 'accepted' ? 'تم قبول الإرجاع بنجاح ✓' : 'تم رفض الإرجاع',
-        style: const TextStyle(fontFamily: 'Cairo'),
-      ),
-      backgroundColor: newStatus == 'accepted' ? Colors.green : Colors.red,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(milliseconds: 1500),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.all(16),
-    ));
-
-// إرسال التحديث للسيرفر في الخلفية وتحديث المزامنة بهدوء دون مسح الشاشة
     try {
       await ref.read(adminServiceProvider).updateReturnStatus(
             returnId,
             newStatus,
             rejectionReason: rejectionReason,
           );
+      ref.invalidate(adminStatsProvider);
+      ref.invalidate(adminTodayStatsProvider);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+          newStatus == 'accepted'
+              ? 'تم قبول الإرجاع بنجاح ✓'
+              : 'تم رفض الإرجاع',
+          style: const TextStyle(fontFamily: 'Cairo'),
+        ),
+        backgroundColor: newStatus == 'accepted' ? Colors.green : Colors.red,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1500),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ));
     } catch (e) {
       // في حال فشل الشبكة يتم استرجاع الحالة السابقة فوراً
       ref.read(adminReturnsPaginationProvider.notifier).updateLocally(

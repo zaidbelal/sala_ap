@@ -24,22 +24,18 @@ class SplashAnimator extends StatefulWidget {
 
 class _SplashAnimatorState extends State<SplashAnimator>
     with TickerProviderStateMixin {
-  // ── محركات الحركة السينمائية الأربعة ──
+// ── محركات الحركة السينمائية الفعالة ──
   late AnimationController _ambientGlowCtrl;
   late AnimationController _logoSpringCtrl;
-  late AnimationController _sparkleFlashCtrl;
   late AnimationController _textRevealCtrl;
 
   late Animation<double> _ambientScale;
   late Animation<double> _ambientOpacity;
   late Animation<double> _logoScale;
   late Animation<double> _logoOpacity;
-  late Animation<double> sparkleRotation;
-  late Animation<double> sparkleScale;
   late Animation<double> _textSlideY;
   late Animation<double> _textOpacity;
   late Animation<double> _shimmerWave;
-
   SessionResult? _sessionResult;
   bool _animationDone = false;
   bool _disposed = false;
@@ -79,19 +75,7 @@ class _SplashAnimatorState extends State<SplashAnimator>
           parent: _logoSpringCtrl, curve: const Interval(0.0, 0.45)),
     );
 
-    // 3. لمعان وميض النجوم الذهبية وتوهجها اللحظي
-    _sparkleFlashCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..repeat();
-    sparkleRotation = Tween<double>(begin: 0.0, end: 2 * math.pi).animate(
-      CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.linear),
-    );
-    sparkleScale = Tween<double>(begin: 0.85, end: 1.15).animate(
-      CurvedAnimation(parent: _sparkleFlashCtrl, curve: Curves.easeInOut),
-    );
-
-    // 4. انزلاق وبزوغ الاسم "وصًـــــال" مع تموج ضوئي ذهبي
+// 3. انزلاق وبزوغ الاسم "وصًـــــال" مع تموج ضوئي ذهبي
     _textRevealCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -147,7 +131,6 @@ class _SplashAnimatorState extends State<SplashAnimator>
     _disposed = true;
     _ambientGlowCtrl.dispose();
     _logoSpringCtrl.dispose();
-    _sparkleFlashCtrl.dispose();
     _textRevealCtrl.dispose();
     super.dispose();
   }
@@ -158,7 +141,6 @@ class _SplashAnimatorState extends State<SplashAnimator>
       animation: Listenable.merge([
         _ambientGlowCtrl,
         _logoSpringCtrl,
-        _sparkleFlashCtrl,
         _textRevealCtrl,
       ]),
       builder: (context, _) {

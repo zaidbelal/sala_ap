@@ -63,7 +63,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         .listen((snap) {
       if (!mounted) return;
       final returnsList = snap.docs
-          .map((d) => {'id': d.id, ...d.data() as Map<String, dynamic>})
+          .map((d) => {
+                'id': d.id,
+                ...d.data(),
+              })
           .toList();
       returnsList.sort((a, b) {
         DateTime parseDate(dynamic v) {
@@ -138,7 +141,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
-  // كمية مُرجعة (مقبولة أو معلقة) لكل عنصر
+  Map<String, int> get _acceptedReturnedQtyPerItem {
+    final Map<String, int> result = {};
+    for (final r in _returns) {
+      if (r['status'] != 'accepted') continue;
+      final itemId = r['order_item_id']?.toString() ?? '';
+      if (itemId.isEmpty) continue;
+      result[itemId] =
+          (result[itemId] ?? 0) + ((r['quantity'] as num?)?.toInt() ?? 0);
+    }
+    return result;
+  }
+
+  // كمية مُرجعة (مقبولة أو معلقة) لمنع طلب إرجاع مزدوج لنفس الكمية
   Map<String, int> get _returnedQtyPerItem {
     final Map<String, int> result = {};
     for (final r in _returns) {
@@ -302,14 +317,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                           else
                             ..._items.map((item) {
                               final itemId = item['id']?.toString() ?? '';
-                              final remaining = _remainingQty[itemId] ?? 0;
-                              final ordered =
-                                  (item['quantity'] as num?)?.toInt() ?? 0;
+                              final acceptedQty =
+                                  _acceptedReturnedQtyPerItem[itemId] ?? 0;
                               return _ItemCard(
                                 item: item,
                                 hasReturn: _hasActiveReturn(itemId),
                                 returnStatus: _returnStatus(itemId),
-                                returnedQty: ordered - remaining,
+                                returnedQty: acceptedQty,
                               );
                             }),
 
@@ -879,6 +893,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
   late final TextEditingController _contactCtrl;
   final TextEditingController _reasonCtrl = TextEditingController();
   bool _loading = false;
+  String? _inlineError;
 
   List<Map<String, dynamic>> get _returnableItems => widget.items.where((item) {
         final id = item['id']?.toString() ?? '';
@@ -966,15 +981,14 @@ class _ReturnSheetState extends State<_ReturnSheet> {
         latitude: widget.order.latitude,
         longitude: widget.order.longitude,
         reason: _reasonCtrl.text.trim(),
-      ).timeout(const Duration(seconds: 10));
-
+      );
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
       widget.onSuccess();
       messenger.showSnackBar(SnackBar(
         content: Text(
-          'تم إرسال طلب إرجاع $_totalSelectedQty كرتون بنجاح ✓',
+          'تم إرسال طلب إرجاع $_totalSelectedQty وحدة بنجاح ✓',
           style: const TextStyle(fontFamily: 'Cairo'),
         ),
         backgroundColor: AppColors.primary,
@@ -991,13 +1005,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
   }
 
   void _snack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(fontFamily: 'Cairo')),
-      backgroundColor: color,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.all(16),
-    ));
+    if (mounted) setState(() => _inlineError = msg);
   }
 
   @override
@@ -1074,7 +1082,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '$_totalSelectedQty كرتون',
+                      '$_totalSelectedQty وحدة',
                       style: const TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 13,
@@ -1286,6 +1294,27 @@ class _ReturnSheetState extends State<_ReturnSheet> {
               ),
             ),
 
+            if (_inlineError != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  _inlineError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 12,
+                      color: Colors.red,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+
             // 👈 شريط الأزرار مع احتساب مسافة أمان أزرار أندرويد بالكامل
             Container(
               padding: EdgeInsets.fromLTRB(
@@ -1350,7 +1379,7 @@ class _ReturnSheetState extends State<_ReturnSheet> {
                           )
                         : Text(
                             _hasSelection
-                                ? 'تأكيد إرجاع $_totalSelectedQty كرتون'
+                                ? 'تأكيد إرجاع $_totalSelectedQty وحدة'
                                 : 'اختر كمية أولاً',
                             style: const TextStyle(
                               fontFamily: 'Cairo',

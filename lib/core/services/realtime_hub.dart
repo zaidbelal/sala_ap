@@ -292,10 +292,7 @@ class RealtimeHub {
         final navContext = NotificationService.navigatorKey.currentContext;
         final container = _container;
 
-        // 🔒 جدولة تفريغ الاشتراكات خارج سياق الاستماع لمنع Deadlock
-        Future.microtask(() async {
-          await resetOnSignOut();
-        });
+        await resetOnSignOut();
         if (container != null) {
           try {
             container.read(cartProvider.notifier).clear();
@@ -328,15 +325,38 @@ class RealtimeHub {
         return;
       }
       if (wasInactive && isActive) {
+        // 🔒 التحقق المشفر من الصلاحيات لمنع تصعيد الرتب دون تفويض
+        String verifiedRole = 'merchant';
+        try {
+          final tokenResult =
+              await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+          final claimRole =
+              (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+          const privileged = {
+            'admin',
+            'super_admin',
+            'accountant',
+            'warehouse_manager',
+            'driver'
+          };
+          if (privileged.contains(newRole)) {
+            verifiedRole = (claimRole == newRole) ? newRole : 'merchant';
+          } else {
+            verifiedRole = claimRole ?? newRole;
+          }
+        } catch (_) {
+          verifiedRole = 'merchant';
+        }
+
         await AppStorage.setIsActive(true);
         await AppStorage.saveUserData(
           userId: userId,
-          role: newRole,
+          role: verifiedRole,
           name: data['full_name'] as String?,
+          storeName: data['store_name'] as String?, // 👈 حفظ اسم المتجر
           phone: data['phone_number'] as String?,
         );
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
-
         // 🚀 تصفير مؤشر الرتبة وإعادة إطلاق قنوات البث المباشر المصرحة فوراً لمنع تجمد الطلبات
         _activeUserRole = null;
         Future.microtask(() async {
@@ -361,11 +381,13 @@ class RealtimeHub {
         return;
       }
       if (newRole != AppStorage.userRole) {
-        // 🔒 فرض سحب وفحص التوكن المشفر الصادر من خادم Firebase Auth
+        // 🔒 فحص التوكن المشفر مع حماية الجلسة من التخفيض القسري عند ضعف الشبكة
         IdTokenResult? tokenResult;
+        bool networkFailed = false;
         try {
-          tokenResult =
-              await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+          tokenResult = await FirebaseAuth.instance.currentUser
+              ?.getIdTokenResult(true)
+              .timeout(const Duration(seconds: 5));
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-token-revoked') {
             await resetOnSignOut();
@@ -376,7 +398,14 @@ class RealtimeHub {
             }
             return;
           }
-        } catch (_) {}
+        } catch (_) {
+          networkFailed = true;
+        }
+
+        // في حال فشل الاتصال بالشبكة نؤجل التحقق ولا نجرّد المستخدم من رتبته فوراً
+        if (networkFailed && tokenResult == null) {
+          return;
+        }
 
         final verifiedClaimRole =
             (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
@@ -388,18 +417,45 @@ class RealtimeHub {
           'driver'
         };
 
-        // منع رفع الصلاحيات إذا لم تكن مصدقّة وموقّعة من الخادم في Custom Claims
+        final bool isAwaitingClaims =
+            privileged.contains(newRole) && verifiedClaimRole != newRole;
+
         final secureRole =
-            (privileged.contains(newRole) && verifiedClaimRole != newRole)
-                ? 'merchant'
-                : newRole;
+            isAwaitingClaims ? (AppStorage.userRole ?? 'merchant') : newRole;
 
         await AppStorage.saveUserData(
           userId: userId,
           role: secureRole,
           name: data['full_name'] as String?,
+          storeName: data['store_name'] as String?, // 👈 حفظ اسم المتجر
           phone: data['phone_number'] as String?,
         );
+
+        // 🚀 معالجة التعليق: فحص مؤجل ذكي لتطبيق الترقية فور وصول الـ Claims من السيرفر
+        if (isAwaitingClaims) {
+          Future.delayed(const Duration(seconds: 3), () async {
+            if (!_initialized || AppStorage.userId != userId) return;
+            try {
+              final tokenResultRetry = await FirebaseAuth.instance.currentUser
+                  ?.getIdTokenResult(true);
+              final claimRoleRetry =
+                  (tokenResultRetry?.claims?['role'] as String?)
+                      ?.trim()
+                      .toLowerCase();
+
+              if (claimRoleRetry == newRole) {
+                await AppStorage.saveUserData(
+                  userId: userId,
+                  role: newRole,
+                  name: data['full_name'] as String?,
+                  storeName: data['store_name'] as String?,
+                  phone: data['phone_number'] as String?,
+                );
+                await startForUser(userId, role: newRole);
+              }
+            } catch (_) {}
+          });
+        }
 
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
         Future.microtask(() async {
@@ -541,43 +597,51 @@ class RealtimeHub {
     _notificationsSub = sub;
     _userSubs.add(sub);
 
-    final broadcastSub = _db
-        .collection('broadcast_notifications')
-        .orderBy('created_at', descending: true)
-        .limit(20)
-        .snapshots()
-        .listen((snap) {
-      final broadcastData = snap.docs
-          .map((d) => {
-                'id': d.id,
-                'is_read': true,
-                'user_id': userId,
-                ...d.data(),
-              })
-          .toList();
-      _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
-    }, onError: (_) {});
-    _userSubs.add(broadcastSub);
+    if (AppStorage.isMerchant) {
+      final broadcastSub = _db
+          .collection('broadcast_notifications')
+          .orderBy('created_at', descending: true)
+          .limit(20)
+          .snapshots()
+          .listen((snap) {
+        final lastReadIso = AppStorage.getString('broadcast_read_at_$userId');
+        final lastReadAt =
+            lastReadIso != null ? DateTime.tryParse(lastReadIso) : null;
+        final broadcastData = snap.docs.map((d) {
+          final data = d.data();
+          final rawCreated = data['created_at'];
+          final created = rawCreated is Timestamp
+              ? rawCreated.toDate()
+              : (rawCreated is DateTime ? rawCreated : null);
+          final isRead = lastReadAt != null &&
+              created != null &&
+              !created.isAfter(lastReadAt);
+          return {
+            'id': d.id,
+            'is_read': isRead,
+            'user_id': userId,
+            ...data,
+          };
+        }).toList();
+        _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
+      }, onError: (_) {});
+      _userSubs.add(broadcastSub);
+    }
   }
 
   void _watchProducts() {
     _productsSub?.cancel();
     _productsSub = _db
         .collection('products')
-        .where('is_deleted', isEqualTo: false)
+        .orderBy('updated_at', descending: true)
         .limit(100)
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snap) {
-        final data = snap.docs
-            .where((d) => d.data()['is_active'] != false)
-            .map((d) => {'id': d.id, ...d.data()})
-            .toList()
-          ..sort((a, b) => (a['name']?.toString() ?? '')
-              .compareTo(b['name']?.toString() ?? ''));
-        _container?.read(realtimeProductsProvider.notifier).update(data);
-        // دمج ذري بالـ ID لحماية الـ 2,500 منتج المحفوظة مسبقاً من الحذف
-        unawaited(AppCache.instance.mergeProducts(data));
+        final allChanges =
+            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        unawaited(AppCache.instance.mergeProducts(allChanges));
+        _container?.read(realtimeProductsProvider.notifier).update(allChanges);
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
@@ -658,22 +722,30 @@ class RealtimeHub {
     final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'preparing'];
 
-    // تصفية سحابية موثقة بالفهرس (status ASC, created_at DESC)
+    // استعلام لا يتطلب Composite Index إجباري مع ترتيب زمني فوري في الذاكرة
     final sub = _db
         .collection('orders')
         .where('status', whereIn: targetStatuses)
-        .orderBy('created_at', descending: true)
-        .limit(30)
+        .limit(50)
         .snapshots()
         .listen(
       (snap) {
-        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
+          ..sort((a, b) {
+            DateTime parse(dynamic v) {
+              if (v is Timestamp) return v.toDate();
+              if (v is DateTime) return v;
+              if (v is String) return DateTime.tryParse(v) ?? DateTime(2000);
+              return DateTime(2000);
+            }
+
+            return parse(b['created_at']).compareTo(parse(a['created_at']));
+          });
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
         final currentIds = LinkedHashSet<String>.from(
           snap.docs.map((doc) => doc.id),
         );
-        // 🚀 تم إلغاء showLocalNotification هنا لمنع التكرار المزدوج مع FCM Topic والحوار المنبثق
 
         for (final id in currentIds) {
           seenIds
@@ -686,13 +758,6 @@ class RealtimeHub {
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchConfirmedOrders error: $e');
-        final errStr = e.toString().toLowerCase();
-        // 🔒 حظر إعادة الاتصال إذا كان الخطأ نقص في الفهرس أو رفض صلاحيات لمنع العاصفة اللانهائية
-        if (errStr.contains('failed-precondition') ||
-            errStr.contains('requires an index') ||
-            errStr.contains('permission-denied')) {
-          return;
-        }
         _scheduleReconnect();
       },
     );
@@ -794,6 +859,12 @@ class RealtimeHub {
 
 // ✅ التطهير التام للجلسة مع الحفاظ على القنوات الحية للتطبيق بعد تسجيل الخروج
   Future<void> resetOnSignOut() async {
+    // 🔒 إلغاء أي عملية اشتراك مجدولة قيد الانتظار فوراً
+    _initialized = false;
+    _activeUserId = null;
+    _activeUserRole = null;
+    _startForUserLock = Future.value();
+
     final container = _container;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -1003,6 +1074,10 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   Future<void> markAllRead(String userId) async {
     await _silently(
       () async {
+        await AppStorage.setString(
+          'broadcast_read_at_$userId',
+          DateTime.now().toIso8601String(),
+        );
         final query = _db
             .collection('user_notifications')
             .where('user_id', isEqualTo: userId)

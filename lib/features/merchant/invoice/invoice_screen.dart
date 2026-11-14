@@ -92,7 +92,10 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       final shortId = widget.order.id.length >= 8
           ? widget.order.id.substring(0, 8)
           : widget.order.id;
-      final fileName = 'فاتورة_${widget.order.invoiceNumber ?? shortId}.png';
+      final cleanInvId = (widget.order.invoiceNumber ?? shortId)
+          .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final fileName =
+          'invoice_$cleanInvId.png'; // 👈 اسم قياسي ASCII متوافق مع Android FileProvider
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
       final box = context.findRenderObject() as RenderBox?;
@@ -453,7 +456,7 @@ class _MerchantInfo extends StatelessWidget {
 
   String _payLabel(String? m) => switch (m) {
         'cash' => 'نقداً',
-        'credit' => 'آجل',
+        'credit' || 'deferred' => 'دفع آجل',
         'transfer' => 'تحويل',
         _ => m ?? '---',
       };

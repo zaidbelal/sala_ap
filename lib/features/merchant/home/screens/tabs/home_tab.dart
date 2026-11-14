@@ -1,23 +1,23 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:async';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_radius.dart';
 import '../../../../../core/constants/app_text_styles.dart';
+import '../../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../../core/services/catalog_service.dart';
+import '../../../../../core/services/realtime_hub.dart';
 import '../../../categories/services/categories_service.dart';
 import '../../../categories/widgets/category_card.dart';
 import '../../../cart/providers/cart_provider.dart';
 import '../../../cart/screens/cart_screen.dart';
-import '../../../brands/screens/brands_screen.dart';
 import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
-import '../../../../../core/services/realtime_hub.dart';
-import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
 import '../../../products/services/products_service.dart';
+import '../../../products/screens/products_screen.dart';
 import '../../../products/widgets/product_details_sheet.dart';
 
 final _searchQueryProvider = StateProvider<String>((ref) => '');
@@ -50,12 +50,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   void _onSearchChanged(String value) {
     setState(() => _isSearching = value.isNotEmpty);
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-      if (mounted) {
-        ref.read(_searchQueryProvider.notifier).state = value;
-      }
-    });
+    ref.read(_searchQueryProvider.notifier).state = value;
   }
 
   void _clearAndExit() {
@@ -144,7 +139,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                     width: 44,
                                     height: 44,
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
+                                      color: context.bgCard,
                                       shape: BoxShape.circle,
                                       boxShadow: [
                                         BoxShadow(
@@ -219,7 +214,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                         width: 44,
                                         height: 44,
                                         decoration: BoxDecoration(
-                                          color: Colors.white,
+                                          color: context.bgCard,
                                           shape: BoxShape.circle,
                                           boxShadow: [
                                             BoxShadow(
@@ -387,15 +382,38 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                           );
 
                           if (matchedProductMap != null && context.mounted) {
-                            // تحويل المنتج وعرض نافذة تفاصيله فوراً على شاشة الرئيسية بنقاء وبدون شاشة سوداء
                             final productModel =
                                 ProductModel.fromMap(matchedProductMap);
+                            final matchedVariantId =
+                                matchedProductMap['_matched_variant_id']
+                                    ?.toString();
+                            final matchedUnitLabel =
+                                matchedProductMap['_matched_unit_label']
+                                    ?.toString();
+                            final initialVariant = matchedVariantId != null
+                                ? productModel.variants
+                                    .where((v) =>
+                                        v.id == matchedVariantId ||
+                                        v.label == matchedVariantId)
+                                    .firstOrNull
+                                : null;
+                            final unitPool = initialVariant != null
+                                ? initialVariant.units
+                                : productModel.units;
+                            final initialUnit = matchedUnitLabel != null
+                                ? unitPool
+                                    .where((u) => u.label == matchedUnitLabel)
+                                    .firstOrNull
+                                : null;
                             showModalBottomSheet(
                               context: context,
                               isScrollControlled: true,
                               backgroundColor: Colors.transparent,
-                              builder: (_) =>
-                                  ProductDetailsSheet(product: productModel),
+                              builder: (_) => ProductDetailsSheet(
+                                product: productModel,
+                                initialVariant: initialVariant,
+                                initialUnit: initialUnit,
+                              ),
                             );
                           }
                         },
@@ -438,8 +456,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                         ),
                       ),
                     ),
-
-                  // ══ نتائج البحث أو الأصناف ══
+// ══ نتائج البحث أو الأصناف ══
                   if (_isSearching)
                     SliverToBoxAdapter(
                       child: Padding(
@@ -451,7 +468,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                     // عنوان الأصناف
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                         child: Row(
                           children: [
                             Container(
@@ -545,7 +562,7 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                   onTap: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) => BrandsScreen(
+                                        builder: (_) => ProductsScreen(
                                           categoryId: cat.id,
                                           categoryName: cat.name,
                                         ),

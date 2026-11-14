@@ -47,9 +47,10 @@ class _AdminCatalogTabState extends ConsumerState<AdminCatalogTab>
     final catCount = ref.watch(adminCategoriesProvider).value?.length ?? 0;
     final brandCount = ref.watch(brandsProvider).value?.length ?? 0;
     final productsState = ref.watch(adminProductsProvider);
-    final prodCount = (productsState.value?.length ?? 0);
-    final counts = [catCount, brandCount, prodCount];
-
+    final hasMoreProds = ref.watch(adminProductsProvider.notifier).hasMore;
+    final loadedProds = productsState.value?.length ?? 0;
+    final prodDisplay = hasMoreProds ? '$loadedProds+' : '$loadedProds';
+    final counts = ['$catCount', '$brandCount', prodDisplay];
     return SafeArea(
       bottom: false,
       child: NestedScrollView(
@@ -177,7 +178,7 @@ class _CatalogHeader extends StatelessWidget {
 class _AnimatedTabBar extends StatelessWidget {
   final TabController controller;
   final List<_TabMeta> tabs;
-  final List<int> counts;
+  final List<String> counts;
   final int currentIndex;
 
   const _AnimatedTabBar({
@@ -248,7 +249,7 @@ class _AnimatedTabBar extends StatelessWidget {
                     color: isSelected ? Colors.white : Colors.grey[500],
                   ),
                 ),
-                if (counts[i] > 0) ...[
+                if (counts[i] != '0') ...[
                   const SizedBox(width: 4),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -261,7 +262,7 @@ class _AnimatedTabBar extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      '${counts[i]}',
+                      counts[i],
                       style: TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 10,

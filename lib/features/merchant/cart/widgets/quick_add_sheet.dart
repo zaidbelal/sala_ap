@@ -233,10 +233,10 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
                           itemBuilder: (_, i) => _ProductTile(
                               key: ValueKey(_filtered[i].id),
                               product: _filtered[i],
-                              onAdd: (qty, unit) {
-                                ref
-                                    .read(cartProvider.notifier)
-                                    .addItem(_filtered[i], qty, unit: unit);
+                              onAdd: (qty, unit, variant) {
+                                ref.read(cartProvider.notifier).addItem(
+                                    _filtered[i], qty,
+                                    unit: unit, variant: variant);
 
                                 HapticFeedback.lightImpact();
                               }),
@@ -252,7 +252,8 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
 // ════════════════════════════════════════
 class _ProductTile extends StatefulWidget {
   final ProductModel product;
-  final void Function(int qty, ProductUnit? unit) onAdd;
+  final void Function(int qty, ProductUnit? unit, ProductVariant? variant)
+      onAdd;
   const _ProductTile({super.key, required this.product, required this.onAdd});
 
   @override
@@ -262,6 +263,7 @@ class _ProductTile extends StatefulWidget {
 class _ProductTileState extends State<_ProductTile> {
   int _qty = 1;
   bool _added = false;
+  ProductVariant? _selectedVariant;
   ProductUnit? _selectedUnit;
 
   @override
@@ -280,8 +282,12 @@ class _ProductTileState extends State<_ProductTile> {
 
   void _initUnit() {
     _qty = 1;
-    _selectedUnit =
-        widget.product.units.isNotEmpty ? widget.product.units.first : null;
+    _selectedVariant =
+        widget.product.hasVariants ? widget.product.variants.first : null;
+    final units = _selectedVariant != null
+        ? _selectedVariant!.units
+        : widget.product.units;
+    _selectedUnit = units.isNotEmpty ? units.first : null;
   }
 
   Timer? _resetTimer;
@@ -292,144 +298,27 @@ class _ProductTileState extends State<_ProductTile> {
     super.dispose();
   }
 
-  void _showManualQtyDialog() async {
+  Future<void> _showManualQtyDialog() async {
     HapticFeedback.mediumImpact();
-    final controller = TextEditingController(text: '$_qty');
-    try {
-      await showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          backgroundColor: context.bgCard,
-          title: Text(
-            'تحديد الكمية (${_selectedUnit?.label ?? "كرتون"})',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Cairo',
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: context.textPrimary,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'أدخل الكمية المطلوبة للمنتج (${widget.product.name}):',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 12,
-                    color: context.textSecondary),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                textAlign: TextAlign.center,
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  TextInputFormatter.withFunction((oldVal, newVal) {
-                    const arabic = {
-                      '٠': '0',
-                      '١': '1',
-                      '٢': '2',
-                      '٣': '3',
-                      '٤': '4',
-                      '٥': '5',
-                      '٦': '6',
-                      '٧': '7',
-                      '٨': '8',
-                      '٩': '9',
-                      '۰': '0',
-                      '۱': '1',
-                      '۲': '2',
-                      '۳': '3',
-                      '۴': '4',
-                      '۵': '5',
-                      '۶': '6',
-                      '۷': '7',
-                      '۸': '8',
-                      '۹': '9'
-                    };
-                    var t = newVal.text;
-                    arabic.forEach((k, v) => t = t.replaceAll(k, v));
-                    t = t.replaceAll(RegExp(r'[^0-9]'), '');
-                    return TextEditingValue(
-                      text: t,
-                      selection: TextSelection.collapsed(offset: t.length),
-                    );
-                  }),
-                  LengthLimitingTextInputFormatter(4),
-                ],
-                style: const TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.primary,
-                ),
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: context.bgInput,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        const BorderSide(color: AppColors.primary, width: 1.5),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء',
-                  style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: () {
-                const arabic = {
-                  '٠': '0',
-                  '١': '1',
-                  '٢': '2',
-                  '٣': '3',
-                  '٤': '4',
-                  '٥': '5',
-                  '٦': '6',
-                  '٧': '7',
-                  '٨': '8',
-                  '٩': '9'
-                };
-                var clean = controller.text.trim();
-                arabic.forEach((k, v) => clean = clean.replaceAll(k, v));
-                final val = int.tryParse(clean);
-                if (val != null && val > 0) {
-                  setState(() => _qty = val);
-                }
-                Navigator.pop(ctx);
-              },
-              child: const Text('تأكيد',
-                  style: TextStyle(
-                      fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      controller.dispose();
+    final result = await showDialog<int>(
+      context: context,
+      builder: (_) => _QuickAddQtyDialog(
+        initialQty: _qty,
+        productName: _selectedVariant != null
+            ? '${widget.product.name} - ${_selectedVariant!.label}'
+            : widget.product.name,
+        unitLabel: _selectedUnit?.label ?? 'كرتون',
+      ),
+    );
+    if (result != null && result > 0 && mounted) {
+      setState(() => _qty = result);
     }
   }
 
   void _add() {
-    widget.onAdd(_qty, _selectedUnit);
+    final stock = _selectedVariant?.stock ?? widget.product.stock;
+    if (stock <= 0) return;
+    widget.onAdd(_qty, _selectedUnit, _selectedVariant);
     if (!mounted) return;
     setState(() => _added = true);
     _resetTimer?.cancel();
@@ -440,13 +329,20 @@ class _ProductTileState extends State<_ProductTile> {
 
   @override
   Widget build(BuildContext context) {
+    final activeStock = _selectedVariant?.stock ?? widget.product.stock;
+    final activeUnits = _selectedVariant != null
+        ? _selectedVariant!.units
+        : widget.product.units;
+    final activePrice =
+        _selectedUnit?.price ?? _selectedVariant?.price ?? widget.product.price;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: context.bgCard, // ✅ دارك مود
+        color: context.bgCard,
         borderRadius: AppRadius.lgAll,
-        border: Border.all(color: context.borderColor), // ✅ دارك مود
+        border: Border.all(color: context.borderColor),
         boxShadow: [
           BoxShadow(
             color: context.shadowColor.withValues(alpha: 0.06),
@@ -456,15 +352,18 @@ class _ProductTileState extends State<_ProductTile> {
       ),
       child: Row(
         children: [
-          // صورة/أيقونة الكمية المختارة تلقائياً (كرتون أو حبة)
           Builder(
             builder: (context) {
               final activeImg = (_selectedUnit?.imageUrl != null &&
                       _selectedUnit!.imageUrl!.trim().isNotEmpty)
                   ? _selectedUnit!.imageUrl!.trim()
-                  : (_selectedUnit == null || _selectedUnit!.label == 'كرتون'
-                      ? widget.product.imageUrl
-                      : null);
+                  : (_selectedVariant?.imageUrl != null &&
+                          _selectedVariant!.imageUrl!.trim().isNotEmpty)
+                      ? _selectedVariant!.imageUrl!.trim()
+                      : (_selectedUnit == null ||
+                              _selectedUnit!.label == 'كرتون'
+                          ? widget.product.imageUrl
+                          : null);
 
               return Container(
                 width: 50,
@@ -509,9 +408,7 @@ class _ProductTileState extends State<_ProductTile> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  _selectedUnit != null
-                      ? '${_selectedUnit!.price.toStringAsFixed(0)} ر.ي / ${_selectedUnit!.label}'
-                      : '${widget.product.price.toStringAsFixed(0)} ر.ي',
+                  '${activePrice.toStringAsFixed(0)} ر.ي / ${_selectedUnit?.label ?? "كرتون"}',
                   style: const TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 12,
@@ -519,13 +416,50 @@ class _ProductTileState extends State<_ProductTile> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                // ── اختيار الوحدة إن وُجدت ──
-                if (widget.product.units.isNotEmpty) ...[
+                if (widget.product.hasVariants) ...[
                   const SizedBox(height: 4),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: widget.product.units.map((unit) {
+                      children: widget.product.variants.map((v) {
+                        final isSel = _selectedVariant?.id == v.id;
+                        return GestureDetector(
+                          onTap: () => setState(() {
+                            _selectedVariant = v;
+                            _selectedUnit =
+                                v.units.isNotEmpty ? v.units.first : null;
+                          }),
+                          child: Container(
+                            margin: const EdgeInsetsDirectional.only(end: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isSel
+                                  ? Colors.deepPurple
+                                  : Colors.deepPurple.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              v.label,
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: isSel ? Colors.white : Colors.deepPurple,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+                if (activeUnits.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: activeUnits.map((unit) {
                         final isSelected = _selectedUnit?.label == unit.label;
                         return GestureDetector(
                           onTap: () => setState(() => _selectedUnit = unit),
@@ -601,16 +535,22 @@ class _ProductTileState extends State<_ProductTile> {
           const SizedBox(width: 8),
           // زر الإضافة
           GestureDetector(
-            onTap: _added ? null : _add,
+            onTap: (activeStock <= 0 || _added) ? null : _add,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: _added ? Colors.green : AppColors.primary,
+                color: activeStock <= 0
+                    ? Colors.grey
+                    : (_added ? Colors.green : AppColors.primary),
                 borderRadius: AppRadius.mdAll,
               ),
               child: Icon(
-                _added ? Icons.check_rounded : Icons.add_shopping_cart_rounded,
+                activeStock <= 0
+                    ? Icons.remove_shopping_cart_rounded
+                    : (_added
+                        ? Icons.check_rounded
+                        : Icons.add_shopping_cart_rounded),
                 color: Colors.white,
                 size: 18,
               ),
@@ -741,6 +681,118 @@ class _EmptyState extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _QuickAddQtyDialog extends StatefulWidget {
+  final int initialQty;
+  final String productName;
+  final String unitLabel;
+  const _QuickAddQtyDialog({
+    required this.initialQty,
+    required this.productName,
+    required this.unitLabel,
+  });
+
+  @override
+  State<_QuickAddQtyDialog> createState() => _QuickAddQtyDialogState();
+}
+
+class _QuickAddQtyDialogState extends State<_QuickAddQtyDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.initialQty}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final clean = ArabicNormalizer.normalizeDigits(_controller.text).trim();
+    final val = int.tryParse(clean);
+    FocusScope.of(context).unfocus();
+    Navigator.pop(context, (val != null && val > 0) ? val : null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      backgroundColor: context.bgCard,
+      title: Text(
+        'تحديد الكمية (${widget.unitLabel})',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontFamily: 'Cairo',
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+          color: context.textPrimary,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'أدخل الكمية المطلوبة للمنتج (${widget.productName}):',
+            style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 12,
+                color: context.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textAlign: TextAlign.center,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            style: const TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: AppColors.primary,
+            ),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: context.bgInput,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide:
+                    const BorderSide(color: AppColors.primary, width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء',
+              style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          onPressed: _submit,
+          child: const Text('تأكيد',
+              style:
+                  TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+        ),
+      ],
     );
   }
 }

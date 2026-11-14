@@ -160,6 +160,11 @@ class SearchService {
         }
 
         final prefixesToQuery = <String>{firstToken};
+        if (firstToken.isNotEmpty) {
+          final capitalized =
+              firstToken[0].toUpperCase() + firstToken.substring(1);
+          prefixesToQuery.add(capitalized);
+        }
         if (firstToken.startsWith('ا') ||
             firstToken.startsWith('أ') ||
             firstToken.startsWith('إ') ||
@@ -261,23 +266,32 @@ class SearchService {
       cursor = page.docs.last;
     }
 
-    // 2. 🛡️ بحث موسع شامل: إيجاد المنتجات التي تقع الكلمات في وسطها أو نهايتها
-    if (matches.length < resultLimit) {
-      try {
-        final broadSnap = await collection
-            .where('is_active', isEqualTo: true)
-            .limit(150)
+    // 2. بحث موسع شامل في الكاش ثم في دفعة السيرفر للكلمات الوسطى والأسماء الإنجليزية
+    if (matches.length < resultLimit && collectionName == 'products') {
+      final cachedProducts = AppCache.instance.getAllCachedProducts();
+      for (final product in cachedProducts) {
+        if (product['is_deleted'] == true || product['is_active'] == false) {
+          continue;
+        }
+        if (_matchesTokens(product['name']?.toString() ?? '', tokens)) {
+          matches[product['id'].toString()] = product;
+          if (matches.length >= resultLimit) break;
+        }
+      }
+      if (matches.length < resultLimit) {
+        final fallbackSnap = await collection
+            .where('is_deleted', isEqualTo: false)
+            .limit(300)
             .get(const GetOptions(source: Source.serverAndCache));
-
-        for (final doc in broadSnap.docs) {
+        for (final doc in fallbackSnap.docs) {
           final data = doc.data();
-          if (data['is_deleted'] == true) continue;
+          if (data['is_active'] == false) continue;
           if (_matchesTokens(data['name']?.toString() ?? '', tokens)) {
             matches[doc.id] = {'id': doc.id, ...data};
             if (matches.length >= resultLimit) break;
           }
         }
-      } catch (_) {}
+      }
     }
 
     return matches.values.toList(growable: false);
@@ -317,10 +331,20 @@ class SearchService {
 final searchServiceProvider = Provider<SearchService>((ref) => SearchService());
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
-final searchResultsProvider =
-    FutureProvider.autoDispose.family<SearchResult, String>((ref, query) async {
-  if (query.trim().isEmpty) {
-    return const SearchResult(products: [], brands: [], categories: []);
+final searchResultsProvider = StreamProvider.autoDispose
+    .family<SearchResult, String>((ref, query) async* {
+  final cleanQ = query.trim().toLowerCase();
+  if (cleanQ.isEmpty) {
+    yield const SearchResult(products: [], brands: [], categories: []);
+    return;
   }
-  return ref.read(searchServiceProvider).search(query);
+  final service = ref.read(searchServiceProvider);
+  // 1. بث النتيجة المحلية فوراً في أول إطار (0ms)
+  final local = service._searchLocally(cleanQ);
+  if (local != null && !local.isEmpty) {
+    yield local;
+  }
+  // 2. بث النتيجة السحابية المحدثة فور اكتمالها لتحديث الواجهة تلقائياً
+  final fresh = await service._fetchAndUpdateCache(cleanQ);
+  yield fresh;
 });

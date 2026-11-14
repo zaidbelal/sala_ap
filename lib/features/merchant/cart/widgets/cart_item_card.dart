@@ -15,6 +15,7 @@ import '../../products/services/products_service.dart';
 import '../../products/widgets/product_details_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/models/product_unit.dart';
 
 class CartItemCard extends ConsumerStatefulWidget {
   final CartItem item;
@@ -54,6 +55,7 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
       backgroundColor: Colors.transparent,
       builder: (_) => ProductDetailsSheet(
         product: resolvedProduct,
+        initialVariant: item.selectedVariant,
         initialUnit: item.selectedUnit,
       ),
     );
@@ -94,12 +96,23 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
   Widget build(BuildContext context) {
     final notifier = ref.read(cartProvider.notifier);
     final resolvedProduct = _resolveFullProduct();
+    final ProductVariant? activeVariant = item.selectedVariant != null
+        ? (resolvedProduct.variants
+                .where((v) =>
+                    v.id == item.selectedVariant!.id ||
+                    v.label.trim() == item.selectedVariant!.label.trim())
+                .firstOrNull ??
+            item.selectedVariant)
+        : null;
 
-    // 1. تحديد الصورة الأنسب (صورة الوحدة -> صورة المنتج الأساسية -> صورة الكاش)
+    // 1. تحديد الصورة الأنسب (صورة الوحدة -> صورة الحجم -> صورة المنتج الأساسية)
     String? displayImage;
     if (item.selectedUnit?.imageUrl != null &&
         item.selectedUnit!.imageUrl!.trim().isNotEmpty) {
       displayImage = item.selectedUnit!.imageUrl!.trim();
+    } else if (activeVariant?.imageUrl != null &&
+        activeVariant!.imageUrl!.trim().isNotEmpty) {
+      displayImage = activeVariant.imageUrl!.trim();
     } else if (item.product.imageUrl != null &&
         item.product.imageUrl!.trim().isNotEmpty) {
       displayImage = item.product.imageUrl!.trim();
@@ -109,12 +122,17 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
     }
 
     // 2. حساب تفاصيل الكميات والحبات
-    final int itemsPerUnit =
-        item.selectedUnit?.qty ?? resolvedProduct.itemsPerCarton ?? 1;
+    final int itemsPerUnit = item.selectedUnit?.qty ??
+        activeVariant?.itemsPerCarton ??
+        resolvedProduct.itemsPerCarton ??
+        1;
     final int totalPieces = item.quantity * itemsPerUnit;
-    final double? sizeMl = item.selectedUnit?.sizeMl ?? resolvedProduct.sizeMl;
+    final double? sizeMl = item.selectedUnit?.sizeMl ??
+        activeVariant?.sizeMl ??
+        resolvedProduct.sizeMl;
     final currentLabel = item.unitLabel;
-
+    final List<ProductUnit> availableUnits =
+        activeVariant != null ? activeVariant.units : resolvedProduct.units;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -189,7 +207,9 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        resolvedProduct.name,
+                        activeVariant != null
+                            ? '${resolvedProduct.name} - ${activeVariant.label}'
+                            : resolvedProduct.name,
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,
@@ -376,7 +396,7 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
           ),
 
           // ── 4. شرائح خيارات الكميات المتاحة للمنتج (كرتون / نصف كرتون / حبة) ──
-          if (resolvedProduct.units.length > 1) ...[
+          if (availableUnits.length > 1) ...[
             const SizedBox(height: 10),
             Divider(height: 1, color: context.borderColor),
             const SizedBox(height: 8),
@@ -396,7 +416,7 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: resolvedProduct.units.map((unit) {
+                      children: availableUnits.map((unit) {
                         final isSelected =
                             unit.label.trim() == currentLabel.trim();
                         return Padding(

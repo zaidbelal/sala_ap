@@ -271,39 +271,53 @@ class ProductsNotifier
       timer = Timer(const Duration(minutes: 10), () => link.close());
     });
     ref.onResume(() => timer?.cancel());
+// تفعيل الاشتراك اللحظي تلقائياً سواءً للكتالوج العام أو للأقسام المخصصة
+    _realtimeSub?.close();
+    _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
+      realtimeProductsProvider,
+      (_, next) {
+        if (next.isNotEmpty && !_isDisposed) {
+          final liveBatch = arg == null
+              ? next
+              : next.where((p) => p['category_id']?.toString() == arg).toList();
 
-    if (arg == null) {
-      _realtimeSub?.close();
-      _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
-        realtimeProductsProvider,
-        (_, next) {
-          if (next.isNotEmpty && !_isDisposed) {
-            final currentList =
-                state.valueOrNull ?? AppCache.instance.getProducts() ?? [];
-            final Map<String, Map<String, dynamic>> productMap = {
-              for (final p in currentList) p['id'].toString(): p,
-            };
-            for (final liveItem in next) {
-              final id = liveItem['id']?.toString();
-              if (id != null && id.isNotEmpty) {
-                if (liveItem['is_deleted'] == true ||
-                    liveItem['is_active'] == false) {
-                  productMap.remove(id);
-                } else {
-                  productMap[id] = liveItem;
-                }
+          final currentList = state.valueOrNull ??
+              AppCache.instance.getProducts(categoryId: arg) ??
+              [];
+          final Map<String, Map<String, dynamic>> productMap = {
+            for (final p in currentList) p['id'].toString(): p,
+          };
+
+          for (final liveItem in liveBatch) {
+            final id = liveItem['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              if (liveItem['is_deleted'] == true ||
+                  liveItem['is_active'] == false) {
+                productMap.remove(id);
+              } else {
+                productMap[id] = liveItem;
               }
             }
-            final merged = productMap.values.toList()
-              ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
-                  .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+          }
+
+          final merged = productMap.values.toList()
+            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
+          if (arg == null) {
+            unawaited(AppCache.instance.mergeProducts(liveBatch));
+            final allProducts = AppCache.instance.getProducts() ?? merged;
+            state = AsyncData(allProducts);
+            _precache(allProducts);
+          } else {
             state = AsyncData(merged);
-            unawaited(AppCache.instance.mergeProducts(next));
+            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
             _precache(merged);
           }
-        },
-      );
-    }
+        }
+      },
+    );
     return _load(categoryId: arg);
   }
 
@@ -311,11 +325,12 @@ class ProductsNotifier
 // ② الكاش المحلي (Stale-While-Revalidate: إرجاع فوري وتحديث خلفي دائم لتجنب اختلاف الأسعار)
     final cached = AppCache.instance.getProducts(categoryId: categoryId);
     if (cached != null) {
-      unawaited(_bgRefresh(categoryId: categoryId));
+      if (!AppCache.instance.isProductsFresh(categoryId: categoryId)) {
+        unawaited(_bgRefresh(categoryId: categoryId));
+      }
       _precache(cached);
       return cached;
     }
-
     // ③ الشبكة مع retry
     return _retry(
       () => _fetchAndCache(categoryId: categoryId),
@@ -329,13 +344,44 @@ class ProductsNotifier
       realtimeProductsProvider,
       (_, next) {
         if (next.isNotEmpty && !_isDisposed) {
-          // عزل وتصفية المنتجات بحسب القسم المفتوح ومنع تلويث القائمة بمنتجات الأقسام الأخرى
-          final filtered = arg == null
+          final liveBatch = arg == null
               ? next
               : next.where((p) => p['category_id']?.toString() == arg).toList();
-          state = AsyncData(filtered);
-          unawaited(AppCache.instance.setProducts(filtered, categoryId: arg));
-          _precache(filtered);
+
+          final currentList = state.valueOrNull ??
+              AppCache.instance.getProducts(categoryId: arg) ??
+              [];
+          final Map<String, Map<String, dynamic>> productMap = {
+            for (final p in currentList) p['id'].toString(): p,
+          };
+
+          for (final liveItem in liveBatch) {
+            final id = liveItem['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              if (liveItem['is_deleted'] == true ||
+                  liveItem['is_active'] == false) {
+                productMap.remove(id);
+              } else {
+                productMap[id] = liveItem;
+              }
+            }
+          }
+
+          final merged = productMap.values.toList()
+            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
+          if (arg == null) {
+            unawaited(AppCache.instance.mergeProducts(liveBatch));
+            final allProducts = AppCache.instance.getProducts() ?? merged;
+            state = AsyncData(allProducts);
+            _precache(allProducts);
+          } else {
+            state = AsyncData(merged);
+            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
+            _precache(merged);
+          }
         }
       },
     );

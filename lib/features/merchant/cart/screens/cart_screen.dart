@@ -87,33 +87,11 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   void _handleDelete(CartItem item) {
-    final deletedItem = item;
     ref.read(cartProvider.notifier).removeItem(item.cartKey);
     HapticFeedback.lightImpact();
-
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('تم حذف ${deletedItem.product.name}',
-            style: const TextStyle(fontFamily: 'Cairo')),
-        backgroundColor: Colors.grey[800],
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: 'تراجع',
-          textColor: Colors.white,
-          onPressed: () {
-            ref.read(cartProvider.notifier).addItem(
-                  deletedItem.product,
-                  deletedItem.quantity,
-                  unit: deletedItem.selectedUnit,
-                );
-          },
-        ),
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+    }
   }
 
   void _openQuickAdd() {

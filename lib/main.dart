@@ -20,33 +20,15 @@ import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-String _clean(String val) => val.replaceAll(RegExp(r'[^\x20-\x7E]'), '').trim();
-
 // إعدادات الويب
-FirebaseOptions get webFirebaseOptions {
-  final apiKey = _clean(const String.fromEnvironment('FIREBASE_API_KEY'));
-  final authDomain =
-      _clean(const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'));
-  final projectId = _clean(const String.fromEnvironment('FIREBASE_PROJECT_ID'));
-  final storageBucket =
-      _clean(const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'));
-  final messagingSenderId =
-      _clean(const String.fromEnvironment('FIREBASE_SENDER_ID'));
-  final appId = _clean(const String.fromEnvironment('FIREBASE_APP_ID'));
-  final measurementId =
-      _clean(const String.fromEnvironment('FIREBASE_MEASUREMENT_ID'));
-
-  return FirebaseOptions(
-    apiKey: apiKey,
-    authDomain: authDomain,
-    projectId: projectId,
-    storageBucket: storageBucket,
-    messagingSenderId: messagingSenderId,
-    appId: appId,
-    measurementId: measurementId.isEmpty ? null : measurementId,
-  );
-}
-
+const webFirebaseOptions = FirebaseOptions(
+  apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
+  appId: '1:846679653389:web:f155633d42da3784902944',
+  messagingSenderId: '846679653389',
+  projectId: 'app-sala-b42dd',
+  authDomain: 'app-sala-b42dd.firebaseapp.com',
+  storageBucket: 'app-sala-b42dd.firebasestorage.app',
+);
 // ✅ إعدادات الآيفون مأخوذة مباشرة من ملفك لحل مشكلة عدم الربط في Xcode
 const iosFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
@@ -78,6 +60,7 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
         message.notification != null) {
       return;
     }
+    await AppStorage.initialize();
     await NotificationService.instance
         .initLocalNotifications(isBackground: true);
     await NotificationService.instance.showNotification(message);

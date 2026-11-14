@@ -22,7 +22,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
   final _reasonCtrl = TextEditingController();
   bool _loading = true;
   bool _submitting = false;
-
+  String? _inlineError;
   @override
   void initState() {
     super.initState();
@@ -36,15 +36,20 @@ class _ReturnSheetState extends State<ReturnSheet> {
   }
 
   Future<void> _loadItems() async {
-    final items = await widget.service.getOrderItems(widget.order.id);
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      for (var i = 0; i < items.length; i++) {
-        _returnQty[i] = 0;
-      }
-      _loading = false;
-    });
+    try {
+      final items = await widget.service.getOrderItems(widget.order.id);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        for (var i = 0; i < items.length; i++) {
+          _returnQty[i] = 0;
+        }
+      });
+    } catch (e) {
+      if (mounted) _showSnack('تعذر تحميل أصناف الطلب: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _confirm() async {
@@ -109,13 +114,7 @@ class _ReturnSheetState extends State<ReturnSheet> {
   }
 
   void _showSnack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg, style: const TextStyle(fontFamily: 'Cairo')),
-      backgroundColor: color,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.all(16),
-    ));
+    if (mounted) setState(() => _inlineError = msg);
   }
 
   bool get _hasSelection => _returnQty.values.any((q) => q > 0);
@@ -381,6 +380,29 @@ class _ReturnSheetState extends State<ReturnSheet> {
                     ),
                   ),
                   const SizedBox(height: 20),
+
+                  if (_inlineError != null) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: Colors.red.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        _inlineError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            color: Colors.red,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
 
                   // الأزرار
                   Row(children: [

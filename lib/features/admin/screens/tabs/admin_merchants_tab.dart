@@ -28,27 +28,43 @@ class MerchantsPaginationNotifier
   bool _hasMore = true;
   static const int _pageSize = 30;
   String currentQuery = '';
+  _Filter currentFilter = _Filter.all;
 
   bool get hasMore => _hasMore;
-  Future<void> loadInitial({String query = ''}) async {
+  Query<Map<String, dynamic>> _buildBaseQuery(_Filter filter) {
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('profiles')
+        .where('role', isEqualTo: 'merchant');
+
+    if (filter == _Filter.banned) {
+      query = query.where('is_banned', isEqualTo: true);
+    } else if (filter == _Filter.active) {
+      query = query
+          .where('is_active', isEqualTo: true)
+          .where('is_banned', isEqualTo: false);
+    } else if (filter == _Filter.inactive) {
+      query = query
+          .where('is_active', isEqualTo: false)
+          .where('is_banned', isEqualTo: false);
+    }
+    return query.orderBy('created_at', descending: true);
+  }
+
+  Future<void> loadInitial(
+      {String query = '', _Filter filter = _Filter.all}) async {
     if (!mounted) return;
     currentQuery = query.trim();
+    currentFilter = filter;
     state = const AsyncValue.loading();
     try {
-      // 🚀 رفع سقف الاستعلام الأولي إلى 300 لمنع حجب الحسابات المحظورة والمعطلة عن الفلترة
-      Query<Map<String, dynamic>> dbQuery = FirebaseFirestore.instance
-          .collection('profiles')
-          .where('role', isEqualTo: 'merchant')
-          .orderBy('created_at', descending: true);
-
-      final QuerySnapshot<Map<String, dynamic>> snap = await dbQuery
-          .limit(300)
+      final fetchLimit = currentQuery.isNotEmpty ? 500 : _pageSize;
+      final snap = await _buildBaseQuery(filter)
+          .limit(fetchLimit)
           .get(const GetOptions(source: Source.serverAndCache));
       if (!mounted) return;
 
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
-      _hasMore = snap.docs.length == 300;
-
+      _hasMore = currentQuery.isEmpty && snap.docs.length == _pageSize;
       final list = snap.docs.map((doc) {
         final data = doc.data();
         return <String, dynamic>{'id': doc.id, ...data};
@@ -68,17 +84,11 @@ class MerchantsPaginationNotifier
     _ref.read(merchantsLoadingMoreProvider.notifier).state = true;
 
     try {
-      Query<Map<String, dynamic>> dbQuery = FirebaseFirestore.instance
-          .collection('profiles')
-          .where('role', isEqualTo: 'merchant')
-          .orderBy('created_at', descending: true);
-
-      final QuerySnapshot<Map<String, dynamic>> snap = await dbQuery
+      final snap = await _buildBaseQuery(currentFilter)
           .startAfterDocument(_lastDoc!)
           .limit(_pageSize)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 6));
-
       if (!mounted) return;
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
       _hasMore = snap.docs.length == _pageSize;
@@ -109,8 +119,8 @@ final _merchantsProvider = StateNotifierProvider.autoDispose<
     MerchantsPaginationNotifier, AsyncValue<List<Map<String, dynamic>>>>((ref) {
   return MerchantsPaginationNotifier(ref);
 });
-final _merchantStatsProvider =
-    FutureProvider.family<Map<String, dynamic>, String>((ref, merchantId) {
+final _merchantStatsProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, merchantId) {
   return ref.read(adminServiceProvider).getMerchantStats(merchantId);
 });
 
@@ -177,8 +187,9 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
-            onPressed: () =>
-                ref.read(_merchantsProvider.notifier).loadInitial(),
+            onPressed: () => ref
+                .read(_merchantsProvider.notifier)
+                .loadInitial(query: _search, filter: _filter),
             tooltip: 'تحديث',
           ),
         ],
@@ -193,8 +204,12 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
       child: TextField(
         onChanged: (v) {
           _searchDebounce?.cancel();
-          _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-            if (mounted) setState(() => _search = v);
+          _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+            if (!mounted) return;
+            setState(() => _search = v);
+            ref
+                .read(_merchantsProvider.notifier)
+                .loadInitial(query: _search, filter: _filter);
           });
         },
         decoration: InputDecoration(
@@ -227,8 +242,16 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     );
   }
 
-  // ── فلاتر الحالة ──
+// ── فلاتر الحالة مع إعادة الاستعلام من الخادم لضمان عدم حجب أي حساب ──
   Widget _buildFilterChips() {
+    void onFilterSelected(_Filter newFilter) {
+      if (_filter == newFilter) return;
+      setState(() => _filter = newFilter);
+      ref
+          .read(_merchantsProvider.notifier)
+          .loadInitial(query: _search, filter: newFilter);
+    }
+
     return SizedBox(
       height: 36,
       child: ListView(
@@ -239,25 +262,25 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
               label: 'الكل',
               filter: _Filter.all,
               current: _filter,
-              onTap: () => setState(() => _filter = _Filter.all)),
+              onTap: () => onFilterSelected(_Filter.all)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'مفعّل',
               filter: _Filter.active,
               current: _filter,
-              onTap: () => setState(() => _filter = _Filter.active)),
+              onTap: () => onFilterSelected(_Filter.active)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'معطّل',
               filter: _Filter.inactive,
               current: _filter,
-              onTap: () => setState(() => _filter = _Filter.inactive)),
+              onTap: () => onFilterSelected(_Filter.inactive)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'محظور',
               filter: _Filter.banned,
               current: _filter,
-              onTap: () => setState(() => _filter = _Filter.banned)),
+              onTap: () => onFilterSelected(_Filter.banned)),
         ],
       ),
     );
@@ -306,8 +329,9 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
         Expanded(
           child: RefreshIndicator(
             color: AppColors.primary,
-            onRefresh: () async =>
-                ref.read(_merchantsProvider.notifier).loadInitial(),
+            onRefresh: () async => ref
+                .read(_merchantsProvider.notifier)
+                .loadInitial(query: _search, filter: _filter),
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
               itemCount: filtered.length + (pagination.hasMore ? 1 : 0),
@@ -427,7 +451,9 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
       backgroundColor: Colors.transparent,
       builder: (_) => _MerchantDetailsSheet(
         merchant: merchant,
-        onRefresh: () => ref.invalidate(_merchantsProvider),
+        onRefresh: () => ref
+            .read(_merchantsProvider.notifier)
+            .loadInitial(query: _search, filter: _filter),
       ),
     );
   }
@@ -1472,6 +1498,10 @@ class _MerchantDetailsSheetState extends ConsumerState<_MerchantDetailsSheet> {
         _showSnackSafe(
             messenger, '✅ تم تغيير الدور إلى $roleAr', const Color(0xFF6A1B9A));
         widget.merchant['role'] = newRole;
+        if (newRole == 'driver') {
+          widget.merchant['is_active'] = true;
+          widget.merchant['is_banned'] = false;
+        }
         setState(() {});
       }
     } catch (_) {

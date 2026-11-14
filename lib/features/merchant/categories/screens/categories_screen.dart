@@ -5,7 +5,7 @@ import '../../../../core/constants/app_text_styles.dart';
 import '../services/categories_service.dart';
 import '../widgets/category_card.dart';
 import '../../widgets/categories_skeleton.dart';
-import '../../brands/screens/brands_screen.dart';
+import '../../products/screens/products_screen.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/catalog_service.dart'; // 🚀 ربط نظام الكاش
 
@@ -93,7 +93,7 @@ class CategoriesScreen extends ConsumerWidget {
                             onTap: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) => BrandsScreen(
+                                  builder: (_) => ProductsScreen(
                                     categoryId: cat.id,
                                     categoryName: cat.name,
                                   ),

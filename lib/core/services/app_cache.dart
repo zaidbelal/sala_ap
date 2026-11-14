@@ -18,12 +18,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class AppCache {
   AppCache._();
   static final AppCache instance = AppCache._();
-
-  // ── الطبقة الأولى: ذاكرة RAM المحمية من التضخم ──
+// ── الطبقة الأولى: ذاكرة RAM المحمية من التضخم ──
   final Map<String, _CacheEntry> _ram = {};
+  bool _isFullProductsSeeded = false;
   static const int _maxRamEntries =
       120; // سقف أمان يمنع تجاوز الذاكرة العشوائية
-
   SharedPreferences? _prefs;
 
   void _pruneRamIfNeeded() {
@@ -91,6 +90,7 @@ class AppCache {
       return key == baseKey || key.startsWith('${baseKey}_');
     }).toList();
 
+    if (baseKey == _keyProducts) _isFullProductsSeeded = false;
     _ram.removeWhere((key, _) {
       return key == baseKey || key.startsWith('${baseKey}_');
     });
@@ -183,9 +183,26 @@ class AppCache {
     try {
       await previousLock;
     } catch (_) {}
-
     try {
-      final currentList = getProducts() ?? [];
+      List<Map<String, dynamic>> currentList = getProducts() ?? [];
+
+      // 🛡️ حماية حتمية: إذا كانت الذاكرة العشوائية فارغة، نقرأ من القرص قبل التحديث لمنع مسح الكتالوج
+      if (currentList.isEmpty && !kIsWeb) {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final file = File('${dir.path}/$_keyProducts.json');
+          if (await file.exists()) {
+            final raw = await file.readAsString();
+            final decoded = raw.length > 10000
+                ? await BackgroundWorker.decodeJsonList(raw)
+                : _decodeJson(raw);
+            if (decoded != null && decoded.isNotEmpty) {
+              currentList = decoded;
+            }
+          }
+        } catch (_) {}
+      }
+
       final Map<String, Map<String, dynamic>> productMap = {
         for (final p in currentList) p['id'].toString(): p,
       };
@@ -206,12 +223,22 @@ class AppCache {
       final merged = productMap.values.toList()
         ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
             .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
-
+      // الحفاظ على طابع الوقت السابق إذا لم يكتمل تحميل الكتالوج الشامل بعد
+      final existingSavedAt = _ram[_keyProducts]?.savedAt;
+      final preservedSavedAt =
+          (_isFullProductsSeeded && existingSavedAt != null)
+              ? existingSavedAt
+              : DateTime(2000);
       _ram[_keyProducts] = _CacheEntry(
         data: merged,
-        savedAt: DateTime.now(),
+        savedAt: preservedSavedAt,
       );
+      _pruneRamIfNeeded(); // 👈 تفعيل سقف الذاكرة ومنع التضخم
       await _saveToDisk(_keyProducts, merged);
+      if (!_isFullProductsSeeded) {
+        await _prefs?.setString(
+            '${_keyProducts}_ts', DateTime(2000).toIso8601String());
+      }
     } finally {
       completer.complete();
     }
@@ -232,14 +259,16 @@ class AppCache {
     try {
       final key =
           categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
+      if (categoryId == null) _isFullProductsSeeded = true;
 
       _ram[key] = _CacheEntry(
         data: data,
         savedAt: DateTime.now(),
       );
+      _pruneRamIfNeeded(); // 👈 تفعيل سقف الذاكرة ومنع التضخم
 
       await _saveToDisk(key, data);
-
+// دمج القسم داخل الكاش الشامل فقط إذا كان الكاش العام محملاً مسبقاً لمنع مسح بقية الكتالوج
       if (categoryId != null) {
         List<Map<String, dynamic>> all = [];
         final existingRam = _ram[_keyProducts];
@@ -263,26 +292,28 @@ class AppCache {
           } catch (_) {}
         }
 
-        // دمج القسم داخل الكاش الشامل حتى لو كان الكاش العام فارغاً مبدئياً
-        final Map<String, Map<String, dynamic>> mergedMap = {
-          for (final item in all) item['id'].toString(): item,
-        };
-        // حذف العناصر القديمة للقسم وإدخال الجديدة
-        mergedMap.removeWhere(
-            (_, item) => item['category_id']?.toString() == categoryId);
-        for (final item in data) {
-          final id = item['id']?.toString();
-          if (id != null && id.isNotEmpty) {
-            mergedMap[id] = item;
+        // 🔒 حماية الكاش: إذا كان الكتالوج العام فارغاً، لا نحفظ بيانات قسم فرعي ككتالوج شامل
+        if (all.isNotEmpty) {
+          final Map<String, Map<String, dynamic>> mergedMap = {
+            for (final item in all) item['id'].toString(): item,
+          };
+          mergedMap.removeWhere(
+              (_, item) => item['category_id']?.toString() == categoryId);
+          for (final item in data) {
+            final id = item['id']?.toString();
+            if (id != null && id.isNotEmpty) {
+              mergedMap[id] = item;
+            }
           }
-        }
 
-        final mergedList = mergedMap.values.toList();
-        _ram[_keyProducts] = _CacheEntry(
-          data: mergedList,
-          savedAt: DateTime.now(),
-        );
-        await _saveToDisk(_keyProducts, mergedList);
+          final mergedList = mergedMap.values.toList();
+          final currentTimestamp = existingRam?.savedAt ?? DateTime.now();
+          _ram[_keyProducts] = _CacheEntry(
+            data: mergedList,
+            savedAt: currentTimestamp,
+          );
+          await _saveToDisk(_keyProducts, mergedList);
+        }
       }
     } finally {
       completer.complete();
@@ -336,6 +367,7 @@ class AppCache {
     } catch (_) {}
 
     try {
+      _isFullProductsSeeded = false;
       final expiredDate = DateTime(2000);
       final productCacheKeys = <String>{
         _keyProducts,
@@ -448,6 +480,10 @@ class AppCache {
         return;
       }
 
+      if (key == _keyProducts &&
+          DateTime.now().difference(savedAt) < _productTtl) {
+        _isFullProductsSeeded = true;
+      }
       _ram[key] = _CacheEntry(
         data: decoded,
         savedAt: savedAt,

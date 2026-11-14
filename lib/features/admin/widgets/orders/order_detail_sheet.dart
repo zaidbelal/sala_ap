@@ -29,26 +29,52 @@ class _OrderDetailSheetState extends ConsumerState<OrderDetailSheet> {
   List<Map<String, dynamic>> _returns = [];
   bool _itemsLoading = true;
   bool _returnsLoading = true;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _returnsSub;
 
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _returnsSub = FirebaseFirestore.instance
+        .collection('order_returns')
+        .where('order_id', isEqualTo: widget.order.id)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      setState(() {
+        _returns = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        _returnsLoading = false;
+      });
+    }, onError: (_) {});
+  }
+
+  @override
+  void dispose() {
+    _returnsSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAll() async {
     final service = ref.read(adminServiceProvider);
-    final results = await Future.wait([
-      service.getOrderItems(widget.order.id),
-      service.getOrderReturns(widget.order.id),
-    ]);
-    if (mounted) {
-      setState(() {
-        _items = results[0];
-        _itemsLoading = false;
-        _returns = results[1];
-        _returnsLoading = false;
-      });
+    try {
+      final results = await Future.wait([
+        service.getOrderItems(widget.order.id),
+        service.getOrderReturns(widget.order.id),
+      ]);
+      if (mounted) {
+        setState(() {
+          _items = results[0];
+          _returns = results[1];
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _itemsLoading = false;
+          _returnsLoading = false;
+        });
+      }
     }
   }
 
@@ -718,7 +744,7 @@ class _LocationRow extends StatelessWidget {
 }
 
 // ── أزرار الإجراءات والطباعة والتوقيع ──
-class _ActionButtons extends ConsumerWidget {
+class _ActionButtons extends ConsumerStatefulWidget {
   final AdminOrder order;
   final List<Map<String, dynamic>> items;
   final List<Map<String, dynamic>> returns;
@@ -732,10 +758,23 @@ class _ActionButtons extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ActionButtons> createState() => _ActionButtonsState();
+}
+
+class _ActionButtonsState extends ConsumerState<_ActionButtons> {
+  bool _busy = false;
+  AdminOrder get order => widget.order;
+  List<Map<String, dynamic>> get items => widget.items;
+  List<Map<String, dynamic>> get returns => widget.returns;
+  VoidCallback get onDone => widget.onDone;
+
+  @override
+  Widget build(BuildContext context) {
     final service = ref.read(adminServiceProvider);
 
     Future<void> changeStatus(String newStatus) async {
+      if (_busy) return;
+      setState(() => _busy = true);
       try {
         await service.updateOrderStatus(order.id, newStatus);
         if (context.mounted) {
@@ -760,6 +799,8 @@ class _ActionButtons extends ConsumerWidget {
             margin: const EdgeInsets.all(16),
           ));
         }
+      } finally {
+        if (mounted) setState(() => _busy = false);
       }
     }
 
@@ -770,7 +811,6 @@ class _ActionButtons extends ConsumerWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            // ── زر طباعة الفاتورة الحرارية (ESC/POS Bluetooth) ──
             _ActionBtn(
               label: 'طباعة إيصال حراري 🖨️',
               icon: Icons.print_rounded,
@@ -784,12 +824,12 @@ class _ActionButtons extends ConsumerWidget {
                 );
               },
             ),
-// ── زر التوقيع الرقمي للمستلم ──
             _ActionBtn(
               label: 'أخذ توقيع المستلم ✍️',
               icon: Icons.draw_rounded,
               color: const Color(0xFF6366F1),
               onTap: () async {
+                if (_busy) return;
                 final signatureUrl = await DigitalSignatureDialog.show(
                   context,
                   orderId: order.id,
@@ -824,8 +864,6 @@ class _ActionButtons extends ConsumerWidget {
                 }
               },
             ),
-
-            // ── أزرار تغيير الحالة ──
             if (order.status == 'pending') ...[
               _ActionBtn(
                   label: 'قبول الطلب',
@@ -859,6 +897,8 @@ class _ActionButtons extends ConsumerWidget {
                 icon: Icons.local_shipping_rounded,
                 color: Colors.indigo,
                 onTap: () async {
+                  if (_busy) return;
+                  setState(() => _busy = true);
                   final adminUid = AppStorage.userId ?? '';
                   final adminName = AppStorage.userName ?? 'الإدارة';
                   try {
@@ -895,6 +935,8 @@ class _ActionButtons extends ConsumerWidget {
                         ),
                       );
                     }
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
                   }
                 },
               ),
@@ -911,13 +953,19 @@ class _ActionButtons extends ConsumerWidget {
                 icon: Icons.assignment_turned_in_rounded,
                 color: const Color(0xFFEA580C),
                 onTap: () async {
+                  if (_busy) return;
+                  setState(() => _busy = true);
                   try {
-                    final pendingReturns =
-                        returns.where((r) => r['status'] == 'pending').toList();
+                    var currentReturns = returns;
+                    if (currentReturns.isEmpty) {
+                      currentReturns = await service.getOrderReturns(order.id);
+                    }
+                    final pendingReturns = currentReturns
+                        .where((r) => r['status'] == 'pending')
+                        .toList();
                     if (pendingReturns.isEmpty) {
                       await service.updateOrderStatus(order.id, 'returned');
                     } else {
-                      // 🚀 دمج كافة بنود الإرجاع في دفعة ذرية واحدة لا تقبل التجزئة
                       final returnItemsPayload = pendingReturns
                           .map((r) => {
                                 'item_id': r['order_item_id']?.toString() ?? '',
@@ -956,6 +1004,8 @@ class _ActionButtons extends ConsumerWidget {
                         margin: EdgeInsets.all(16),
                       ));
                     }
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
                   }
                 },
               ),
@@ -964,17 +1014,23 @@ class _ActionButtons extends ConsumerWidget {
                 icon: Icons.cancel_rounded,
                 color: Colors.red,
                 onTap: () async {
+                  if (_busy) return;
+                  setState(() => _busy = true);
                   try {
                     final pendingReturns =
                         returns.where((r) => r['status'] == 'pending').toList();
                     if (pendingReturns.isEmpty) {
                       await service.updateOrderStatus(order.id, 'delivered');
                     } else {
-                      for (final ret in pendingReturns) {
-                        await service.updateReturnStatus(
-                            ret['id']?.toString() ?? '', 'rejected',
-                            rejectionReason: 'تم الرفض من الإدارة');
-                      }
+                      await Future.wait(
+                        pendingReturns.map(
+                          (ret) => service.updateReturnStatus(
+                            ret['id']?.toString() ?? '',
+                            'rejected',
+                            rejectionReason: 'تم الرفض من الإدارة',
+                          ),
+                        ),
+                      );
                     }
                     if (context.mounted) {
                       onDone();
@@ -999,6 +1055,8 @@ class _ActionButtons extends ConsumerWidget {
                         margin: EdgeInsets.all(16),
                       ));
                     }
+                  } finally {
+                    if (mounted) setState(() => _busy = false);
                   }
                 },
               ),

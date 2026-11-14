@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+enum ProductSizeTier { all, small, medium, large }
+
 class ProductModel {
   final String id;
   final String name;
@@ -19,8 +21,10 @@ class ProductModel {
   final String? expiryDate;
   final double costPrice;
   final double stock;
+  final int salesCount; // 👈 عداد المبيعات الفعلي الموثق سحابياً
   final String? barcode;
   final List<ProductUnit> units;
+  final List<ProductVariant> variants;
 
   const ProductModel({
     required this.id,
@@ -36,9 +40,45 @@ class ProductModel {
     this.expiryDate,
     this.costPrice = 0,
     this.stock = 0.0,
+    this.salesCount = 0,
     this.barcode,
     this.units = const [],
+    this.variants = const [],
   });
+
+  bool get hasVariants => variants.isNotEmpty;
+
+  double get effectiveMinPrice {
+    if (variants.isEmpty) return price;
+    return variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
+  }
+
+  double get totalStock {
+    if (variants.isEmpty) return stock;
+    return variants.fold(0.0, (sum, v) => sum + (v.stock > 0 ? v.stock : 0.0));
+  }
+
+  // 🚀 خوارزمية تصنيف الحجم الذكية (كبير / وسط / صغير)
+  ProductSizeTier get sizeTier {
+    final txt = (sizeText ?? '').toLowerCase().trim();
+    final ml = sizeMl ?? 0.0;
+
+    if (txt.contains('عائلي') ||
+        txt.contains('كبير') ||
+        txt.contains('لتر') ||
+        txt.contains('كجم') ||
+        txt.contains('كيلو') ||
+        ml >= 900) {
+      return ProductSizeTier.large;
+    }
+    if (txt.contains('صغير') || (ml > 0 && ml < 250)) {
+      return ProductSizeTier.small;
+    }
+    if (txt.contains('وسط') || (ml >= 250 && ml < 900)) {
+      return ProductSizeTier.medium;
+    }
+    return ProductSizeTier.all;
+  }
 
   factory ProductModel.fromMap(Map<String, dynamic> m) {
     final rawUnits = m['units'];
@@ -124,6 +164,73 @@ class ProductModel {
         barcode: existingCarton.barcode ?? barcode,
       );
     }
+    final rawVariants = m['variants'];
+    final sanitizedVariants = rawVariants is List
+        ? rawVariants.whereType<Map>().map((rawV) {
+            final v = ProductVariant.fromMap(Map<String, dynamic>.from(rawV));
+            final vUnits = v.units
+                .map((u) => ProductUnit(
+                      label: u.label,
+                      qty: u.qty,
+                      price: u.price,
+                      costPrice: null,
+                      imageUrl: u.imageUrl,
+                      sizeMl: u.sizeMl,
+                      productionDate: u.productionDate,
+                      expiryDate: u.expiryDate,
+                      barcode: u.barcode,
+                    ))
+                .toList();
+            final cIdx = vUnits.indexWhere((u) => u.label.trim() == 'كرتون');
+            if (cIdx == -1) {
+              vUnits.insert(
+                0,
+                ProductUnit(
+                  label: 'كرتون',
+                  qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : 1,
+                  price: v.price,
+                  costPrice: null,
+                  imageUrl: v.imageUrl ?? imageUrl,
+                  sizeMl: v.sizeMl,
+                  productionDate: v.productionDate,
+                  expiryDate: v.expiryDate,
+                  barcode: v.barcode,
+                ),
+              );
+            } else {
+              final existingC = vUnits[cIdx];
+              vUnits[cIdx] = ProductUnit(
+                label: 'كرتون',
+                qty: existingC.qty > 0
+                    ? existingC.qty
+                    : (v.itemsPerCarton > 0 ? v.itemsPerCarton : 1),
+                price: existingC.price > 0 ? existingC.price : v.price,
+                costPrice: null,
+                imageUrl: existingC.imageUrl ?? v.imageUrl ?? imageUrl,
+                sizeMl: existingC.sizeMl ?? v.sizeMl,
+                productionDate: existingC.productionDate ?? v.productionDate,
+                expiryDate: existingC.expiryDate ?? v.expiryDate,
+                barcode: existingC.barcode ?? v.barcode,
+              );
+            }
+            return ProductVariant(
+              id: v.id,
+              label: v.label,
+              price: v.price,
+              costPrice: null,
+              stock: v.stock,
+              itemsPerCarton: v.itemsPerCarton,
+              sizeText: v.sizeText,
+              sizeMl: v.sizeMl,
+              imageUrl: v.imageUrl ?? imageUrl,
+              barcode: v.barcode,
+              productionDate: v.productionDate,
+              expiryDate: v.expiryDate,
+              units: vUnits,
+            );
+          }).toList()
+        : <ProductVariant>[];
+
     return ProductModel(
       id: m['id']?.toString() ?? '',
       name: (m['name'] as String?)?.trim() ?? '',
@@ -136,10 +243,12 @@ class ProductModel {
       itemsPerCarton: (m['items_per_carton'] as num?)?.toInt(),
       productionDate: prodDate,
       expiryDate: expDate,
-      costPrice: 0.0, // حجب سعر التكلفة تماماً في واجهة التاجر
+      costPrice: 0.0,
       stock: (m['stock'] as num?)?.toDouble() ?? 0.0,
+      salesCount: (m['sales_count'] as num?)?.toInt() ?? 0,
       barcode: barcode,
       units: sanitizedUnits,
+      variants: sanitizedVariants,
     );
   }
 
@@ -162,6 +271,7 @@ class ProductModel {
       'stock': stock,
       if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       'units': units.map((unit) => unit.toMap()).toList(),
+      'variants': variants.map((v) => v.toJson()).toList(),
     };
   }
 }

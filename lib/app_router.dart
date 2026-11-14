@@ -112,8 +112,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
         return AppRoutes.login;
       }
+// 2. الحساب محظور نهائياً — يُفحص أولاً قبل أي فحص نشاط أو توجيه تلقائي
+      if (AppStorage.isBanned) {
+        NotificationService.pendingRoute = null;
+        if (path != AppRoutes.login) {
+          return AppRoutes.login;
+        }
+        return null;
+      }
 
-// 2. إذا كان المستخدم مسجلاً محلياً بالفعل وحاول فتح صفحة تسجيل الدخول، وجّهه لشاشته فوراً
+      // 3. إذا كان المستخدم مسجلاً محلياً بالفعل وحاول فتح صفحة تسجيل الدخول، وجّهه لشاشته فوراً
       if (AppStorage.isLoggedIn &&
           (path == AppRoutes.login || path == AppRoutes.signup)) {
         if (!AppStorage.isActive) return AppRoutes.pending;
@@ -122,14 +130,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return AppRoutes.merchantHome;
       }
 
-      // 3. السماح بالمسارات العامة للزوار فقط
+      // 4. السماح بالمسارات العامة للزوار فقط
       if (publicRoutes.contains(path)) {
         return null;
-      }
-      // 4. الحساب محظور نهائياً
-      if (AppStorage.isBanned) {
-        NotificationService.pendingRoute = null;
-        return AppRoutes.login;
       }
 
       // 5. الحساب مسجل ولكنه بانتظار المراجعة والاعتماد
@@ -157,17 +160,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         if (AppStorage.isDriver) return AppRoutes.driverHome;
         return AppRoutes.merchantHome;
       }
-      // حماية حسب الدور
-      if (_protectedAdminRoutes.contains(path) && !AppStorage.hasAdminAccess) {
-        return AppRoutes.login;
-      }
-      if (_protectedMerchantRoutes.contains(path) && !AppStorage.isMerchant) {
-        return AppRoutes.login;
-      }
-      if (_protectedDriverRoutes.contains(path) && !AppStorage.isDriver) {
-        return AppRoutes.login;
+      String homeForRole() {
+        if (AppStorage.hasAdminAccess) return AppRoutes.adminHome;
+        if (AppStorage.isDriver) return AppRoutes.driverHome;
+        return AppRoutes.merchantHome;
       }
 
+      // حماية حسب الدور
+      if (_protectedAdminRoutes.contains(path) && !AppStorage.hasAdminAccess) {
+        return homeForRole();
+      }
+      if (_protectedMerchantRoutes.contains(path) && !AppStorage.isMerchant) {
+        return homeForRole();
+      }
+      if (_protectedDriverRoutes.contains(path) && !AppStorage.isDriver) {
+        return homeForRole();
+      }
       return null;
     },
     // ══ المسارات ══
@@ -363,11 +371,17 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
         }
         // إذا وافقت الإدارة وتم التفعيل: توجيهه فوراً وتشغيل قنواته اللحظية
         if (isActive) {
+          // 🚀 تجديد التوكن المشفر قسرياً لالتقاط الصلاحيات الجديدة فوراً
+          try {
+            await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
+          } catch (_) {}
+
           await AppStorage.setIsActive(true);
           await AppStorage.saveUserData(
             userId: uid,
             role: role,
             name: data['full_name'] as String?,
+            storeName: data['store_name'] as String?, // 👈 حفظ اسم المتجر
             phone: data['phone_number'] as String?,
           );
           await RealtimeHub().startForUser(uid, role: role);

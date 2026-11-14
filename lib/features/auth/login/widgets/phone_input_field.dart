@@ -45,7 +45,19 @@ class _PhoneInputFieldState extends State<PhoneInputField>
       curve: Curves.easeInOut,
     ));
 
-    final text = widget.controller.text;
+    var text = widget.controller.text.trim();
+    if (text.startsWith('+967')) {
+      text = text.substring(4);
+    } else if (text.startsWith('00967')) {
+      text = text.substring(5);
+    } else if (text.startsWith('967')) {
+      text = text.substring(3);
+    } else if (text.startsWith('0') && text.length > 1) {
+      text = text.substring(1);
+    }
+    if (text != widget.controller.text) {
+      widget.controller.text = text;
+    }
     _digitCount = text.length;
     _isComplete = _digitCount == 9 && (text.isEmpty || text[0] == '7');
     if (_isComplete) {
@@ -66,12 +78,23 @@ class _PhoneInputFieldState extends State<PhoneInputField>
   void _onTextChanged() {
     var text = widget.controller.text;
 
-    // 🚀 تنظيف تلقائي للرقم في حال قام المستخدم بلصق رقم يبدأ بصفر محلي (مثل 077...)
-    if (text.startsWith('0') && text.length > 1) {
-      text = text.substring(1);
+    // 🚀 تنظيف ذكي للصيغ الدولية (00967 أو 967) والصفر المحلي عند اللصق
+    String cleaned = text;
+    // 🚀 تنظيف علامة الزائد المنسوخة تلقائياً قبل فحص البادئة المحلية
+    if (cleaned.startsWith('+967')) {
+      cleaned = cleaned.substring(4);
+    } else if (cleaned.startsWith('00967')) {
+      cleaned = cleaned.substring(5);
+    } else if (cleaned.startsWith('967')) {
+      cleaned = cleaned.substring(3);
+    } else if (cleaned.startsWith('0') && cleaned.length > 1) {
+      cleaned = cleaned.substring(1);
+    }
+
+    if (cleaned != text) {
       widget.controller.value = TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: text.length),
+        text: cleaned,
+        selection: TextSelection.collapsed(offset: cleaned.length),
       );
       return;
     }
@@ -207,19 +230,21 @@ class _PhoneInputFieldState extends State<PhoneInputField>
                           });
                           text = text.replaceAll(RegExp(r'[^0-9]'), '');
 
-                          var newOffset = newValue.selection.baseOffset;
-                          if (text.startsWith('0')) {
+                          if (text.startsWith('00967')) {
+                            text = text.substring(5);
+                          } else if (text.startsWith('967')) {
+                            text = text.substring(3);
+                          } else if (text.startsWith('0')) {
                             text = text.substring(1);
-                            newOffset = (newOffset - 1).clamp(0, text.length);
                           }
+
                           if (text.length > 9) {
                             text = text.substring(0, 9);
-                            newOffset = newOffset.clamp(0, 9);
                           }
                           return TextEditingValue(
                             text: text,
                             selection: TextSelection.collapsed(
-                              offset: newOffset.clamp(0, text.length),
+                              offset: text.length,
                             ),
                           );
                         }),

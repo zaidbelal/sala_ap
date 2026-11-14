@@ -79,8 +79,15 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
       if (loaded != null && loaded.isNotEmpty) {
         final merged = Map<String, CartItem>.from(loaded);
-        state.forEach((key, value) {
-          merged[key] = value;
+        state.forEach((key, freshItem) {
+          if (merged.containsKey(key)) {
+            final diskItem = merged[key]!;
+            final combinedQty =
+                (diskItem.quantity + freshItem.quantity).clamp(1, _maxQuantity);
+            merged[key] = diskItem.copyWith(quantity: combinedQty);
+          } else {
+            merged[key] = freshItem;
+          }
         });
         state = merged;
       }
@@ -149,6 +156,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       product: oldItem.product,
       quantity: oldItem.quantity.clamp(1, _maxQuantity),
       selectedUnit: newUnit,
+      selectedVariant: oldItem.selectedVariant,
     );
     final newKey = newItem.cartKey;
 
@@ -169,12 +177,18 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     _save();
   }
 
-  void addItem(ProductModel product, int quantity, {ProductUnit? unit}) {
+  void addItem(
+    ProductModel product,
+    int quantity, {
+    ProductUnit? unit,
+    ProductVariant? variant,
+  }) {
     if (quantity <= 0) return;
     final item = CartItem(
       product: product,
       quantity: quantity,
       selectedUnit: unit,
+      selectedVariant: variant,
     );
     final key = item.cartKey;
     final existing = state[key];
@@ -246,8 +260,10 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
   }
 
   void clear() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
     state = {};
-    _save();
+    _flushSaveToDisk();
   }
 
   int quantityOf(String cartKey) => state[cartKey]?.quantity ?? 0;
@@ -284,17 +300,33 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       final liveProduct = ProductModel.fromMap(liveProductMap);
       final currentLabel = item.selectedUnit?.label.trim() ?? 'كرتون';
 
-      ProductUnit? matchingUnit = liveProduct.units
-          .where((u) => u.label.trim() == currentLabel)
-          .firstOrNull;
+      ProductVariant? matchingVariant;
+      if (item.selectedVariant != null) {
+        matchingVariant = liveProduct.variants
+            .where((v) =>
+                v.id == item.selectedVariant!.id ||
+                v.label.trim() == item.selectedVariant!.label.trim())
+            .firstOrNull;
+        if (matchingVariant == null) {
+          hasChanges = true;
+          continue;
+        }
+      }
+
+      final unitSource =
+          matchingVariant != null ? matchingVariant.units : liveProduct.units;
+      ProductUnit? matchingUnit =
+          unitSource.where((u) => u.label.trim() == currentLabel).firstOrNull;
 
       if (matchingUnit == null && currentLabel == 'كرتون') {
         matchingUnit = ProductUnit(
           label: 'كرتون',
-          qty: liveProduct.itemsPerCarton ?? 1,
-          price: liveProduct.price,
-          imageUrl: liveProduct.imageUrl,
-          sizeMl: liveProduct.sizeMl,
+          qty: matchingVariant?.itemsPerCarton ??
+              liveProduct.itemsPerCarton ??
+              1,
+          price: matchingVariant?.price ?? liveProduct.price,
+          imageUrl: matchingVariant?.imageUrl ?? liveProduct.imageUrl,
+          sizeMl: matchingVariant?.sizeMl ?? liveProduct.sizeMl,
         );
       }
 
@@ -303,17 +335,33 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
         continue;
       }
 
-      if (matchingUnit.price != item.unitPrice ||
+      final availableStock = matchingVariant?.stock ?? liveProduct.stock;
+      final cartonCapacity =
+          matchingVariant?.itemsPerCarton ?? liveProduct.itemsPerCarton ?? 1;
+      final unitQty = matchingUnit.qty > 0 ? matchingUnit.qty : 1;
+      final maxUnitsAllowed =
+          ((availableStock * (cartonCapacity > 0 ? cartonCapacity : 1)) /
+                  unitQty)
+              .floor();
+
+      if (maxUnitsAllowed <= 0) {
+        hasChanges = true;
+        continue;
+      }
+
+      final safeQty = item.quantity.clamp(1, maxUnitsAllowed);
+      if (safeQty != item.quantity ||
+          matchingUnit.price != item.unitPrice ||
           liveProduct.price != item.product.price) {
         hasChanges = true;
       }
 
       final updatedItem = CartItem(
         product: liveProduct,
-        quantity: item.quantity,
+        quantity: safeQty,
         selectedUnit: matchingUnit,
+        selectedVariant: matchingVariant,
       );
-
       final targetKey = updatedItem.cartKey;
       if (resolvedMap.containsKey(targetKey)) {
         final existing = resolvedMap[targetKey]!;

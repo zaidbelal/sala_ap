@@ -10,9 +10,11 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 
 class ReturnInvoiceModel {
   final String id;
+  final String? returnNumber;
   final String orderId;
   final String productName;
   final int quantity;
+  final String unitLabel;
   final double refundAmount;
   final String reason;
   final String? rejectionReason;
@@ -23,9 +25,11 @@ class ReturnInvoiceModel {
 
   const ReturnInvoiceModel({
     required this.id,
+    this.returnNumber,
     required this.orderId,
     required this.productName,
     required this.quantity,
+    this.unitLabel = 'كرتون',
     required this.refundAmount,
     required this.reason,
     this.rejectionReason,
@@ -49,9 +53,14 @@ class ReturnInvoiceModel {
 
     return ReturnInvoiceModel(
       id: map['id']?.toString() ?? '',
+      returnNumber:
+          map['return_number']?.toString() ?? map['invoice_number']?.toString(),
       orderId: map['order_id']?.toString() ?? '',
       productName: map['product_name']?.toString() ?? 'منتج',
       quantity: (map['quantity'] as num?)?.toInt() ?? 1,
+      unitLabel: (map['unit_label']?.toString().trim().isNotEmpty == true)
+          ? map['unit_label'].toString().trim()
+          : 'كرتون',
       refundAmount: (map['refund_amount'] as num?)?.toDouble() ?? 0.0,
       reason: map['reason']?.toString() ?? '',
       rejectionReason: map['rejection_reason']?.toString() ??
@@ -99,7 +108,9 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
       final shortId = widget.returnItem.id.length >= 6
           ? widget.returnItem.id.substring(0, 6).toUpperCase()
           : widget.returnItem.id.toUpperCase();
-      final fileName = 'فاتورة_مرتجع_$shortId.png';
+      final cleanRetId = shortId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final fileName =
+          'return_invoice_$cleanRetId.png'; // 👈 اسم قياسي ASCII يمنع تعطل تطبيقات المشاركة
       final xFile =
           XFile.fromData(bytes, mimeType: 'image/png', name: fileName);
       final box = context.findRenderObject() as RenderBox?;
@@ -176,13 +187,10 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
     final time =
         '${item.createdAt.hour.toString().padLeft(2, '0')}:${item.createdAt.minute.toString().padLeft(2, '0')}';
     // ✅ إظهار رقم الفاتورة المتسلسل الرقمي (1، 2، 3...) إن وُجد بدلاً من كود الـ UUID
-    final displayReturnNum = (item.id.isNotEmpty &&
-            !item.id.contains('-') &&
-            int.tryParse(item.id) != null)
-        ? item.id
-        : (item.id.length >= 6
-            ? item.id.substring(0, 6).toUpperCase()
-            : item.id.toUpperCase());
+    final displayReturnNum = (item.returnNumber != null &&
+            item.returnNumber!.isNotEmpty)
+        ? item.returnNumber!
+        : 'RET-${item.id.length >= 6 ? item.id.substring(0, 6).toUpperCase() : item.id.toUpperCase()}';
 
     final shortOrderId = item.orderId.length >= 6
         ? item.orderId.substring(0, 6).toUpperCase()
@@ -363,7 +371,7 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
                                       borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Text(
-                                      'RET-$displayReturnNum',
+                                      displayReturnNum,
                                       style: const TextStyle(
                                           fontFamily: 'Cairo',
                                           fontSize: 12,

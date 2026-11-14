@@ -70,12 +70,26 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     setState(() => _isSaving = true);
 
     try {
-// 1. توليد صورة التوقيع فائق السرعة بدقة خفيفة ومثالية
+// 1. توليد صورة التوقيع مع تطبيع الأبعاد لمنع اقتطاع أطراف التوقيع
+      double maxX = 360.0;
+      double maxY = 180.0;
+      for (final stroke in _strokes) {
+        for (final p in stroke) {
+          if (p.dx > maxX) maxX = p.dx;
+          if (p.dy > maxY) maxY = p.dy;
+        }
+      }
+      final double scale =
+          (360.0 / maxX < 180.0 / maxY) ? (360.0 / maxX) : (180.0 / maxY);
+
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 360, 180));
       canvas.drawColor(Colors.white, BlendMode.src);
+      if (scale < 1.0) {
+        canvas.scale(scale, scale);
+      }
       final painter = _SignaturePainter(strokes: _strokes);
-      painter.paint(canvas, const Size(360, 180));
+      painter.paint(canvas, Size(maxX, maxY));
       final picture = recorder.endRecording();
       final img = await picture.toImage(360, 180);
       picture.dispose();

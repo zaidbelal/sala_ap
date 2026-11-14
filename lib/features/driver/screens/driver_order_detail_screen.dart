@@ -72,7 +72,8 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final status = d['status'] as String? ?? '';
     final orderNum = d['order_number'] ?? d['invoice_number'] ?? '';
     final paymentMethod = d['payment_method'] as String? ?? 'cash';
-    final isConfirmed = status == 'confirmed' || status == 'pending';
+    final isConfirmed =
+        status == 'confirmed' || status == 'preparing' || status == 'pending';
 
     return Scaffold(
       backgroundColor: context.bgPage,

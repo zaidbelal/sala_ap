@@ -773,109 +773,44 @@ class _PermanentProfitCard extends ConsumerWidget {
   }
 
   void _confirmReset(BuildContext context, WidgetRef ref) {
-    final codeCtrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.red),
-              SizedBox(width: 8),
-              Text(
-                'تأكيد تصفير أرباح الدورة',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'سيتم تصفير عداد أرباح الدورة الحالية مع تسجيل قيد محاسبي تدقيقي غير قابل للتعديل.\n\nلتأكيد هذا الإجراء، اكتب كلمة "تأكيد" أدناه:',
-                style:
-                    TextStyle(fontFamily: 'Cairo', fontSize: 13, height: 1.6),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: codeCtrl,
-                textAlign: TextAlign.center,
-                onChanged: (_) => setDialogState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'تأكيد',
-                  filled: true,
-                  fillColor: ctx.bgInput,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
+      builder: (_) => _ResetProfitCycleDialog(
+        onConfirmed: () async {
+          try {
+            await ref.read(adminServiceProvider).resetPermanentProfit();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                      'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
+                      style: TextStyle(fontFamily: 'Cairo')),
+                  backgroundColor: AppColors.primary,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
-                style: const TextStyle(
-                    fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء',
-                  style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
-            ),
-            ElevatedButton(
-              onPressed: codeCtrl.text.trim() != 'تأكيد'
-                  ? null
-                  : () async {
-                      Navigator.pop(ctx);
-                      try {
-                        await ref
-                            .read(adminServiceProvider)
-                            .resetPermanentProfit();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text(
-                                  'تم تفريغ صافي الربح وتسجيل القيد بنجاح ✅',
-                                  style: TextStyle(fontFamily: 'Cairo')),
-                              backgroundColor: AppColors.primary,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                e.toString().contains('permission-denied')
-                                    ? 'عذراً، هذه العملية مخصصة للمدراء الماليين فقط 🔒'
-                                    : 'تعذر تفريغ الأرباح: $e',
-                                style: const TextStyle(fontFamily: 'Cairo'),
-                              ),
-                              backgroundColor: Colors.red,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                          );
-                        }
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              child: const Text('تأكيد التفريغ',
-                  style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
-            ),
-          ],
-        ),
+              );
+            }
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    e.toString().contains('permission-denied')
+                        ? 'عذراً، هذه العملية مخصصة للمدراء الماليين فقط 🔒'
+                        : 'تعذر تفريغ الأرباح: $e',
+                    style: const TextStyle(fontFamily: 'Cairo'),
+                  ),
+                  backgroundColor: Colors.red,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              );
+            }
+          }
+        },
       ),
     );
   }
@@ -1540,7 +1475,17 @@ class _BroadcastNotificationDialogState
                   ),
                 );
               }
-            } catch (_) {}
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('فشل إرسال الإشعار: $e',
+                        style: const TextStyle(fontFamily: 'Cairo')),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,
@@ -1548,6 +1493,96 @@ class _BroadcastNotificationDialogState
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
           child: const Text('إرسال',
+              style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
+        ),
+      ],
+    );
+  }
+}
+
+class _ResetProfitCycleDialog extends StatefulWidget {
+  final Future<void> Function() onConfirmed;
+  const _ResetProfitCycleDialog({required this.onConfirmed});
+
+  @override
+  State<_ResetProfitCycleDialog> createState() =>
+      _ResetProfitCycleDialogState();
+}
+
+class _ResetProfitCycleDialogState extends State<_ResetProfitCycleDialog> {
+  late final TextEditingController _codeCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _codeCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose(); // 👈 التخلص الحتمي الآمن من الموارد ومنع التسريب
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.red),
+          SizedBox(width: 8),
+          Text(
+            'تأكيد تصفير أرباح الدورة',
+            style: TextStyle(
+                fontFamily: 'Cairo', fontWeight: FontWeight.w800, fontSize: 16),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'سيتم تصفير عداد أرباح الدورة الحالية مع تسجيل قيد محاسبي تدقيقي غير قابل للتعديل.\n\nلتأكيد هذا الإجراء، اكتب كلمة "تأكيد" أدناه:',
+            style: TextStyle(fontFamily: 'Cairo', fontSize: 13, height: 1.6),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _codeCtrl,
+            textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: 'تأكيد',
+              filled: true,
+              fillColor: context.bgInput,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none),
+            ),
+            style: const TextStyle(
+                fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء',
+              style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
+        ),
+        ElevatedButton(
+          onPressed: _codeCtrl.text.trim() != 'تأكيد'
+              ? null
+              : () async {
+                  Navigator.pop(context);
+                  await widget.onConfirmed();
+                },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          child: const Text('تأكيد التفريغ',
               style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
         ),
       ],

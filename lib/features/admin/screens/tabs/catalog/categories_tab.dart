@@ -93,14 +93,27 @@ class CategoriesTab extends ConsumerWidget {
                           onDelete: () async {
                             if (await confirmDelete(
                                 context, list[i]['name'] ?? '')) {
-                              await ref
-                                  .read(adminServiceProvider)
-                                  .deleteCategory(list[i]['id'].toString());
-                              ref.invalidate(adminCategoriesProvider);
-                              ref.invalidate(brandsProvider);
-                              ref
-                                  .read(adminProductsProvider.notifier)
-                                  .loadInitial();
+                              try {
+                                await ref
+                                    .read(adminServiceProvider)
+                                    .deleteCategory(list[i]['id'].toString());
+                                ref.invalidate(adminCategoriesProvider);
+                                ref.invalidate(brandsProvider);
+                                ref
+                                    .read(adminProductsProvider.notifier)
+                                    .loadInitial();
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('فشل حذف الصنف: $e',
+                                          style: const TextStyle(
+                                              fontFamily: 'Cairo')),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
                             }
                           },
                         ),

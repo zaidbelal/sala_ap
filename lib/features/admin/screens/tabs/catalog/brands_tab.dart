@@ -96,13 +96,26 @@ class BrandsTab extends ConsumerWidget {
                             onDelete: () async {
                               if (await confirmDelete(
                                   context, item['name'] ?? '')) {
-                                await ref
-                                    .read(adminServiceProvider)
-                                    .deleteBrand(item['id'].toString());
-                                ref.invalidate(brandsProvider);
-                                ref
-                                    .read(adminProductsProvider.notifier)
-                                    .loadInitial();
+                                try {
+                                  await ref
+                                      .read(adminServiceProvider)
+                                      .deleteBrand(item['id'].toString());
+                                  ref.invalidate(brandsProvider);
+                                  ref
+                                      .read(adminProductsProvider.notifier)
+                                      .loadInitial(forceServer: true);
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('فشل حذف الشركة: $e',
+                                            style: const TextStyle(
+                                                fontFamily: 'Cairo')),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                }
                               }
                             },
                           );
@@ -233,6 +246,7 @@ class AddBrandBar extends StatefulWidget {
 
 class _AddBrandBarState extends State<AddBrandBar> {
   final _ctrl = TextEditingController();
+  final _catFieldKey = GlobalKey<FormFieldState<String>>();
   String? _selectedCategoryId;
   XFile? _image;
   Uint8List? _imageBytes;
@@ -282,6 +296,7 @@ class _AddBrandBarState extends State<AddBrandBar> {
       await widget.onAdd(text, catId, imageUrl);
       if (mounted) {
         _ctrl.clear();
+        _catFieldKey.currentState?.reset();
         setState(() {
           _image = null;
           _imageBytes = null;
@@ -428,7 +443,11 @@ class _AddBrandBarState extends State<AddBrandBar> {
 
           // ── اختيار الصنف ──
           DropdownButtonFormField<String>(
-            initialValue: _selectedCategoryId,
+            key: _catFieldKey,
+            initialValue: widget.categories
+                    .any((c) => c['id'].toString() == _selectedCategoryId)
+                ? _selectedCategoryId
+                : null,
             hint: const Text('اختر الصنف',
                 style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
             decoration: catalogInputDec(''),

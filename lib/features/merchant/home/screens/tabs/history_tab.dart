@@ -134,17 +134,18 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
 
     var cursor = _ordersCursor;
     if (cursor == null) {
-      // 🛡️ مزامنة المؤشر مع سقف البث المباشر (200 طلب) لمنع إعادة جلب الطلبات المحملة مسبقاً
-      final firstPage = await query
-          .limit(200)
+      final initialDocs = await query
+          .limit(_historyPageSize)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (firstPage.docs.length < 200) {
+      if (initialDocs.docs.isEmpty ||
+          initialDocs.docs.length < _historyPageSize) {
         _hasMoreOrders = false;
-        return null;
+        return initialDocs.docs.isEmpty ? null : initialDocs;
       }
-      cursor = firstPage.docs.last;
+      cursor = initialDocs.docs.last;
       _ordersCursor = cursor;
     }
+
     return query
         .startAfterDocument(cursor)
         .limit(_historyPageSize)
@@ -161,17 +162,18 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
 
     var cursor = _returnsCursor;
     if (cursor == null) {
-      // 🛡️ مزامنة المؤشر مع سقف المرتجعات المباشرة (100 إرجاع) لمنع تكرار القراءات
-      final firstPage = await query
-          .limit(100)
+      final initialDocs = await query
+          .limit(_historyPageSize)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (firstPage.docs.length < 100) {
+      if (initialDocs.docs.isEmpty ||
+          initialDocs.docs.length < _historyPageSize) {
         _hasMoreReturns = false;
-        return null;
+        return initialDocs.docs.isEmpty ? null : initialDocs;
       }
-      cursor = firstPage.docs.last;
+      cursor = initialDocs.docs.last;
       _returnsCursor = cursor;
     }
+
     return query
         .startAfterDocument(cursor)
         .limit(_historyPageSize)
@@ -249,8 +251,11 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
         }
 
         if (orderSnap.connectionState == ConnectionState.waiting) {
-          return const Center(
-              child: CircularProgressIndicator(color: AppColors.primary));
+          return Scaffold(
+            backgroundColor: context.bgPage,
+            body: const Center(
+                child: CircularProgressIndicator(color: AppColors.primary)),
+          );
         }
 
         final orderDocs = orderSnap.data ?? [];
@@ -576,11 +581,12 @@ class _ReturnInvoiceCard extends StatelessWidget {
     final date =
         '${returnItem.createdAt.day}/${returnItem.createdAt.month}/${returnItem.createdAt.year}';
     // إظهار الرقم المتسلسل الرقمي للفاتورة
-    final displayReturnId = (int.tryParse(returnItem.id) != null)
-        ? returnItem.id
-        : (returnItem.id.length >= 6
-            ? returnItem.id.substring(0, 6).toUpperCase()
-            : returnItem.id.toUpperCase());
+    final displayReturnId =
+        (returnItem.returnNumber != null && returnItem.returnNumber!.isNotEmpty)
+            ? returnItem.returnNumber!
+            : (returnItem.id.length >= 6
+                ? returnItem.id.substring(0, 6).toUpperCase()
+                : returnItem.id.toUpperCase());
     final isAccepted = returnItem.status == 'accepted';
     final isRejected = returnItem.status == 'rejected';
     final statusColor = isAccepted
@@ -674,7 +680,7 @@ class _ReturnInvoiceCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${returnItem.productName} • ${returnItem.quantity} كرتون',
+                          '${returnItem.productName} • ${returnItem.quantity} ${returnItem.unitLabel}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -782,7 +788,10 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const statusColor = Color(0xFF10B981);
+    final statusColor = order.status.color;
+    final statusLabel = order.status == OrderStatus.delivered
+        ? 'تم التوصيل ✓'
+        : order.status.label;
     final time =
         '${order.createdAt.hour.toString().padLeft(2, '0')}:${order.createdAt.minute.toString().padLeft(2, '0')}';
     final date =
@@ -826,8 +835,7 @@ class _OrderCard extends StatelessWidget {
                 color: statusColor.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.done_all_rounded,
-                  size: 22, color: statusColor),
+              child: Icon(Icons.done_all_rounded, size: 22, color: statusColor),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -857,8 +865,8 @@ class _OrderCard extends StatelessWidget {
                           color: statusColor.withValues(alpha: 0.12),
                           borderRadius: AppRadius.circleAll,
                         ),
-                        child: const Text(
-                          'تم التوصيل ✓',
+                        child: Text(
+                          statusLabel,
                           style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 11,
@@ -900,7 +908,7 @@ class _OrderCard extends StatelessWidget {
                       const Spacer(),
                       Text(
                         '${order.total.toStringAsFixed(0)} ر.ي',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,
                           fontWeight: FontWeight.w900,

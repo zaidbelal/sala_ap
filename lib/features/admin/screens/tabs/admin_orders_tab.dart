@@ -48,8 +48,16 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
   static const _tabs = [
     (label: 'الكل', statuses: null, color: AppColors.primary),
     (label: 'معلق', statuses: ['pending'], color: Colors.orange),
-    (label: 'مقبول', statuses: ['confirmed'], color: Colors.blue),
-    (label: 'في الطريق', statuses: ['shipped'], color: Colors.indigo),
+    (
+      label: 'مقبول وتحضير',
+      statuses: ['confirmed', 'preparing'],
+      color: Colors.blue
+    ),
+    (
+      label: 'في الطريق',
+      statuses: ['shipped', 'on_the_way'],
+      color: Colors.indigo
+    ),
     (label: 'مُسلّم', statuses: ['delivered'], color: Color(0xFF10B981)),
     (
       label: 'ملغي ومرفوض',
@@ -252,7 +260,8 @@ class _OrdersList extends ConsumerWidget {
             return OrderCard(
               order: orders[i],
               onStatusChanged: () {
-                // البث اللحظي يتكفل بتحديث الواجهة تلقائياً دون الحاجة لإعادة الجلب
+                ref.invalidate(adminStatsProvider);
+                ref.invalidate(adminTodayStatsProvider);
               },
             );
           },

@@ -8,12 +8,18 @@ import '../services/products_service.dart';
 import 'package:wissal/core/models/product_unit.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/services/image_precache_service.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class ProductDetailsSheet extends ConsumerStatefulWidget {
   final ProductModel product;
+  final ProductVariant? initialVariant;
   final ProductUnit? initialUnit;
-  const ProductDetailsSheet(
-      {super.key, required this.product, this.initialUnit});
+  const ProductDetailsSheet({
+    super.key,
+    required this.product,
+    this.initialVariant,
+    this.initialUnit,
+  });
 
   @override
   ConsumerState<ProductDetailsSheet> createState() =>
@@ -22,23 +28,59 @@ class ProductDetailsSheet extends ConsumerStatefulWidget {
 
 class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   int _qty = 1;
+  int _variantIndex = 0;
   ProductUnit? _selectedUnit;
+  PageController? _pageController;
+
+  ProductVariant? get _currentVariant => widget.product.hasVariants
+      ? widget.product.variants[_variantIndex]
+      : null;
 
   @override
   void initState() {
     super.initState();
-    _selectedUnit = widget.initialUnit ??
-        (widget.product.units.isNotEmpty ? widget.product.units.first : null);
+    if (widget.product.hasVariants) {
+      if (widget.initialVariant != null) {
+        final idx = widget.product.variants.indexWhere(
+          (v) =>
+              v.id == widget.initialVariant!.id ||
+              v.label.trim() == widget.initialVariant!.label.trim(),
+        );
+        if (idx != -1) _variantIndex = idx;
+      }
+      _pageController = PageController(initialPage: _variantIndex);
+      final units = widget.product.variants[_variantIndex].units;
+      _selectedUnit = widget.initialUnit != null
+          ? units
+                  .where(
+                      (u) => u.label.trim() == widget.initialUnit!.label.trim())
+                  .firstOrNull ??
+              (units.isNotEmpty ? units.first : null)
+          : (units.isNotEmpty ? units.first : null);
+    } else {
+      _selectedUnit = widget.initialUnit ??
+          (widget.product.units.isNotEmpty ? widget.product.units.first : null);
+    }
   }
 
-  double get _currentPrice => _selectedUnit?.price ?? widget.product.price;
+  @override
+  void dispose() {
+    _pageController?.dispose();
+    super.dispose();
+  }
+
+  double _priceFor(ProductVariant? v) =>
+      _selectedUnit?.price ?? v?.price ?? widget.product.price;
 
   String get _currentUnitLabel => _selectedUnit?.label ?? 'كرتون';
 
-  String? get _currentImageUrl {
+  String? _imageFor(ProductVariant? v) {
     if (_selectedUnit?.imageUrl != null &&
         _selectedUnit!.imageUrl!.trim().isNotEmpty) {
       return _selectedUnit!.imageUrl!.trim();
+    }
+    if (v?.imageUrl != null && v!.imageUrl!.trim().isNotEmpty) {
+      return v.imageUrl!.trim();
     }
     if (_selectedUnit == null || _selectedUnit!.label == 'كرتون') {
       return widget.product.imageUrl;
@@ -46,36 +88,36 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     return null;
   }
 
-  String get _currentSizeDisplay {
+  String _sizeDisplayFor(ProductVariant? v) {
+    if (v?.sizeText != null && v!.sizeText!.trim().isNotEmpty) {
+      return v.sizeText!.trim();
+    }
     if (widget.product.sizeText != null &&
         widget.product.sizeText!.trim().isNotEmpty) {
       return widget.product.sizeText!.trim();
     }
-    final s = _selectedUnit?.sizeMl ?? widget.product.sizeMl;
+    final s = _selectedUnit?.sizeMl ?? v?.sizeMl ?? widget.product.sizeMl;
     if (s != null) {
       return s % 1 == 0 ? '${s.toInt()} مل' : '$s مل';
     }
     return '—';
   }
 
-  int? get _currentItems => _selectedUnit?.qty ?? widget.product.itemsPerCarton;
+  int? _itemsFor(ProductVariant? v) =>
+      _selectedUnit?.qty ?? v?.itemsPerCarton ?? widget.product.itemsPerCarton;
 
-  DateTime? get _currentExpiry {
-    if (_selectedUnit?.expiryDate != null) {
-      return _selectedUnit!.expiryDate;
-    }
+  DateTime? _expiryFor(ProductVariant? v) {
+    if (_selectedUnit?.expiryDate != null) return _selectedUnit!.expiryDate;
+    if (v?.expiryDate != null) return v!.expiryDate;
     return DateTime.tryParse(widget.product.expiryDate ?? '');
   }
 
-  DateTime? get _currentProduction {
+  DateTime? _productionFor(ProductVariant? v) {
     if (_selectedUnit?.productionDate != null) {
       return _selectedUnit!.productionDate;
     }
+    if (v?.productionDate != null) return v!.productionDate;
     return DateTime.tryParse(widget.product.productionDate ?? '');
-  }
-
-  bool get _hasImage {
-    return _currentImageUrl != null && _currentImageUrl!.isNotEmpty;
   }
 
   String _formatDate(String? date) {
@@ -88,27 +130,39 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     }
   }
 
-  bool get _isExpiringSoon {
-    final expiry = _currentExpiry;
-    if (expiry == null) return false;
-    return expiry.isBefore(DateTime.now().add(const Duration(days: 30)));
+  void _onVariantChanged(int newIndex) {
+    HapticFeedback.selectionClick();
+    final v = widget.product.variants[newIndex];
+    setState(() {
+      _variantIndex = newIndex;
+      _qty = 1;
+      _selectedUnit = v.units.isNotEmpty ? v.units.first : null;
+    });
   }
 
   void _addToCart() {
-    HapticFeedback.mediumImpact();
+    final v = _currentVariant;
+    final availableStock = v?.stock ?? widget.product.stock;
+    if (availableStock <= 0) return;
 
+    HapticFeedback.mediumImpact();
     ref.read(cartProvider.notifier).addItem(
           widget.product,
           _qty,
           unit: _selectedUnit,
+          variant: v,
         );
+
+    final title = v != null
+        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        : '${widget.product.name} - $_currentUnitLabel';
 
     Navigator.pop(context);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '✅ تمت إضافة ${widget.product.name} - $_currentUnitLabel للسلة',
+          '✅ تمت إضافة $title للسلة',
           style: const TextStyle(fontFamily: 'Cairo'),
           textAlign: TextAlign.right,
         ),
@@ -126,370 +180,477 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
-    final total = _currentPrice * _qty;
+    final currentVariant = _currentVariant;
+    final activeStock = currentVariant?.stock ?? product.stock;
+    final isOutOfStock = activeStock <= 0;
+    final total = _priceFor(currentVariant) * _qty;
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.90,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // مقبض السحب
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // صورة + اسم + سعر
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFB),
-                          borderRadius: AppRadius.lgAll,
-                          border: Border.all(color: Colors.grey.shade100),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: AppRadius.lgAll,
-                          child: _hasImage
-                              ? CachedNetworkImage(
-                                  cacheManager: ImagePrecacheService
-                                      .instance.cacheManager,
-                                  imageUrl: _currentImageUrl!,
-                                  fit: BoxFit.contain,
-                                  placeholder: (_, __) => const Icon(
-                                    Icons.shopping_bag_outlined,
-                                    color: Colors.grey,
-                                    size: 40,
-                                  ),
-                                  errorWidget: (_, __, ___) => const Icon(
-                                    Icons.shopping_bag_outlined,
-                                    color: AppColors.primary,
-                                    size: 40,
-                                  ),
-                                )
-                              : const Icon(
-                                  Icons.shopping_bag_outlined,
-                                  color: AppColors.primary,
-                                  size: 40,
-                                ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // ── اسم المنتج واضح وبارز باللون الأسود دائماً ──
-                            Text(
-                              '${product.name} - $_currentUnitLabel',
-                              style: const TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF1A1A2E),
-                              ),
-                            ),
-                            if (product.description != null &&
-                                product.description!.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                product.description!,
-                                style: const TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.1),
-                                borderRadius: AppRadius.circleAll,
-                              ),
-                              child: Text(
-                                '${_currentPrice.toStringAsFixed(0)} ر.ي / $_currentUnitLabel',
-                                style: const TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ── اختيار الوحدة ──
-                  if (product.units.isNotEmpty) ...[
-                    const Text(
-                      'اختر الوحدة المطلوبة:',
-                      style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1A1A2E),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: product.units.map((unit) {
-                        final selected = _selectedUnit?.label == unit.label;
-
-                        return GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() {
-                              _selectedUnit = unit;
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  selected ? AppColors.primary : Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selected
-                                    ? AppColors.primary
-                                    : Colors.grey.shade300,
-                                width: selected ? 1.5 : 1,
-                              ),
-                              boxShadow: selected
-                                  ? [
-                                      BoxShadow(
-                                        color: AppColors.primary
-                                            .withValues(alpha: 0.25),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 3),
-                                      )
-                                    ]
-                                  : [],
-                            ),
-                            child: Text(
-                              unit.label,
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 13,
-                                fontWeight: selected
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
-                                color:
-                                    selected ? Colors.white : Colors.grey[700],
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-// ── بطاقة التفاصيل مع عرض الباركود بوضوح ──
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFB),
-                      borderRadius: AppRadius.lgAll,
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Column(
-                      children: [
-                        // عرض باركود المنتج أو الوحدة المحددة مع رسمة الباركود التخطيطية
-                        if ((_selectedUnit?.barcode ?? product.barcode) !=
-                                null &&
-                            (_selectedUnit?.barcode ?? product.barcode)!
-                                .isNotEmpty) ...[
-                          _InfoTile(
-                            icon: Icons.qr_code_2_rounded,
-                            label: 'الباركود الدولي',
-                            value: (_selectedUnit?.barcode ?? product.barcode)!,
-                            valueColor: AppColors.primary,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                            child: _BarcodeVisualBox(
-                              barcode:
-                                  (_selectedUnit?.barcode ?? product.barcode)!,
-                            ),
-                          ),
-                          _divider(),
-                        ],
-                        _InfoTile(
-                          icon: Icons.straighten_rounded,
-                          label: 'الحجم',
-                          value: _currentSizeDisplay,
-                        ),
-                        _divider(),
-                        _InfoTile(
-                          icon: Icons.inventory_2_rounded,
-                          label: 'عدد الحبات / كرتون',
-                          value: _currentItems != null
-                              ? '$_currentItems حبة'
-                              : '—',
-                        ),
-                        _divider(),
-                        _InfoTile(
-                          icon: Icons.layers_rounded,
-                          label: 'المخزون',
-                          value:
-                              '${product.stock % 1 == 0 ? product.stock.toInt() : product.stock.toStringAsFixed(2)} كرتون',
-                        ),
-                        _divider(),
-                        _InfoTile(
-                          icon: Icons.calendar_month_rounded,
-                          label: 'تاريخ الإنتاج',
-                          value: _currentProduction == null
-                              ? '—'
-                              : _formatDate(
-                                  _currentProduction!.toIso8601String(),
-                                ),
-                        ),
-                        _divider(),
-                        _InfoTile(
-                          icon: Icons.event_busy_rounded,
-                          label: 'تاريخ الانتهاء',
-                          value: _currentExpiry == null
-                              ? '—'
-                              : _formatDate(
-                                  _currentExpiry!.toIso8601String(),
-                                ),
-                          valueColor: _isExpiringSoon ? Colors.red : null,
-                          badge: _isExpiringSoon ? 'ينتهي قريباً' : null,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // اختيار الكمية
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _QtyBtn(
-                        icon: Icons.remove_rounded,
-                        onTap: () {
-                          if (_qty > 1) setState(() => _qty--);
-                        },
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          transitionBuilder: (child, anim) =>
-                              ScaleTransition(scale: anim, child: child),
-                          child: Text(
-                            '$_qty',
-                            key: ValueKey(_qty),
-                            style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 28,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF1A1A2E),
-                            ),
-                          ),
-                        ),
-                      ),
-                      _QtyBtn(
-                        icon: Icons.add_rounded,
-                        onTap: () => setState(() => _qty++),
-                        filled: true,
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-                ],
+      child: Container(
+        decoration: BoxDecoration(
+          color: context.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // مقبض السحب
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-          ),
 
-          // زر الإضافة للسلة
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-                20, 0, 20, MediaQuery.of(context).padding.bottom + 16),
-            child: GestureDetector(
-              onTap: _addToCart,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: AppRadius.lgAll,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.35),
-                      blurRadius: 14,
-                      offset: const Offset(0, 5),
+            // شريط الأحجام العلوي القابل للنقر + تلميح السحب
+            if (product.hasVariants) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      'الأحجام المتوفرة:',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: context.textSecondary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '← اسحب يميناً أو يساراً →',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary.withValues(alpha: 0.85),
+                      ),
                     ),
                   ],
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 38,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: product.variants.length,
+                  itemBuilder: (_, idx) {
+                    final v = product.variants[idx];
+                    final isSel = idx == _variantIndex;
+                    final vOut = v.stock <= 0;
+                    return GestureDetector(
+                      onTap: () {
+                        _pageController?.animateToPage(
+                          idx,
+                          duration: const Duration(milliseconds: 280),
+                          curve: Curves.easeOutCubic,
+                        );
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsetsDirectional.only(end: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSel ? AppColors.primary : context.bgInput,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSel
+                                ? AppColors.primary
+                                : (vOut
+                                    ? Colors.red.withValues(alpha: 0.3)
+                                    : context.borderColor),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            vOut ? '${v.label} (نفد)' : v.label,
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              fontWeight:
+                                  isSel ? FontWeight.w800 : FontWeight.w600,
+                              color: isSel
+                                  ? Colors.white
+                                  : (vOut ? Colors.red : context.textPrimary),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 6),
+              Divider(height: 1, color: context.borderColor),
+            ],
+
+            // محتوى الصفحة (يدعم السحب الأفقي بالـ PageView عند وجود أحجام متعددة)
+            if (product.hasVariants)
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: product.variants.length,
+                  onPageChanged: _onVariantChanged,
+                  itemBuilder: (context, idx) => _buildPageContent(
+                    context,
+                    product,
+                    product.variants[idx],
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: _buildPageContent(context, product, null),
+              ),
+
+            // زر الإضافة للسلة الثابت بالأسفل
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                  20, 8, 20, MediaQuery.of(context).padding.bottom + 16),
+              child: GestureDetector(
+                onTap: isOutOfStock ? null : _addToCart,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: isOutOfStock ? Colors.grey : AppColors.primary,
+                    borderRadius: AppRadius.lgAll,
+                    boxShadow: isOutOfStock
+                        ? []
+                        : [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.35),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isOutOfStock
+                            ? Icons.remove_shopping_cart_rounded
+                            : Icons.shopping_cart_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: Text(
+                          key: ValueKey('${_variantIndex}_$_qty'),
+                          isOutOfStock
+                              ? 'نفد من المستودع'
+                              : (total > 0
+                                  ? 'إضافة $_qty $_currentUnitLabel — ${total.toStringAsFixed(0)} ر.ي'
+                                  : 'إضافة للسلة'),
+                          style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageContent(
+    BuildContext context,
+    ProductModel product,
+    ProductVariant? v,
+  ) {
+    final currentImage = _imageFor(v);
+    final hasImage = currentImage != null && currentImage.isNotEmpty;
+    final currentPrice = _priceFor(v);
+    final units = v != null ? v.units : product.units;
+    final currentBarcode =
+        _selectedUnit?.barcode ?? v?.barcode ?? product.barcode;
+    final currentStock = v?.stock ?? product.stock;
+    final currentProduction = _productionFor(v);
+    final currentExpiry = _expiryFor(v);
+    final isExpiringSoon = currentExpiry != null &&
+        currentExpiry.isBefore(DateTime.now().add(const Duration(days: 30)));
+    final titleText = v != null
+        ? '${product.name} (${v.label}) - $_currentUnitLabel'
+        : '${product.name} - $_currentUnitLabel';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: context.bgInput,
+                  borderRadius: AppRadius.lgAll,
+                  border: Border.all(color: context.borderColor),
+                ),
+                child: ClipRRect(
+                  borderRadius: AppRadius.lgAll,
+                  child: hasImage
+                      ? CachedNetworkImage(
+                          cacheManager:
+                              ImagePrecacheService.instance.cacheManager,
+                          imageUrl: currentImage,
+                          fit: BoxFit.contain,
+                          placeholder: (_, __) => const Icon(
+                            Icons.shopping_bag_outlined,
+                            color: Colors.grey,
+                            size: 40,
+                          ),
+                          errorWidget: (_, __, ___) => const Icon(
+                            Icons.shopping_bag_outlined,
+                            color: AppColors.primary,
+                            size: 40,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.shopping_bag_outlined,
+                          color: AppColors.primary,
+                          size: 40,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.shopping_cart_rounded,
-                        color: Colors.white, size: 20),
-                    const SizedBox(width: 10),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
+                    Text(
+                      titleText,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    if (product.description != null &&
+                        product.description!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        product.description!,
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          color: context.textSecondary,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: AppRadius.circleAll,
+                      ),
                       child: Text(
-                        key: ValueKey(_qty),
-                        total > 0
-                            ? 'إضافة $_qty $_currentUnitLabel — ${total.toStringAsFixed(0)} ر.ي'
-                            : 'إضافة للسلة',
+                        '${currentPrice.toStringAsFixed(0)} ر.ي / $_currentUnitLabel',
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                          color: AppColors.primary,
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // اختيار الوحدة الخاصة بهذا الحجم
+          if (units.isNotEmpty) ...[
+            Text(
+              'اختر الكمية / الوحدة المطلوبة:',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: context.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: units.map((unit) {
+                final selected = _selectedUnit?.label == unit.label;
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _selectedUnit = unit);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: selected ? AppColors.primary : context.bgInput,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color:
+                            selected ? AppColors.primary : context.borderColor,
+                        width: selected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      '${unit.label} (${unit.price.toStringAsFixed(0)} ر.ي)',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                        color: selected ? Colors.white : context.textPrimary,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // تفاصيل الحجم/المنتج
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: context.bgInput,
+              borderRadius: AppRadius.lgAll,
+              border: Border.all(color: context.borderColor),
+            ),
+            child: Column(
+              children: [
+                if (currentBarcode != null && currentBarcode.isNotEmpty) ...[
+                  _InfoTile(
+                    icon: Icons.qr_code_2_rounded,
+                    label: 'الباركود الدولي',
+                    value: currentBarcode,
+                    valueColor: AppColors.primary,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _BarcodeVisualBox(barcode: currentBarcode),
+                  ),
+                  _divider(context),
+                ],
+                _InfoTile(
+                  icon: Icons.straighten_rounded,
+                  label: 'الحجم',
+                  value: _sizeDisplayFor(v),
+                ),
+                _divider(context),
+                _InfoTile(
+                  icon: Icons.inventory_2_rounded,
+                  label: 'عدد الحبات / كرتون',
+                  value: _itemsFor(v) != null ? '${_itemsFor(v)} حبة' : '—',
+                ),
+                _divider(context),
+                _InfoTile(
+                  icon: Icons.layers_rounded,
+                  label: 'المخزون',
+                  value:
+                      '${currentStock % 1 == 0 ? currentStock.toInt() : currentStock.toStringAsFixed(2)} كرتون',
+                  valueColor: currentStock <= 0 ? Colors.red : null,
+                ),
+                _divider(context),
+                _InfoTile(
+                  icon: Icons.calendar_month_rounded,
+                  label: 'تاريخ الإنتاج',
+                  value: currentProduction == null
+                      ? '—'
+                      : _formatDate(currentProduction.toIso8601String()),
+                ),
+                _divider(context),
+                _InfoTile(
+                  icon: Icons.event_busy_rounded,
+                  label: 'تاريخ الانتهاء',
+                  value: currentExpiry == null
+                      ? '—'
+                      : _formatDate(currentExpiry.toIso8601String()),
+                  valueColor: isExpiringSoon ? Colors.red : null,
+                  badge: isExpiringSoon ? 'ينتهي قريباً' : null,
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 20),
+
+          // عداد الكمية
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _QtyBtn(
+                icon: Icons.remove_rounded,
+                onTap: () {
+                  if (_qty > 1) setState(() => _qty--);
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) =>
+                      ScaleTransition(scale: anim, child: child),
+                  child: Text(
+                    '$_qty',
+                    key: ValueKey(_qty),
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: context.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+              _QtyBtn(
+                icon: Icons.add_rounded,
+                onTap: () => setState(() => _qty++),
+                filled: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
 
-  Widget _divider() => Divider(height: 1, color: Colors.grey.shade200);
+  Widget _divider(BuildContext context) =>
+      Divider(height: 1, color: context.borderColor);
 }
 
 class _InfoTile extends StatelessWidget {
@@ -516,11 +677,11 @@ class _InfoTile extends StatelessWidget {
           Icon(icon, size: 19, color: AppColors.primary),
           const SizedBox(width: 10),
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF555555),
+                color: context.textSecondary,
               )),
           const Spacer(),
           if (badge != null) ...[
@@ -545,7 +706,7 @@ class _InfoTile extends StatelessWidget {
                 fontFamily: 'Cairo',
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: valueColor ?? const Color(0xFF1A1A2E),
+                color: valueColor ?? context.textPrimary,
               )),
         ],
       ),
@@ -586,9 +747,6 @@ class _QtyBtn extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════════
-// مجسم رسمة الباركود الحقيقي التخطيطي ليظهر تحت الرقم
-// ══════════════════════════════════════════════════════════════
 class _BarcodeVisualBox extends StatelessWidget {
   final String barcode;
   const _BarcodeVisualBox({required this.barcode});
@@ -602,23 +760,14 @@ class _BarcodeVisualBox extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade300, width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         children: [
-          // خطوط الباركود التخطيطية الحقيقية
           CustomPaint(
             size: const Size(double.infinity, 48),
             painter: _BarcodePainter(code: barcode),
           ),
           const SizedBox(height: 6),
-          // الرقم مطبوعاً أسفل الخطوط بتباعد واضح كالملصق التجاري
           Text(
             barcode.split('').join('  '),
             textDirection: TextDirection.ltr,
@@ -648,14 +797,11 @@ class _BarcodePainter extends CustomPainter {
 
     final width = size.width;
     final height = size.height;
-
-    // توليد خطوط الباركود المتناسقة بناءً على رقم الباركود
     final hashValues = code.codeUnits;
     const totalBars = 55;
     final barUnitWidth = width / totalBars;
 
     for (int i = 0; i < totalBars; i++) {
-      // خطوط بداية ونهاية ووسط مميزة كأي باركود عالمي
       final isGuard = (i < 3) || (i > totalBars - 4) || (i >= 26 && i <= 28);
       final charVal = hashValues[i % hashValues.length];
       final isBlack = isGuard || ((charVal + i * 7) % 3 != 0);

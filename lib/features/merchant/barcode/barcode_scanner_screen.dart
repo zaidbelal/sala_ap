@@ -12,8 +12,19 @@ import 'package:audioplayers/audioplayers.dart' hide Source;
 class SupermarketSoundHelper {
   SupermarketSoundHelper._();
   static AudioPlayer? _audioPlayer;
+  static Timer? _releaseTimer;
+
+  static void scheduleRelease() {
+    _releaseTimer?.cancel();
+    _releaseTimer = Timer(
+      const Duration(milliseconds: 450),
+      releasePlayer,
+    );
+  }
 
   static Future<void> playSupermarketBeep() async {
+    _releaseTimer?.cancel();
+    _releaseTimer = null;
     HapticFeedback.mediumImpact();
     try {
       _audioPlayer ??= AudioPlayer()..setReleaseMode(ReleaseMode.stop);
@@ -227,7 +238,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       facing: CameraFacing.back,
       torchEnabled: false,
       returnImage: false,
-      autoStart: true,
+      autoStart: false,
       cameraResolution: const Size(1920, 1080),
       formats: const [
         BarcodeFormat.ean13,
@@ -265,8 +276,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     _focusResetTimer?.cancel();
     _laserAnimCtrl.dispose();
     _controller.dispose();
-    SupermarketSoundHelper
-        .releasePlayer(); // 🔒 إغلاق وتفريغ المشغل الصوتي فوراً
+    SupermarketSoundHelper.scheduleRelease();
     super.dispose();
   }
 
@@ -393,7 +403,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (!mounted) return;
 
     if (result.status == _LookupStatus.found && result.product != null) {
-      final product = result.product!;
+      final product = _attachMatchedMeta(result.product!, code);
       SupermarketSoundHelper.playSupermarketBeep();
       _unmatchedCodesCooldown.clear();
 
@@ -445,6 +455,46 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     });
   }
 
+  Map<String, dynamic> _attachMatchedMeta(
+      Map<String, dynamic> raw, String scannedCode) {
+    final cleanScanned = BarcodeScannerScreen.cleanBarcode(scannedCode);
+    final variantsToMatch = BarcodeTools.variants(cleanScanned).toSet();
+    final copy = Map<String, dynamic>.from(raw);
+
+    bool matchesCode(dynamic val) {
+      if (val == null) return false;
+      final c = BarcodeScannerScreen.cleanBarcode(val.toString());
+      return c.isNotEmpty && variantsToMatch.contains(c);
+    }
+
+    if (raw['units'] is List) {
+      for (final u in (raw['units'] as List).whereType<Map>()) {
+        if (matchesCode(u['barcode'])) {
+          copy['_matched_unit_label'] = u['label']?.toString();
+          return copy;
+        }
+      }
+    }
+    if (raw['variants'] is List) {
+      for (final v in (raw['variants'] as List).whereType<Map>()) {
+        if (matchesCode(v['barcode'])) {
+          copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
+          return copy;
+        }
+        if (v['units'] is List) {
+          for (final u in (v['units'] as List).whereType<Map>()) {
+            if (matchesCode(u['barcode'])) {
+              copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
+              copy['_matched_unit_label'] = u['label']?.toString();
+              return copy;
+            }
+          }
+        }
+      }
+    }
+    return copy;
+  }
+
   Future<_LookupResult> _lookup(String code) async {
     final index = BarcodeIndexManager.instance;
 
@@ -457,16 +507,27 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       matched = index.find(code);
       if (matched != null) return _LookupResult(_LookupStatus.found, matched);
     }
-
-    // 3. فحص سحابي سريع مع جميع احتمالات الأصفار والـ GTIN
-    final vars = BarcodeTools.variants(code).take(25).toList();
+// 3. فحص سحابي سريع مع تقسيم التنويعات لدفعات أقصاها 10 لمطابقة قيود Firestore
+    final vars = BarcodeTools.variants(code);
     final col = FirebaseFirestore.instance.collection('products');
     Map<String, dynamic>? hit;
 
     try {
-      hit = await _queryFast(col.where('all_barcodes', arrayContainsAny: vars));
+      // 🚀 تجزئة استعلام arrayContainsAny إلى شرائح لا تتجاوز 10 عناصر منعاً لانهيار الاستعلام
+      for (var i = 0; i < vars.length; i += 10) {
+        final chunk =
+            vars.sublist(i, i + 10 > vars.length ? vars.length : i + 10);
+        hit = await _queryFast(
+            col.where('all_barcodes', arrayContainsAny: chunk));
+        if (hit != null) break;
+      }
       if (hit == null) {
-        hit = await _queryFast(col.where('barcode', whereIn: vars));
+        for (var i = 0; i < vars.length; i += 30) {
+          final chunk =
+              vars.sublist(i, i + 30 > vars.length ? vars.length : i + 30);
+          hit = await _queryFast(col.where('barcode', whereIn: chunk));
+          if (hit != null) break;
+        }
       }
     } catch (_) {}
 
@@ -922,6 +983,21 @@ class BarcodeIndexManager {
       for (final u in product['units']) {
         if (u is Map && u['barcode'] != null) {
           addVar(u['barcode'].toString());
+        }
+      }
+    }
+
+    if (product['variants'] is List) {
+      for (final v in product['variants']) {
+        if (v is Map) {
+          if (v['barcode'] != null) addVar(v['barcode'].toString());
+          if (v['units'] is List) {
+            for (final u in v['units']) {
+              if (u is Map && u['barcode'] != null) {
+                addVar(u['barcode'].toString());
+              }
+            }
+          }
         }
       }
     }

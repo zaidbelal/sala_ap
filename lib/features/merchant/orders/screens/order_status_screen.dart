@@ -872,14 +872,20 @@ class _OrderSummaryCard extends StatelessWidget {
                   .snapshots(),
               builder: (context, snap) {
                 double displayAmount = order.returnedAmount;
-                if (displayAmount == 0 && snap.hasData) {
+                if (snap.hasData) {
+                  double pendingSum = 0.0;
+                  double acceptedSum = 0.0;
                   for (final doc in snap.data!.docs) {
-                    if (doc.data()['status'] != 'rejected') {
-                      displayAmount +=
-                          (doc.data()['refund_amount'] as num?)?.toDouble() ??
-                              0.0;
-                    }
+                    final st = doc.data()['status'];
+                    final amt =
+                        (doc.data()['refund_amount'] as num?)?.toDouble() ??
+                            0.0;
+                    if (st == 'pending') pendingSum += amt;
+                    if (st == 'accepted') acceptedSum += amt;
                   }
+                  displayAmount =
+                      (displayAmount > 0 ? displayAmount : acceptedSum) +
+                          pendingSum;
                 }
                 if (displayAmount == 0 && order.originalTotal > 0) {
                   displayAmount = order.originalTotal;

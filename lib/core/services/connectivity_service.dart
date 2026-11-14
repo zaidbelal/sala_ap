@@ -8,25 +8,23 @@ class ConnectivityHelper {
   static Future<bool> hasActiveInternet() async {
     try {
       final results = await Connectivity().checkConnectivity();
+      // التحقق الأساسي من وجود اتصال عبر بطاقة الشبكة أو الواي فاي
       if (results.every((r) => r == ConnectivityResult.none)) {
         return false;
       }
       if (kIsWeb) return true;
 
-      // فحص نطاق رسمي خفيف وسريع عبر DNS مع مهلة واقعية لشبكات اليمن
-      final lookup = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(seconds: 4));
-      return lookup.isNotEmpty && lookup[0].rawAddress.isNotEmpty;
-    } catch (_) {
       try {
-        final lookupFallback =
-            await InternetAddress.lookup('firebase.google.com')
-                .timeout(const Duration(seconds: 3));
-        return lookupFallback.isNotEmpty &&
-            lookupFallback[0].rawAddress.isNotEmpty;
+        // فحص DNS سريع مع استيعاب التأخير في الشبكات المحلية
+        final lookup = await InternetAddress.lookup('dns.google')
+            .timeout(const Duration(seconds: 6));
+        return lookup.isNotEmpty && lookup[0].rawAddress.isNotEmpty;
       } catch (_) {
-        return false;
+        // إذا تعثر فحص DNS بسبب بطء المزود المحلي، لا يتم حظر التاجر ونعتمد على استجابة السيرفر المباشرة
+        return true;
       }
+    } catch (_) {
+      return true;
     }
   }
 

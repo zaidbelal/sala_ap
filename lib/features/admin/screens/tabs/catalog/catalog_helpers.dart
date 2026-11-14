@@ -1,8 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
+
+class ArabicDigitsInputFormatter extends TextInputFormatter {
+  final bool allowDecimal;
+  const ArabicDigitsInputFormatter({this.allowDecimal = true});
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var text = ArabicNormalizer.normalizeDigits(newValue.text);
+    text = text.replaceAll(
+      allowDecimal ? RegExp(r'[^0-9.]') : RegExp(r'[^0-9]'),
+      '',
+    );
+    if (allowDecimal) {
+      final firstDot = text.indexOf('.');
+      if (firstDot != -1) {
+        text = text.substring(0, firstDot + 1) +
+            text.substring(firstDot + 1).replaceAll('.', '');
+      }
+    }
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+}
+
+double? parseSizeMlFromText(String rawText) {
+  final clean = ArabicNormalizer.normalizeDigits(rawText).trim();
+  if (clean.isEmpty) return null;
+  final match = RegExp(r'(\d+(?:\.\d+)?)').firstMatch(clean);
+  if (match == null) return null;
+  final rawNum = double.tryParse(match.group(1)!);
+  if (rawNum == null) return null;
+  final lower = clean.toLowerCase();
+  if (lower.contains('لتر') ||
+      lower.contains('liter') ||
+      lower.contains('litre') ||
+      RegExp(r'\bl\b').hasMatch(lower)) {
+    return rawNum * 1000;
+  }
+  return rawNum;
+}
 
 // ════════════════════════════════════════
 // اختيار صورة مضغوطة (يمنع تجميد المتصفح)

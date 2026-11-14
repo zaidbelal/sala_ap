@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../../../core/constants/app_colors.dart';
 
 class CatalogItemTile extends StatelessWidget {
@@ -172,18 +173,21 @@ class CatalogEditField extends StatelessWidget {
   final String hint;
   final IconData? icon;
   final TextInputType? type;
+  final List<TextInputFormatter>? inputFormatters;
   const CatalogEditField(
       {super.key,
       required this.ctrl,
       required this.hint,
       this.icon,
-      this.type});
+      this.type,
+      this.inputFormatters});
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
       keyboardType: type,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(

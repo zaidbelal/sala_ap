@@ -78,3 +78,95 @@ class ProductUnit {
         if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
 }
+
+// ══════════════════════════════════════════════════════════
+// ProductVariant — حجم/نوع مستقل داخل نفس المنتج بمخزونه ووحداته
+// ══════════════════════════════════════════════════════════
+class ProductVariant {
+  final String id;
+  final String label;
+  final double price;
+  final double? costPrice;
+  final double stock;
+  final int itemsPerCarton;
+  final String? sizeText;
+  final double? sizeMl;
+  final String? imageUrl;
+  final String? barcode;
+  final DateTime? productionDate;
+  final DateTime? expiryDate;
+  final List<ProductUnit> units;
+
+  const ProductVariant({
+    required this.id,
+    required this.label,
+    required this.price,
+    this.costPrice,
+    this.stock = 0.0,
+    this.itemsPerCarton = 1,
+    this.sizeText,
+    this.sizeMl,
+    this.imageUrl,
+    this.barcode,
+    this.productionDate,
+    this.expiryDate,
+    this.units = const [],
+  });
+
+  factory ProductVariant.fromMap(Map<String, dynamic> m) {
+    DateTime? parseDate(dynamic val) {
+      if (val == null) return null;
+      if (val is Timestamp) return val.toDate();
+      if (val is DateTime) return val;
+      if (val is String && val.trim().isNotEmpty) {
+        return DateTime.tryParse(val.trim());
+      }
+      return null;
+    }
+
+    final rawUnits = m['units'];
+    final parsedUnits = rawUnits is List
+        ? rawUnits
+            .whereType<Map>()
+            .map((e) => ProductUnit.fromMap(Map<String, dynamic>.from(e)))
+            .toList()
+        : <ProductUnit>[];
+
+    return ProductVariant(
+      id: m['id']?.toString().trim().isNotEmpty == true
+          ? m['id'].toString().trim()
+          : (m['label']?.toString().trim() ?? 'v'),
+      label: m['label']?.toString().trim() ?? '',
+      price: (m['price'] as num?)?.toDouble() ?? 0.0,
+      costPrice: (m['cost_price'] as num?)?.toDouble() ??
+          (m['costPrice'] as num?)?.toDouble(),
+      stock: (m['stock'] as num?)?.toDouble() ?? 0.0,
+      itemsPerCarton:
+          ((m['items_per_carton'] as num?)?.toInt() ?? 1).clamp(1, 9999),
+      sizeText: m['size_text']?.toString(),
+      sizeMl: (m['size_ml'] as num?)?.toDouble(),
+      imageUrl: m['image_url'] as String?,
+      barcode: m['barcode']?.toString().trim(),
+      productionDate: parseDate(m['production_date']),
+      expiryDate: parseDate(m['expiry_date']),
+      units: parsedUnits,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'label': label,
+        'price': price,
+        if (costPrice != null) 'cost_price': costPrice,
+        'stock': stock,
+        'items_per_carton': itemsPerCarton,
+        if (sizeText != null && sizeText!.isNotEmpty) 'size_text': sizeText,
+        if (sizeMl != null) 'size_ml': sizeMl,
+        if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
+        if (productionDate != null)
+          'production_date': productionDate!.toIso8601String(),
+        if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
+        'units': units.map((u) => u.toJson()).toList(),
+      };
+}

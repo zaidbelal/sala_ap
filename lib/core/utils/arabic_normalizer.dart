@@ -57,6 +57,14 @@ class ArabicNormalizer {
         .toList();
   }
 
+  /// تحويل الأرقام العربية المشرقية والفارسية إلى أرقام لاتينية (آمن للـ Isolates)
+  static String normalizeDigits(String text) {
+    if (text.isEmpty) return '';
+    var clean = text;
+    _numeralsMap.forEach((ar, en) => clean = clean.replaceAll(ar, en));
+    return clean;
+  }
+
   /// فحص مطابقة الكلمات
   static bool matches(String target, List<String> tokens) {
     if (tokens.isEmpty) return true;

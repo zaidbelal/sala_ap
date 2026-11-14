@@ -8,6 +8,15 @@ import 'dart:async';
 
 final adminServiceProvider = Provider((ref) => AdminService());
 
+final adminStatsProvider = FutureProvider.autoDispose<AdminStats>((ref) async {
+  return ref.read(adminServiceProvider).getStats();
+});
+
+final adminTodayStatsProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return ref.read(adminServiceProvider).getTodayStats();
+});
+
 // ══ Models ══
 class AdminStats {
   final int totalOrders;
@@ -207,10 +216,51 @@ class AdminService {
                 'cost_price': unitCosts[unit['label']?.toString()] ?? 0,
               })
           .toList();
+
+      final financialVariantsMap = <String, Map<String, dynamic>>{};
+      if (financials['variants'] is List) {
+        for (final fv in (financials['variants'] as List).whereType<Map>()) {
+          final fid = fv['id']?.toString() ?? fv['label']?.toString();
+          if (fid != null) {
+            financialVariantsMap[fid] = Map<String, dynamic>.from(fv);
+          }
+        }
+      }
+
+      final variants = (product['variants'] as List? ?? const [])
+          .whereType<Map>()
+          .map((rawV) {
+        final vMap = Map<String, dynamic>.from(rawV);
+        final fv = financialVariantsMap[vMap['id']?.toString()] ??
+            financialVariantsMap[vMap['label']?.toString()] ??
+            {};
+        final fvUnitCosts = <String, num>{};
+        if (fv['units'] is List) {
+          for (final u in (fv['units'] as List).whereType<Map>()) {
+            final lbl = u['label']?.toString();
+            final c = u['cost_price'];
+            if (lbl != null && c is num) fvUnitCosts[lbl] = c;
+          }
+        }
+        final vUnits = (vMap['units'] as List? ?? const [])
+            .whereType<Map>()
+            .map((u) => {
+                  ...Map<String, dynamic>.from(u),
+                  'cost_price': fvUnitCosts[u['label']?.toString()] ?? 0,
+                })
+            .toList();
+        return {
+          ...vMap,
+          'cost_price': fv['cost_price'] ?? vMap['cost_price'] ?? 0,
+          'units': vUnits,
+        };
+      }).toList();
+
       return {
         ...product,
         'cost_price': financials['cost_price'] ?? 0,
         'units': units,
+        'variants': variants,
       };
     }).toList();
   }
@@ -330,51 +380,50 @@ class AdminService {
       failureReason ??= 'delivered_count_failed';
     }
     bool shardsSucceeded = false;
-    // 3. محاولة قراءة الإحصائيات من الشظايا أولاً
+// 3. محاولة قراءة الإحصائيات من الشظايا أولاً مع توحيد الأساس المحاسبي للإيراد الإجمالي
     try {
       final summaryDoc =
           await _db.collection('stats').doc('profit_summary').get();
 
       if (summaryDoc.exists && summaryDoc.data() != null) {
         final data = summaryDoc.data()!;
-        grossRevenue = (data['accumulated_revenue'] as num?)?.toDouble() ?? 0.0;
-        totalProfit = (data['accumulated_profit'] as num?)?.toDouble() ?? 0.0;
+        final netRevenue =
+            (data['accumulated_revenue'] as num?)?.toDouble() ?? 0.0;
         returnedRevenue =
             (data['accumulated_returns'] as num?)?.toDouble() ?? 0.0;
+        // الإيراد الإجمالي يمثل صافي الإيراد مضافاً إليه قيمة المرتجعات لمنع ازدواجية الخصم
+        grossRevenue = netRevenue + returnedRevenue;
+        totalProfit = (data['accumulated_profit'] as num?)?.toDouble() ?? 0.0;
         shardsSucceeded = true;
       }
     } catch (_) {}
-
-    // 4. الحساب المباشر الاحتياطي ينفذ فقط إذا فشل استعلام الشظايا تماماً وليس لأن المبيعات أو المرتجعات صفرية
+// 4. الحساب المباشر الاحتياطي مع تفعيل الـ Fallback الحقيقي عند فشل التجميع
     if (!shardsSucceeded) {
+      bool aggregateSucceeded = false;
       try {
-        double resolvedRevenue = 0.0;
-        try {
-          final aggSnap = await _db
-              .collection('orders')
-              .where('status', isEqualTo: 'delivered')
-              .aggregate(sum('total_amount'), sum('total'))
-              .get();
-          final s1 = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
-          final s2 = (aggSnap.getSum('total') ?? 0.0).toDouble();
-          resolvedRevenue = s1 > s2 ? s1 : s2;
-        } catch (_) {
-          resolvedRevenue = 0.0;
-        }
-        grossRevenue = resolvedRevenue;
+        final aggSnap = await _db
+            .collection('orders')
+            .where('status', isEqualTo: 'delivered')
+            .aggregate(sum('total_amount'), sum('total'))
+            .get();
+        final s1 = (aggSnap.getSum('total_amount') ?? 0.0).toDouble();
+        final s2 = (aggSnap.getSum('total') ?? 0.0).toDouble();
+        final netDelivered = s1 > s2 ? s1 : s2;
+        grossRevenue = netDelivered;
 
-        try {
-          final profitSnap = await _db
-              .collection('order_financials')
-              .where('profit_recorded', isEqualTo: true)
-              .aggregate(sum('total_profit'))
-              .get();
-          totalProfit = (profitSnap.getSum('total_profit') ?? 0.0).toDouble();
-        } catch (_) {
-          totalProfit = 0.0;
-        }
+        final profitSnap = await _db
+            .collection('order_financials')
+            .where('profit_recorded', isEqualTo: true)
+            .aggregate(sum('total_profit'))
+            .get();
+        totalProfit = (profitSnap.getSum('total_profit') ?? 0.0).toDouble();
+        aggregateSucceeded = true;
       } catch (_) {
-        // 🔒 مطابقة محاسبية مرتبطة 100%: حساب الأرباح بناءً على نفس معرفات طلبات الإيراد بدقة متناهية
+        aggregateSucceeded = false;
+      }
+
+      if (!aggregateSucceeded) {
+        // 🔒 استرداد البيانات عبر فحص المستندات يدوياً عند تعطل التجميع
         try {
           final deliveredDocsSnap = await _db
               .collection('orders')
@@ -472,6 +521,8 @@ class AdminService {
           if (calcReturns > 0) returnedRevenue = calcReturns;
         } catch (_) {}
       }
+      // إضافة قيمة المرتجعات بعد اكتمال حسابها لتوحيد الأساس المحاسبي مع الشظايا
+      grossRevenue += returnedRevenue;
     }
     return AdminStats(
       totalOrders: totalOrders,
@@ -748,39 +799,6 @@ class AdminService {
     }
   }
 
-  Map<String, String> statusNotification(String status) {
-    return switch (status) {
-      'confirmed' => {
-          'title': '✅ طلبك عندنا وبالأمانة!',
-          'body':
-              'استلمنا طلبك وبدأنا تجهيزه بعناية. أنت في أيدٍ أمينة 💪 شكراً لثقتك بنا!',
-        },
-      'shipped' => {
-          'title': '🚚 طلبك انطلق نحوك!',
-          'body': 'المندوب في الطريق إليك الآن 🛣️ استعد للاستقبال!',
-        },
-      'delivered' => {
-          'title': '🎉 وصل طلبك بالسلامة!',
-          'body':
-              'تم التسليم بنجاح ✨ نتمنى أن تكون راضياً تماماً. رأيك يهمنا كثيراً، ونسعد بخدمتك دائماً 🙏💚',
-        },
-      'cancelled' => {
-          'title': '💛 بخصوص طلبك',
-          'body':
-              'نأسف على الإزعاج، واجهنا ظرفاً طارئاً اضطررنا فيه لإيقاف هذا الطلب مؤقتاً. يسعدنا خدمتك في أقرب وقت 🙏',
-        },
-      'rejected' => {
-          'title': '💛 بخصوص طلبك',
-          'body':
-              'نعتذر منك بصدق، لم نتمكن من تنفيذ طلبك هذه المرة لأسباب خارجة عن إرادتنا. نقدّر ثقتك ونتطلع لخدمتك في المرة القادمة 🙏',
-        },
-      _ => {
-          'title': '📦 تحديث طلبك',
-          'body': 'تم تحديث حالة طلبك. نحن هنا لخدمتك دائماً 💚',
-        },
-    };
-  }
-
 // ── إشعارات ──
   Future<List<Map<String, dynamic>>> getUserNotifications(String userId) async {
     try {
@@ -964,15 +982,10 @@ class AdminService {
       options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
     );
 
-    try {
-      await callable.call({'type': 'brand', 'id': cleanId});
-      await AppCache.instance.invalidateBrands();
-      await AppCache.instance.invalidateProducts();
-      return true;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AdminService] deleteBrand error: $e');
-      return false;
-    }
+    await callable.call({'type': 'brand', 'id': cleanId});
+    await AppCache.instance.invalidateBrands();
+    await AppCache.instance.invalidateProducts();
+    return true;
   }
 
 // ── المنتجات (مع فرز بالذاكرة لتفادي FAILED_PRECONDITION) ──
@@ -1014,6 +1027,7 @@ class AdminService {
     String? expiryDate,
     String? barcode,
     List<Map<String, dynamic>> units = const [],
+    List<Map<String, dynamic>> variants = const [],
   }) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) throw ArgumentError('اسم المنتج مطلوب');
@@ -1039,6 +1053,7 @@ class AdminService {
         'expiryDate': expiryDate,
         'barcode': barcode,
         'units': units,
+        'variants': variants,
       });
 
       await AppCache.instance.invalidateProducts();

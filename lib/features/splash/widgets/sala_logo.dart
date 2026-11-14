@@ -161,5 +161,6 @@ class _WissalLogoPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _WissalLogoPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

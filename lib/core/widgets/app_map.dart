@@ -59,6 +59,7 @@ class _AppMapState extends State<AppMap> {
   bool _locating = false;
   bool _searching = false;
   bool _isDownloadingOffline = false;
+  bool _hasLocationPermission = false;
   Timer? _searchDebounce;
   List<_SanaaPlace> _searchResults = [];
 
@@ -69,12 +70,20 @@ class _AppMapState extends State<AppMap> {
     final init = widget.initialLocation ?? widget.defaultCenter;
     _selectedLocation = gmaps.LatLng(init.latitude, init.longitude);
 
+    Geolocator.checkPermission().then((perm) {
+      if (mounted &&
+          (perm == LocationPermission.always ||
+              perm == LocationPermission.whileInUse)) {
+        setState(() => _hasLocationPermission = true);
+      }
+    });
+
     // تهيئة محرك الأماكن والأوفلاين
     _SanaaPlacesEngine.init();
-
     if (widget.showCurrentLocation && widget.initialLocation == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _getCurrentLocation(silent: true);
+        // عند فتح الخريطة لتحديد الموقع (allowPick)، نطلب الإذن بنشاط ودون تجاهل صامت
+        _getCurrentLocation(silent: !widget.allowPick);
       });
     }
   }
@@ -205,6 +214,9 @@ class _AppMapState extends State<AppMap> {
         return;
       }
 
+      if (mounted && !_hasLocationPermission) {
+        setState(() => _hasLocationPermission = true);
+      }
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -306,7 +318,7 @@ class _AppMapState extends State<AppMap> {
               : (widget.style == AppMapStyle.terrain
                   ? gmaps.MapType.terrain
                   : gmaps.MapType.normal),
-          myLocationEnabled: true,
+          myLocationEnabled: _hasLocationPermission,
           myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           compassEnabled: true,

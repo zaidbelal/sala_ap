@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wissal/core/services/local_storage.dart';
 import 'package:wissal/core/services/realtime_hub.dart';
+import 'package:wissal/features/auth/login/services/quickconnect_otp_service.dart';
 import 'dart:async';
 
 enum SessionResult {
@@ -117,16 +118,21 @@ class SessionChecker {
           'warehouse_manager',
           'driver'
         };
+        // التحقق مما إذا كان الحساب ينتمي لأرقام الاختبار المعتمدة لفايربيز
+        final phoneNum = data['phone_number']?.toString() ?? '';
+        final isTestAccount =
+            QuickConnectOtpService.isFirebaseTestPhone(phoneNum);
+
         final String effectiveRole;
         if (privilegedRoles.contains(docRole)) {
-          if (verifiedRole == docRole) {
+          if (verifiedRole == docRole || isTestAccount) {
             effectiveRole = docRole;
           } else {
             // تراجع آمن وتجريد من الصلاحيات إذا لم تتطابق التوقيعات المشفرة
             effectiveRole = 'merchant';
           }
         } else {
-          effectiveRole = verifiedRole ?? 'merchant';
+          effectiveRole = verifiedRole ?? docRole;
         }
 
         await AppStorage.setIsActive(isActive);
@@ -135,12 +141,23 @@ class SessionChecker {
           userId: userId,
           role: effectiveRole,
           name: data['full_name'] as String?,
+          storeName: data['store_name'] as String?,
           phone: data['phone_number'] as String?,
         );
 
         unawaited(RealtimeHub().startForUser(userId, role: effectiveRole));
 
-        if (!isActive) return SessionResult.pending;
+        if (!isActive) {
+          final accountStatus =
+              data['account_status']?.toString().trim().toLowerCase() ?? '';
+          // إذا لم يكمل التاجر إدخال تفاصيل المتجر والموقع، لا يُحجز في شاشة الانتظار
+          if (accountStatus == 'otp_verified' || data['store_name'] == null) {
+            await FirebaseAuth.instance.signOut();
+            await AppStorage.clearUserData();
+            return SessionResult.unauthenticated;
+          }
+          return SessionResult.pending;
+        }
 
         return switch (effectiveRole) {
           'admin' ||

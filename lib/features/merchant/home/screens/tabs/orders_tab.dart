@@ -45,6 +45,34 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     _tabController = TabController(length: _tabs.length, vsync: this);
   }
 
+  Future<void> _refreshOrders(String merchantId) async {
+    if (merchantId.isEmpty) return;
+    setState(() {
+      _ordersCursor = null;
+      _olderOrders.clear();
+      _hasMoreOrders = true;
+      _orderLoadError = null;
+    });
+    try {
+      final initialDocs = await FirebaseFirestore.instance
+          .collection('orders')
+          .where('merchant_id', isEqualTo: merchantId)
+          .orderBy('created_at', descending: true)
+          .limit(_ordersPageSize)
+          .get(const GetOptions(source: Source.server));
+      if (!mounted) return;
+      if (initialDocs.docs.isNotEmpty) {
+        _ordersCursor = initialDocs.docs.last;
+        for (final doc in initialDocs.docs) {
+          _olderOrders[doc.id] = {'id': doc.id, ...doc.data()};
+        }
+      }
+      setState(() {
+        _hasMoreOrders = initialDocs.docs.length == _ordersPageSize;
+      });
+    } catch (_) {}
+  }
+
   Future<void> _loadMoreOrders(String merchantId) async {
     if (merchantId.isEmpty || !_hasMoreOrders || _isLoadingMoreOrders) {
       return;
@@ -218,6 +246,8 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
+                        onRefresh: () => _refreshOrders(
+                            merchantId), // 👈 تحديث صحيح لأعلى القائمة
                       ),
                       _OrdersList(
                         orders: filterBy(const [
@@ -233,6 +263,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                       _OrdersList(
                         orders: filterBy(const ['delivered']),
@@ -241,6 +272,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                       _OrdersList(
                         orders: filterBy(const ['cancelled', 'rejected']),
@@ -249,6 +281,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                       _OrdersList(
                         orders:
@@ -258,6 +291,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                     ],
                   );
@@ -282,6 +316,7 @@ class _OrdersList extends StatelessWidget {
   final bool isLoadingMore;
   final String? loadMoreError;
   final VoidCallback onLoadMore;
+  final Future<void> Function() onRefresh;
 
   const _OrdersList({
     required this.orders,
@@ -290,6 +325,7 @@ class _OrdersList extends StatelessWidget {
     required this.isLoadingMore,
     required this.loadMoreError,
     required this.onLoadMore,
+    required this.onRefresh,
   });
   void _openOrder(BuildContext context, Map<String, dynamic> raw) {
     HapticFeedback.lightImpact();
@@ -303,11 +339,11 @@ class _OrdersList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ عدم إظهار زر التصفح إذا كانت القائمة الحالية فارغة لمنع تداخله مع شاشة الفراغ
-    final bool showPaginationButton = orders.isNotEmpty && hasMore;
+    final bool showPaginationButton = hasMore;
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () async => onLoadMore(),
+      onRefresh:
+          onRefresh, // 👈 استدعاء التحديث الحقيقي وليس تحميل الصفحات القديمة
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(
             parent: BouncingScrollPhysics()),

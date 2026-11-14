@@ -234,7 +234,7 @@ class Normalizer {
     return Array.from(variants);
   }
 
-  static extractAllBarcodes(mainBarcode, units = []) {
+static extractAllBarcodes(mainBarcode, units = [], variants = []) {
     const allBarcodes = new Set();
     const cleanMain = this.barcode(mainBarcode);
     if (cleanMain) {
@@ -245,6 +245,23 @@ class Normalizer {
         const uBar = this.barcode(u.barcode);
         if (uBar) {
           this.extractBarcodeVariants(uBar).forEach((b) => allBarcodes.add(b));
+        }
+      }
+    }
+    if (Array.isArray(variants)) {
+      for (const v of variants) {
+        if (!v || typeof v !== "object") continue;
+        const vBar = this.barcode(v.barcode);
+        if (vBar) {
+          this.extractBarcodeVariants(vBar).forEach((b) => allBarcodes.add(b));
+        }
+        if (Array.isArray(v.units)) {
+          for (const vu of v.units) {
+            const vuBar = this.barcode(vu.barcode);
+            if (vuBar) {
+              this.extractBarcodeVariants(vuBar).forEach((b) => allBarcodes.add(b));
+            }
+          }
         }
       }
     }
@@ -270,7 +287,7 @@ class OrderCalculator {
     const unavailableItems = [];
     const outOfStockItems = [];
 
-    for (const item of items) {
+ for (const item of items) {
       const pId = String(item.product_id).trim();
       const product = productMap.get(pId);
 
@@ -284,47 +301,77 @@ class OrderCalculator {
         throw new HttpsError("invalid-argument", `كمية الصنف (${product.name || pId}) غير صحيحة`);
       }
 
-      const configuredCartonItems = Number(product.items_per_carton);
+      const variantId = item.variant_id ? String(item.variant_id).trim() : null;
+      const variants = Array.isArray(product.variants) ? product.variants : [];
+      let selectedVariant = null;
+
+      if (variantId) {
+        selectedVariant = variants.find((v) => String(v.id || v.label).trim() === variantId);
+        if (!selectedVariant) {
+          throw new HttpsError("failed-precondition", `PRODUCT_UNAVAILABLE_[${pId}:${variantId}]: الحجم المطلوب لم يعد متوفراً`);
+        }
+      }
+
+      const configuredCartonItems = Number(selectedVariant?.items_per_carton ?? product.items_per_carton);
       const cartonItems = Number.isFinite(configuredCartonItems) && configuredCartonItems > 0 ? configuredCartonItems : 1;
       const productFinancials = productFinancialMap.get(pId) || {};
-      let unitPrice = Number(product.price);
-      let costPrice = Number(productFinancials.cost_price ?? product.cost_price) || 0;
 
-      const financialUnits = new Map(
-        (Array.isArray(productFinancials.units) ? productFinancials.units : [])
-          .map((u) => [String(u.label).trim(), u])
-      );
+      let unitPrice = Number(selectedVariant?.price ?? product.price);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        throw new HttpsError("failed-precondition", `سعر الصنف (${product.name || pId}) غير صالح`);
+      }
 
-    const unitLabel = String(item.unit_label || "كرتون").trim();
+      let costPrice = 0;
+      let financialUnits = new Map();
+
+      if (selectedVariant) {
+        const fVariants = Array.isArray(productFinancials.variants) ? productFinancials.variants : [];
+        const fv = fVariants.find((f) => String(f.id || f.label).trim() === String(selectedVariant.id || selectedVariant.label).trim()) || {};
+        costPrice = Number(fv.cost_price ?? selectedVariant.cost_price) || 0;
+        financialUnits = new Map(
+          (Array.isArray(fv.units) ? fv.units : []).map((u) => [String(u.label).trim(), u])
+        );
+      } else {
+        costPrice = Number(productFinancials.cost_price ?? product.cost_price) || 0;
+        financialUnits = new Map(
+          (Array.isArray(productFinancials.units) ? productFinancials.units : []).map((u) => [String(u.label).trim(), u])
+        );
+      }
+
+      const unitLabel = String(item.unit_label || "كرتون").trim();
       const isCarton = (unitLabel === "كرتون");
-      const availableUnits = Array.isArray(product.units) ? product.units : [];
+      const availableUnits = Array.isArray(selectedVariant?.units ?? product.units) ? (selectedVariant?.units ?? product.units) : [];
       let selectedUnit = availableUnits.find((u) => String(u.label || "").trim() === unitLabel);
 
       let unitQty = 1;
       if (selectedUnit) {
         unitPrice = Number(selectedUnit.price);
-        // 🔒 حماية المخزون: إذا كانت الوحدة كرتون، يجب أن تُعامل ككرتون كامل دائماً
         unitQty = isCarton ? cartonItems : (Number(selectedUnit.qty) || 1);
       } else if (isCarton) {
-        unitPrice = Number(product.price);
+        unitPrice = Number(selectedVariant?.price ?? product.price);
         unitQty = cartonItems;
       } else {
-        throw new HttpsError("failed-precondition", `PRODUCT_UNAVAILABLE_[${pId}:${unitLabel}]: الوحدة المطلوبة لم تعد متوفرة`);
+        const varToken = selectedVariant ? `${selectedVariant.id}:` : "";
+        throw new HttpsError("failed-precondition", `PRODUCT_UNAVAILABLE_[${pId}:${varToken}${unitLabel}]: الوحدة المطلوبة لم تعد متوفرة`);
       }
+const stockDeductCartons = Number(((qty * unitQty) / cartonItems).toFixed(4));
+      const deductionKey = selectedVariant ? `${pId}__v_${selectedVariant.id}` : pId;
+      const existingEntry = stockDeductions.get(deductionKey);
+      const currentDeduction = Number(existingEntry?.delta ?? 0);
+      const totalDeduction = Number((currentDeduction + stockDeductCartons).toFixed(4));
 
-      // المعادلة المنضبطة:
-      const stockDeductCartons = Number(((qty * unitQty) / cartonItems).toFixed(4));
-      const currentDeduction = stockDeductions.get(pId) || 0;
-      const totalDeduction = currentDeduction + stockDeductCartons;
-
-    const currentStock = Math.max(0, Number(product.stock) || 0);
-      if (currentStock < totalDeduction) {
-        outOfStockItems.push({ id: pId, name: product.name || pId });
-        stockDeductions.delete(pId);
+      const availableStock = Math.max(0, Number(selectedVariant?.stock ?? product.stock) || 0);
+      if (availableStock < totalDeduction) {
+        const token = selectedVariant ? `${selectedVariant.id}:${unitLabel}` : unitLabel;
+        const displayName = selectedVariant ? `${product.name} (${selectedVariant.label})` : product.name;
+        outOfStockItems.push({ id: pId, unitLabel: token, name: displayName });
         continue;
       }
-      stockDeductions.set(pId, totalDeduction);
-
+      stockDeductions.set(deductionKey, {
+        productId: pId,
+        variantId: selectedVariant ? selectedVariant.id : null,
+        delta: totalDeduction,
+      });
       const subtotal = unitPrice * qty;
       let unitCost = 0;
       const selectedUnitFinancials = selectedUnit ? financialUnits.get(unitLabel) : null;
@@ -340,11 +387,17 @@ class OrderCalculator {
       serverTotal += subtotal;
       serverProfit += itemProfit;
 
+      const itemDisplayName = selectedVariant
+        ? `${product.name} - ${selectedVariant.label}`
+        : (product.name || item.product_name || "");
+
       enrichedItems.push({
         order_id: orderId,
         merchant_id: merchantId,
         product_id: pId,
-        product_name: product.name || item.product_name || "",
+        product_name: itemDisplayName,
+        variant_id: selectedVariant ? selectedVariant.id : null,
+        variant_label: selectedVariant ? selectedVariant.label : null,
         price: unitPrice,
         carton_capacity: cartonItems,
         quantity: qty,
@@ -359,8 +412,7 @@ class OrderCalculator {
         profit: itemProfit,
       });
     }
-
-    return {
+return {
       serverTotal,
       serverProfit,
       stockDeductions,
@@ -369,6 +421,69 @@ class OrderCalculator {
       unavailableItems,
       outOfStockItems,
     };
+  }
+
+  static applyProductStockDeltas({ tx, entries, productMap, isRestore, auditMeta }) {
+    const groupedByProduct = new Map();
+    for (const entry of entries) {
+      const pId = String(entry.productId || "").trim();
+      const delta = Number(entry.delta) || 0;
+      if (!pId || delta <= 0) continue;
+      if (!groupedByProduct.has(pId)) {
+        groupedByProduct.set(pId, { rootDelta: 0, variantDeltas: new Map(), totalDelta: 0 });
+      }
+      const bucket = groupedByProduct.get(pId);
+      bucket.totalDelta = Number((bucket.totalDelta + delta).toFixed(4));
+      if (entry.variantId) {
+        const vId = String(entry.variantId).trim();
+        bucket.variantDeltas.set(vId, Number(((bucket.variantDeltas.get(vId) || 0) + delta).toFixed(4)));
+      } else {
+        bucket.rootDelta = Number((bucket.rootDelta + delta).toFixed(4));
+      }
+    }
+
+    for (const [pId, bucket] of groupedByProduct.entries()) {
+      const pDoc = productMap.get(pId) || {};
+      const productRef = db.collection("products").doc(pId);
+      const updatePayload = { updated_at: FieldValue.serverTimestamp() };
+
+      const currentSales = Number(pDoc.sales_count) || 0;
+      const salesDelta = isRestore
+        ? -Math.min(currentSales, bucket.totalDelta)
+        : bucket.totalDelta;
+      updatePayload.sales_count = FieldValue.increment(salesDelta);
+
+      let remainingRootDelta = bucket.rootDelta;
+      if (bucket.variantDeltas.size > 0 && Array.isArray(pDoc.variants)) {
+        const updatedVariants = pDoc.variants.map((v) => {
+          const key = String(v.id || v.label).trim();
+          const vDelta = bucket.variantDeltas.get(key);
+          if (!vDelta) return v;
+          const currentVStock = Math.max(0, Number(v.stock) || 0);
+          const nextVStock = isRestore ? currentVStock + vDelta : Math.max(0, currentVStock - vDelta);
+          return { ...v, stock: Number(nextVStock.toFixed(4)) };
+        });
+        updatePayload.variants = updatedVariants;
+      } else if (bucket.variantDeltas.size > 0) {
+        for (const vDelta of bucket.variantDeltas.values()) {
+          remainingRootDelta = Number((remainingRootDelta + vDelta).toFixed(4));
+        }
+      }
+
+      if (remainingRootDelta > 0) {
+        updatePayload.stock = FieldValue.increment(isRestore ? remainingRootDelta : -remainingRootDelta);
+      }
+
+      tx.update(productRef, updatePayload);
+
+      const auditRef = db.collection("inventory_audit_log").doc();
+      tx.set(auditRef, {
+        product_id: pId,
+        delta: isRestore ? bucket.totalDelta : -bucket.totalDelta,
+        ...auditMeta,
+        created_at: FieldValue.serverTimestamp(),
+      });
+    }
   }
 }
 
@@ -455,15 +570,19 @@ exports.requestOtp = onCall(
     const userExists = !profileSnap.empty;
     const userData = userExists ? profileSnap.docs[0].data() : null;
 
- if (purpose === "login") {
-      // إذا كان تسجيل دخول والرقم غير مسجل أصلاً، أو محظور، أو لم يستكمل التسجيل: ننسحب بأمان
-      if (!userExists || userData?.is_banned === true || userData?.is_deleted === true || userData?.account_status === "otp_verified") {
-        return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
+if (purpose === "login") {
+      if (!userExists || userData?.is_deleted === true) {
+        throw new HttpsError("not-found", "هذا الرقم غير مسجل مسبقاً، يرجى الانتقال إلى خيار 'إنشاء حساب'");
       }
-   } else if (purpose === "signup") {
-      // رد موحد ومبهم لمنع استغلال الدالة في كشف وتخمين الأرقام المسجلة
+      if (userData?.is_banned === true) {
+        throw new HttpsError("permission-denied", "تم حظر هذا الحساب، يرجى التواصل مع إدارة المنصة");
+      }
+      if (userData?.account_status === "otp_verified") {
+        throw new HttpsError("failed-precondition", "لم تكتمل بيانات متجرك مسبقاً، يرجى إنشاء حساب لإكمالها");
+      }
+    } else if (purpose === "signup") {
       if (userExists && userData?.is_deleted !== true && userData?.account_status !== "otp_verified") {
-        return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
+        throw new HttpsError("already-exists", "هذا الرقم مسجل بالفعل، يرجى الضغط على 'تسجيل الدخول'");
       }
     }
     const otpRef = db.collection("otp_codes").doc(phone);
@@ -611,29 +730,45 @@ if (Date.now() > data.expiresAt.toMillis()) {
       console.error("[verifyOtp] Transaction Failure:", err);
       return { verified: false, message: "فشل التحقق من الرمز، حاول مجدداً" };
     }
-    if (verificationStatus !== "verified") {
+  if (verificationStatus !== "verified") {
+      const statusMessages = {
+        invalid_code: "رمز التحقق غير صحيح، يرجى التأكد وإعادة المحاولة",
+        attempts_exhausted: "استنفدت عدد المحاولات المسموحة، يرجى طلب رمز جديد",
+        expired: "انتهت صلاحية الرمز، يرجى طلب رمز جديد",
+        missing: "لم يتم العثور على جلسة تحقق نشطة، يرجى طلب رمز جديد",
+        invalid_purpose: "نوع طلب التحقق غير مطابق",
+      };
       return {
         verified: false,
-        message: "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً",
+        message: statusMessages[verificationStatus] || "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً",
       };
     }
 
     let uid;
     let role = "merchant";
-    if (purpose === "login") {
+  if (purpose === "login") {
       const profileSnap = await db.collection("profiles").where("phone_number", "==", phone).limit(1).get();
       if (profileSnap.empty) {
         return { verified: false, message: "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً" };
       }
       const userDoc = profileSnap.docs[0];
       const userData = userDoc.data();
-      if (userData.is_banned === true ||
-          (userData.is_active === false && userData.account_status !== "pending")) {
-        return { verified: false, message: "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً" };
+
+      if (userData.is_banned === true) {
+        return { verified: false, message: "تم حظر هذا الحساب، يرجى التواصل مع الإدارة" };
+      }
+      if (userData.account_status === "otp_verified") {
+        return { 
+          verified: false, 
+          message: "لم تكتمل عملية التسجيل مسبقاً، يرجى استخدام خيار 'إنشاء حساب' لإكمال بيانات متجرك" 
+        };
+      }
+      if (userData.is_active === false && userData.account_status !== "pending") {
+        return { verified: false, message: "الحساب معطل حالياً من قِبل الإدارة" };
       }
       uid = userDoc.id;
       role = userData.role || "merchant";
-  } else {
+  }   else {
       const existingProfile = await db.collection("profiles")
         .where("phone_number", "==", phone)
         .limit(1)
@@ -705,11 +840,11 @@ const targetChannel = type === "new_order" ? "wissal_orders_channel" : "wissal_o
         title: String(title), 
         body: String(body) 
       },
-      data: {
+data: {
         title: String(title),
         body: String(body),
         type: String(type),
-        route: type === "order_status" ? "/merchant" : (type === "new_order" ? "/driver" : "/notifications"),
+        order_id: String(notifData.order_id || ""),
         click_action: "FLUTTER_NOTIFICATION_CLICK"
       },
       android: {
@@ -1052,9 +1187,11 @@ exports.createUserProfile = onCall(
         if (!phoneMatches.empty && phoneMatches.docs[0].id !== uid) {
           throw new HttpsError("already-exists", "رقم الهاتف هذا مسجل مسبقاً لحساب آخر");
         }
-     if (existingDoc.exists) {
+if (existingDoc.exists) {
           const existingData = existingDoc.data() || {};
-          if (existingData.role !== "merchant" || existingData.phone_number !== cleanPhone) {
+          if (existingData.role !== "merchant" ||
+              existingData.phone_number !== cleanPhone ||
+              existingData.account_status !== "otp_verified") {
             throw new HttpsError("already-exists", "ملف الحساب موجود مسبقاً ولا يمكن إعادة إنشائه");
           }
           // ✅ تحديث الحساب المحجوز مسبقاً من OTP وحفظ كافة البيانات الجغرافية والاسم
@@ -1083,7 +1220,14 @@ exports.createUserProfile = onCall(
         }
       });
 
-      await auth.setCustomUserClaims(uid, { role: "merchant", purpose: "registered" });
+    const userRecord = await auth.getUser(uid);
+      const currentClaims = userRecord.customClaims || {};
+      await auth.setCustomUserClaims(uid, {
+        ...currentClaims,
+        role: "merchant",
+        purpose: "registered",
+        verified_phone: cleanPhone,
+      });
 
       return {
         success: true,
@@ -1250,12 +1394,12 @@ exports.placeOrder = onCall(
         );
       }
 
-      if (outOfStockItems.length > 0) {
-        const ids = outOfStockItems.map((i) => i.id).join(",");
-        const names = outOfStockItems.map((i) => i.name).join("، ");
+    if (outOfStockItems.length > 0) {
+        const itemTokens = outOfStockItems.map((i) => `${i.id}:${i.unitLabel}`).join(",");
+        const names = outOfStockItems.map((i) => `${i.name} (${i.unitLabel})`).join("، ");
         throw new HttpsError(
           "failed-precondition",
-          `OUT_OF_STOCK_[${ids}]: نعتذر، نفد مخزون الأصناف التالية من المستودع (${names})`,
+          `OUT_OF_STOCK_[${itemTokens}]: نعتذر، نفد مخزون الأصناف التالية من المستودع (${names})`,
         );
       }
 
@@ -1283,7 +1427,7 @@ exports.placeOrder = onCall(
       }
 
       // 🔒 حماية مالية صارمة: فحص تطابق الإجمالي الصافي للسلة
-      if (expectedTotal != null) {
+   if (expectedTotal != null) {
         const clientTotal = Number(expectedTotal);
         if (Number.isFinite(clientTotal) && Math.abs(serverTotal - clientTotal) > 1.0) {
           throw new HttpsError(
@@ -1292,25 +1436,17 @@ exports.placeOrder = onCall(
           );
         }
       }
-
-      for (const [pId, deductQty] of stockDeductions.entries()) {
-        const safeDeduct = Number(deductQty.toFixed(4));
-        tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(-safeDeduct),
-          updated_at: FieldValue.serverTimestamp(),
-        });
-
-        const auditRef = db.collection("inventory_audit_log").doc();
-        tx.set(auditRef, {
-          product_id: pId,
+      OrderCalculator.applyProductStockDeltas({
+        tx,
+        entries: Array.from(stockDeductions.values()),
+        productMap,
+        isRestore: false,
+        auditMeta: {
           order_id: cleanOrderId,
           action: "order_placed",
-          delta: -safeDeduct,
           merchant_id: uid,
-          created_at: FieldValue.serverTimestamp(),
-        });
-      }
-
+        },
+      });
       // 🔒 التوصيل مجاني للتاجر: إجمالي الفاتورة يطابق سلتَه 100% دون زيادة
       const rawExtra = extraData || {};
       const grandTotal = serverTotal;
@@ -1435,39 +1571,48 @@ const cleanOrderId = String(orderId).trim();
       if (order.status !== "pending") {
         throw new HttpsError("failed-precondition", `لا يمكن إلغاء طلب بحالة: ${order.status}`);
       }
-
-  // 2. استرجاع المخزون للأصناف ذرياً عبر التجميع المسبق لمنع مسح التعديلات المتعددة لنفس الصنف
-      const stockRestores = new Map();
+const stockRestores = new Map();
+      const uniqueProductIds = new Set();
       for (const doc of itemDocs) {
         const item = doc.data();
         const pId = item.product_id;
+        const vId = item.variant_id ? String(item.variant_id).trim() : null;
         const qty = Number(item.quantity) || 0;
         const capacity = Number(item.carton_capacity) || 1;
         const unitQty = Number(item.unit_qty) || capacity;
         const cartonsToRestore = Number(((qty * unitQty) / capacity).toFixed(4));
 
         if (pId && cartonsToRestore > 0) {
-          stockRestores.set(pId, (stockRestores.get(pId) || 0) + cartonsToRestore);
+          uniqueProductIds.add(pId);
+          const key = vId ? `${pId}__v_${vId}` : pId;
+          const prev = stockRestores.get(key);
+          stockRestores.set(key, {
+            productId: pId,
+            variantId: vId,
+            delta: Number(((prev?.delta || 0) + cartonsToRestore).toFixed(4)),
+          });
         }
       }
 
-   for (const [pId, restoreAmount] of stockRestores.entries()) {
-        const safeRestore = Number(restoreAmount.toFixed(4));
-        tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(safeRestore),
-          updated_at: FieldValue.serverTimestamp(),
-        });
+      const productSnaps = await Promise.all(
+        Array.from(uniqueProductIds).map((pId) => tx.get(db.collection("products").doc(pId)))
+      );
+      const productMap = new Map();
+      productSnaps.forEach((pSnap) => {
+        if (pSnap.exists) productMap.set(pSnap.id, pSnap.data());
+      });
 
-        const auditRef = db.collection("inventory_audit_log").doc();
-        tx.set(auditRef, {
-          product_id: pId,
+      OrderCalculator.applyProductStockDeltas({
+        tx,
+        entries: Array.from(stockRestores.values()),
+        productMap,
+        isRestore: true,
+        auditMeta: {
           order_id: cleanOrderId,
           action: "order_cancelled",
-          delta: safeRestore,
           performed_by: uid,
-          created_at: FieldValue.serverTimestamp(),
-        });
-      }
+        },
+      });
       tx.update(orderRef, {
         status: "cancelled",
         cancelled_at: FieldValue.serverTimestamp(),
@@ -1560,8 +1705,7 @@ exports.processReturn = onCall(
       const itemRef = db.collection("order_items").doc(returnData.order_item_id);
       const itemFinancialRef = db.collection("order_item_financials").doc(returnData.order_item_id);
       const summaryParentRef = db.collection("stats").doc("profit_summary");
-
-      const [itemSnap, itemFinancialSnap, summarySnap] = await Promise.all([
+const [itemSnap, itemFinancialSnap, summarySnap] = await Promise.all([
         tx.get(itemRef),
         tx.get(itemFinancialRef),
         tx.get(summaryParentRef),
@@ -1571,6 +1715,10 @@ exports.processReturn = onCall(
         throw new HttpsError("not-found", "عنصر الطلب الأصلي غير موجود");
       }
       const itemData = itemSnap.data();
+    const productRef = db.collection("products").doc(itemData.product_id);
+      const productSnap = await tx.get(productRef);
+      const productMap = new Map();
+      if (productSnap.exists) productMap.set(productSnap.id, productSnap.data());
 
       const returnQty = Number(returnData.quantity) || 0;
       const capacity = Number(itemData.carton_capacity) || 1;
@@ -1583,24 +1731,30 @@ exports.processReturn = onCall(
         itemFinancialSnap.data()?.unit_cost ?? itemData.unit_cost,
       ) || 0;
       const deductedProfit = (price - unitCost) * returnQty;
-      const currentProfit = Number(
-        orderFinancialSnap.data()?.total_profit ?? orderData?.total_profit,
-      );
-      if (!Number.isFinite(currentProfit)) {
-        throw new HttpsError("failed-precondition", "بيانات أرباح الطلب غير متاحة");
-      }
+      const rawProfit = orderFinancialSnap.data()?.total_profit ?? orderData?.total_profit;
+      const currentProfit = Number.isFinite(Number(rawProfit)) ? Number(rawProfit) : 0;
 
       const lastResetAt = summarySnap.data()?.last_reset_at?.toMillis?.() ?? 0;
       const orderDeliveredAt = orderData?.delivered_at?.toMillis?.() ?? (orderData?.created_at?.toMillis?.() ?? 0);
       const isFromCurrentCycle = orderDeliveredAt >= lastResetAt;
 
       // ── مرحلة الكتابة (Writes) حصراً بعد انتهاء كافة القراءات ──
-      // 1. إعادة المخزون
-      tx.update(db.collection("products").doc(itemData.product_id), {
-        stock: FieldValue.increment(cartonsToRestore),
-        updated_at: FieldValue.serverTimestamp(),
+      // 1. إعادة المخزون (مع مراعاة مخزون الأحجام variants)
+      OrderCalculator.applyProductStockDeltas({
+        tx,
+        entries: [{
+          productId: itemData.product_id,
+          variantId: itemData.variant_id || null,
+          delta: cartonsToRestore,
+        }],
+        productMap,
+        isRestore: true,
+        auditMeta: {
+          order_id: returnData.order_id,
+          action: "return_accepted",
+          performed_by: uid,
+        },
       });
-
       // 2. تحديث عداد المرتجع في الصنف
       tx.update(itemRef, {
         returned_quantity: FieldValue.increment(returnQty),
@@ -1822,10 +1976,10 @@ const validDeliveryStatuses = ["shipped", "on_the_way", "confirmed", "preparing"
         delivery_fee: Number(order.delivery_fee) > 0 ? Number(order.delivery_fee) : 500.0, // تثبيت الـ 500 ر.ي في حساب السائق
       };
 
-      if (!order.driver_id && callerRole === "driver") {
-        updatePayload.driver_id = uid;
-        updatePayload.driver_name = callerData.full_name || "مندوب معتمد";
-        updatePayload.picked_up_at = order.picked_up_at || FieldValue.serverTimestamp();
+     if (callerRole === "driver") {
+        if (!order.driver_id || order.driver_id !== uid) {
+          throw new HttpsError("permission-denied", "لا يمكن تأكيد التسليم إلا بعد استلام الطلب من المستودع وقبوله رسمياً");
+        }
       }
 
     // 🔒 فرض وجود التوقيع الرقمي قانونياً عند قيام السائق بالتسليم
@@ -2105,7 +2259,7 @@ exports.manageUserAccount = onCall(
           updates.account_status = "active";
         }
 
-        await targetRef.update(updates);
+    await targetRef.update(updates);
 
         // تحديث الرتبة وإبطال التوكنات القديمة فوراً لمنع تسريب الصلاحيات
         try {
@@ -2118,11 +2272,12 @@ exports.manageUserAccount = onCall(
           });
           await auth.revokeRefreshTokens(cleanTargetId);
         } catch (authErr) {
-          console.warn(`[manageUserAccount] Failed to set claims/revoke tokens for ${cleanTargetId}:`, authErr);
+          console.error(`[manageUserAccount] Failed to set claims/revoke tokens for ${cleanTargetId}:`, authErr);
+          throw new HttpsError("internal", "تم تحديث البيانات وفشل توثيق الصلاحيات في خادم الأمان، يرجى إعادة المحاولة");
         }
         return { success: true, message: "تم تغيير الرتبة وإبطال الجلسات السابقة بنجاح" };
       }
-      case "ban": {
+   case "ban": {
         await targetRef.update({
           is_active: false,
           is_banned: true,
@@ -2130,8 +2285,13 @@ exports.manageUserAccount = onCall(
           banned_at: FieldValue.serverTimestamp(),
           updated_at: FieldValue.serverTimestamp(),
         });
-        // إبطال جلسة المستخدم وطرده فوراً
         try {
+          const userRecord = await auth.getUser(cleanTargetId);
+          const currentClaims = userRecord.customClaims || {};
+          await auth.setCustomUserClaims(cleanTargetId, {
+            ...currentClaims,
+            is_banned: true,
+          });
           await auth.revokeRefreshTokens(cleanTargetId);
         } catch (_) {}
         return { success: true, message: "تم حظر الحساب بنجاح" };
@@ -2145,9 +2305,14 @@ exports.manageUserAccount = onCall(
           banned_at: FieldValue.delete(),
           updated_at: FieldValue.serverTimestamp(),
         });
+        try {
+          const userRecord = await auth.getUser(cleanTargetId);
+          const currentClaims = { ...(userRecord.customClaims || {}) };
+          delete currentClaims.is_banned;
+          await auth.setCustomUserClaims(cleanTargetId, currentClaims);
+        } catch (_) {}
         return { success: true, message: "تم رفع الحظر بنجاح" };
       }
-
       case "toggle_active": {
         if (typeof isActive !== "boolean") {
           throw new HttpsError("invalid-argument", "حالة التفعيل يجب أن تكون قيمة منطقية");
@@ -2268,14 +2433,13 @@ exports.cascadeDeleteCatalogItem = onCall(
       throw new HttpsError("invalid-argument", "نوع العنصر ومعرفه مطلوبان");
     }
 
-   // التحقق من صلاحيات الإدارة
+// التحقق من صلاحيات الإدارة
     await requireActiveRole(
       callerUid,
       ["admin", "super_admin", "warehouse_manager"],
       "هذه العملية مخصصة لمدراء النظام فقط",
     );
-    const allRefsToUpdate = [];
-async function softDeleteInBatches(query) {
+    async function softDeleteInBatches(query) {
       let count = 0;
       // 🚀 إزالة orderBy(FieldPath.documentId()) لتفادي فرض Composite Index مفقود على Firestore
       while (true) {
@@ -2429,34 +2593,81 @@ const orderRef = db.collection("orders").doc(cleanOrderId);
       }
       const order = orderSnap.data();
       const itemDocs = itemsSnap.docs;
-      const currentStatus = String(order.status || "pending").toLowerCase();
+   const currentStatus = String(order.status || "pending").toLowerCase();
       const isProfitRecorded = order.profit_recorded === true;
 
       if (currentStatus === cleanStatus && (cleanStatus !== "delivered" || isProfitRecorded)) {
         return { success: true, changed: false };
       }
-if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
+      if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
         throw new HttpsError("failed-precondition", "لا يمكن تعديل طلب وصل إلى حالة نهائية");
       }
 
-      // 🔒 التحقق الحاسم عبر آلة الحالات الموحدة
       OrderStateMachine.assertCanTransition(currentStatus, cleanStatus);
+
+      // 🔒 تنفيذ كافة القراءات المطلوبة قبل أي كتابة داخل المعاملة
+      let pendingReturnsDocs = [];
+      if (currentStatus === "return_requested" && (cleanStatus === "delivered" || cleanStatus === "returned")) {
+        const pendingSnap = await tx.get(
+          db.collection("order_returns")
+            .where("order_id", "==", cleanOrderId)
+            .where("status", "==", "pending"),
+        );
+        pendingReturnsDocs = pendingSnap.docs;
+      }
+const stockRestores = new Map();
+      const uniqueRestoreProductIds = new Set();
+      const restoreProductMap = new Map();
+      if (requiresStockRestore && itemDocs.length > 0) {
+        for (const itemDoc of itemDocs) {
+          const item = itemDoc.data();
+          const pId = item.product_id;
+          const vId = item.variant_id ? String(item.variant_id).trim() : null;
+          const orderedQty = Number(item.quantity) || 0;
+          const returnedQty = Number(item.returned_quantity) || 0;
+          const netQty = Math.max(0, orderedQty - returnedQty);
+          if (!pId || netQty <= 0) continue;
+          const capacity = Number(item.carton_capacity) || 1;
+          const unitQty = Number(item.unit_qty) || capacity;
+          const cartonsToRestore = Number(((netQty * unitQty) / capacity).toFixed(4));
+          if (cartonsToRestore > 0) {
+            uniqueRestoreProductIds.add(pId);
+            const key = vId ? `${pId}__v_${vId}` : pId;
+            const prev = stockRestores.get(key);
+            stockRestores.set(key, {
+              productId: pId,
+              variantId: vId,
+              delta: Number(((prev?.delta || 0) + cartonsToRestore).toFixed(4)),
+            });
+          }
+        }
+        if (uniqueRestoreProductIds.size > 0) {
+          const productSnaps = await Promise.all(
+            Array.from(uniqueRestoreProductIds).map((pId) => tx.get(db.collection("products").doc(pId)))
+          );
+          productSnaps.forEach((pSnap) => {
+            if (pSnap.exists) {
+              restoreProductMap.set(pSnap.id, pSnap.data());
+            }
+          });
+        }
+      }
+      let summarySnap = null;
+      const summaryParentRef = db.collection("stats").doc("profit_summary");
+      if (cleanStatus === "returned" && isProfitRecorded) {
+        summarySnap = await tx.get(summaryParentRef);
+      }
+
+      // ── مرحلة الكتابة ──
       const updatePayload = {
         status: cleanStatus,
         updated_at: FieldValue.serverTimestamp(),
       };
 
-    if (cleanStatus === "delivered") {
-        // 🔒 تحديث وقت التسليم دائماً بغض النظر عن الحالة السابقة
+      if (cleanStatus === "delivered") {
         updatePayload.delivered_at = FieldValue.serverTimestamp();
-
         if (currentStatus === "return_requested") {
-          const pendingSnap = await tx.get(
-            db.collection("order_returns")
-              .where("order_id", "==", cleanOrderId)
-              .where("status", "==", "pending"),
-          );
-          for (const d of pendingSnap.docs) {
+          for (const d of pendingReturnsDocs) {
             tx.update(d.ref, {
               status: "rejected",
               rejection_reason: "تم اعتماد الطلب كتسليم نهائي",
@@ -2469,14 +2680,12 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
       if (driverId) updatePayload.driver_id = String(driverId).trim();
       if (driverName) updatePayload.driver_name = String(driverName).trim();
 
-      // 1. 🛡️ تسوية الأرباح والإحصائيات بدقة تامة عند التسليم أو الإرجاع
       if (cleanStatus === "delivered" && !isProfitRecorded) {
         const totalProfit = Number(
           financialSnap.data()?.total_profit ?? order.total_profit,
         ) || 0;
         const totalAmount = Number(order.total_amount) || Number(order.total) || 0;
 
-        const summaryParentRef = db.collection("stats").doc("profit_summary");
         tx.set(summaryParentRef, {
           accumulated_profit: FieldValue.increment(totalProfit),
           cycle_profit: FieldValue.increment(totalProfit),
@@ -2489,16 +2698,13 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
           profit_recorded: true,
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
-    } else if (cleanStatus === "returned" && isProfitRecorded) {
-        // 🔒 نزاهة محاسبية 100%: خصم الربح المتبقي فقط بعد استبعاد ما تم خصمه في المرتجعات السابقة
+      } else if (cleanStatus === "returned" && isProfitRecorded) {
         const remainingProfitToDeduct = Math.max(0, Number(
           financialSnap.data()?.total_profit ?? order.total_profit ?? 0
         ));
         const netRemainingAmount = Math.max(0, Number(order.total_amount) || Number(order.total) || 0);
 
-        const summaryParentRef = db.collection("stats").doc("profit_summary");
-        const summarySnap = await tx.get(summaryParentRef);
-        const lastResetAt = summarySnap.data()?.last_reset_at?.toMillis?.() ?? 0;
+        const lastResetAt = summarySnap?.data()?.last_reset_at?.toMillis?.() ?? 0;
         const orderDeliveredAt = order.delivered_at?.toMillis?.() ?? (order.created_at?.toMillis?.() ?? 0);
         const isFromCurrentCycle = orderDeliveredAt >= lastResetAt;
 
@@ -2519,60 +2725,50 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
         updatePayload.profit_recorded = false;
         tx.set(financialRef, {
           order_id: cleanOrderId,
-          total_profit: 0.0, // تصفير صافي ربح الطلب لانتهاء دورته بالكامل
+          total_profit: 0.0,
           profit_recorded: false,
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
       }
-// 2. 🛡️ تجميع استرجاع المخزون وتحديث سجل المرتجع ذرياً
+
       if (requiresStockRestore && itemDocs.length > 0) {
-        const stockRestores = new Map();
-        for (const itemDoc of itemDocs) {
-          const item = itemDoc.data();
-          const pId = item.product_id;
-          const orderedQty = Number(item.quantity) || 0;
-          const returnedQty = Number(item.returned_quantity) || 0;
-          const netQty = Math.max(0, orderedQty - returnedQty);
-
-          if (!pId || netQty <= 0) continue;
-
-          const capacity = Number(item.carton_capacity) || 1;
-          const unitQty = Number(item.unit_qty) || capacity;
-          const cartonsToRestore = Number(((netQty * unitQty) / capacity).toFixed(4));
-
-          if (cartonsToRestore > 0) {
-            stockRestores.set(pId, (stockRestores.get(pId) || 0) + cartonsToRestore);
-          }
-
-          if (cleanStatus === "returned") {
+        if (cleanStatus === "returned") {
+          for (const itemDoc of itemDocs) {
+            const orderedQty = Number(itemDoc.data().quantity) || 0;
             tx.update(itemDoc.ref, {
               returned_quantity: orderedQty,
               updated_at: FieldValue.serverTimestamp(),
             });
           }
         }
-
-   for (const [pId, restoreAmount] of stockRestores.entries()) {
-          const safeRestore = Number(restoreAmount.toFixed(4));
-          tx.update(db.collection("products").doc(pId), {
-            stock: FieldValue.increment(safeRestore),
-            updated_at: FieldValue.serverTimestamp(),
-          });
-
-          const auditRef = db.collection("inventory_audit_log").doc();
-          tx.set(auditRef, {
-            product_id: pId,
+OrderCalculator.applyProductStockDeltas({
+          tx,
+          entries: Array.from(stockRestores.values()),
+          productMap: restoreProductMap,
+          isRestore: true,
+          auditMeta: {
             order_id: cleanOrderId,
             action: `admin_status_${cleanStatus}`,
-            delta: safeRestore,
             performed_by: callerUid,
-            created_at: FieldValue.serverTimestamp(),
-          });
-        }
+          },
+        });
       }
-// إذا تحول الطلب لمرتجع بالكامل يتم توثيق سندات المرتجع آلياً وتثبيت أصل الفاتورة
+
       if (cleanStatus === "returned") {
-        const fullBaseline = Number(order.original_total) || 
+        const pendingQtyByItemId = new Map();
+        if (currentStatus === "return_requested") {
+          for (const d of pendingReturnsDocs) {
+            const pItemId = d.data().order_item_id;
+            const pQty = Number(d.data().quantity) || 0;
+            pendingQtyByItemId.set(pItemId, (pendingQtyByItemId.get(pItemId) || 0) + pQty);
+            tx.update(d.ref, {
+              status: "accepted",
+              reconciled_in_batch: true,
+              updated_at: FieldValue.serverTimestamp(),
+            });
+          }
+        }
+        const fullBaseline = Number(order.original_total) ||
           (Number(order.total_amount || order.total || 0) + Number(order.returned_amount || 0));
         updatePayload.total = 0;
         updatePayload.total_amount = 0;
@@ -2584,7 +2780,8 @@ if (["cancelled", "rejected", "returned"].includes(currentStatus)) {
           const itemData = itemDoc.data();
           const orderedQty = Number(itemData.quantity) || 0;
           const returnedQty = Number(itemData.returned_quantity) || 0;
-          const unreturnedQty = Math.max(0, orderedQty - returnedQty);
+          const alreadyPendingQty = pendingQtyByItemId.get(itemDoc.id) || 0;
+          const unreturnedQty = Math.max(0, orderedQty - returnedQty - alreadyPendingQty);
           if (unreturnedQty > 0) {
             const retRef = db.collection("order_returns").doc();
             const returnSeq = IdGenerator.generateReturnNumber();
@@ -2651,22 +2848,26 @@ exports.adminAddProduct = onCall(
     const data = request.data || {};
     const cleanName = String(data.name || "").trim();
     const brandId = String(data.brandId || "").trim();
-    const price = Number(data.price) || 0;
-    const costPrice = Math.max(0, Number(data.costPrice) || 0);
-    const stock = Math.max(0, Number(data.stock) || 0);
+  const price = Number(data.price);
+    const costPrice = data.costPrice != null ? Math.max(0, Number(data.costPrice) || 0) : 0;
+    const stock = data.stock != null ? Number(data.stock) : 0;
 
     if (!cleanName) throw new HttpsError("invalid-argument", "اسم المنتج مطلوب");
     if (!brandId) throw new HttpsError("invalid-argument", "الشركة مطلوبة");
-    if (price < 0) throw new HttpsError("invalid-argument", "سعر البيع لا يمكن أن يكون سالباً");
-
+    if (!Number.isFinite(price) || price < 0) {
+      throw new HttpsError("invalid-argument", "سعر البيع غير صالح");
+    }
+    if (!Number.isFinite(stock) || stock < 0) {
+      throw new HttpsError("invalid-argument", "قيمة المخزون غير صالحة");
+    }
     // جلب صنف الشركة تلقائياً
     const brandSnap = await db.collection("brands").doc(brandId).get();
     if (!brandSnap.exists) throw new HttpsError("not-found", "الشركة غير موجودة");
     const categoryId = brandSnap.data()?.category_id || "";
 const cleanMainBarcode = Normalizer.barcode(data.barcode);
-    const allBarcodes = Normalizer.extractAllBarcodes(data.barcode, data.units);
+    const rawVariants = Array.isArray(data.variants) ? data.variants : [];
+    const allBarcodes = Normalizer.extractAllBarcodes(data.barcode, data.units, rawVariants);
 
-    // 🔒 منع تكرار الباركود: التحقق من عدم وجود أي باركود مطابق لمنتج نشط آخر
     if (allBarcodes.length > 0) {
       const existingBarcodeSnap = await db.collection("products")
         .where("is_deleted", "==", false)
@@ -2698,6 +2899,47 @@ const cleanMainBarcode = Normalizer.barcode(data.barcode);
           expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
         })).filter((u) => u.label.length > 0 && u.price >= 0)
       : [];
+const parsedVariants = rawVariants.map((v, idx) => {
+      const vUnits = Array.isArray(v.units)
+        ? v.units.map((u) => ({
+            label: String(u.label || "").trim(),
+            price: Number(u.price) || 0,
+            qty: (Number.isFinite(Number(u.qty)) && Number(u.qty) > 0) ? Number(u.qty) : 1,
+            size_ml: u.size_ml != null ? Number(u.size_ml) : null,
+            image_url: u.image_url ? String(u.image_url).trim() : null,
+            barcode: Normalizer.barcode(u.barcode) || null,
+            production_date: Normalizer.toSafeTimestamp(u.production_date),
+            expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
+          })).filter((u) => u.label.length > 0 && u.price >= 0)
+        : [];
+
+      return {
+        id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+        label: String(v.label || "").trim(),
+        price: Math.max(0, Number(v.price) || 0),
+        stock: Math.max(0, Number(v.stock) || 0),
+        items_per_carton: Math.max(1, parseInt(v.items_per_carton, 10) || 1),
+        size_text: v.size_text ? String(v.size_text).trim() : null,
+        size_ml: v.size_ml != null ? Number(v.size_ml) : null,
+        image_url: v.image_url ? String(v.image_url).trim() : null,
+        barcode: Normalizer.barcode(v.barcode) || null,
+        production_date: Normalizer.toSafeTimestamp(v.production_date),
+        expiry_date: Normalizer.toSafeTimestamp(v.expiry_date),
+        units: vUnits,
+      };
+    }).filter((v) => v.label.length > 0);
+
+    const variantFinancials = rawVariants.map((v, idx) => ({
+      id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+      label: String(v.label || "").trim(),
+      cost_price: Math.max(0, Number(v.cost_price) || 0),
+      units: Array.isArray(v.units)
+        ? v.units.map((u) => ({
+            label: String(u.label || "").trim(),
+            cost_price: Math.max(0, Number(u.cost_price) || 0),
+          })).filter((u) => u.label.length > 0)
+        : [],
+    })).filter((v) => v.label.length > 0);
 
     const newDocRef = db.collection("products").doc();
     const productPayload = {
@@ -2718,20 +2960,22 @@ const cleanMainBarcode = Normalizer.barcode(data.barcode);
       barcode: cleanMainBarcode || null,
       all_barcodes: allBarcodes,
       units: units,
+      variants: parsedVariants,
       public_catalog_ready: true,
       sort_order: Date.now(),
       created_at: FieldValue.serverTimestamp(),
       updated_at: FieldValue.serverTimestamp(),
     };
-const batch = db.batch();
+
+    const batch = db.batch();
     batch.set(newDocRef, productPayload);
     batch.set(db.collection("product_financials").doc(newDocRef.id), {
       product_id: newDocRef.id,
       cost_price: costPrice,
       units: unitFinancials,
+      variants: variantFinancials,
       updated_at: FieldValue.serverTimestamp(),
     });
-
     // 🔒 ضم قيد التدقيق المخزني إلى نفس الدفعة الذرية لمنع ضياع السجل عند انقطاع الاتصال
     if (stock > 0) {
       const auditDocRef = db.collection("inventory_audit_log").doc();
@@ -2796,8 +3040,11 @@ exports.adminUpdateProduct = onCall(
         if (updates[field] === undefined) continue;
         let v = updates[field];
         let valid = true;
-        if (field === "price") valid = Number.isFinite(v) && v >= 0;
-        else if (field === "items_per_carton") {
+       if (field === "price") valid = Number.isFinite(v) && v >= 0;
+        else if (field === "is_active") valid = typeof v === "boolean";
+        else if (field === "size_text" || field === "image_url") {
+          valid = v === null || typeof v === "string";
+        } else if (field === "items_per_carton") {
           if (v === null || v === "" || !Number.isFinite(Number(v))) {
             v = 1; // ضبط افتراضي آمن بدلاً من رمي خطأ وإيقاف التعديل
           } else {
@@ -2821,11 +3068,20 @@ exports.adminUpdateProduct = onCall(
         }
         safeUpdates[field] = v;
       }
-      for (const [field, col] of [["brand_id", "brands"], ["category_id", "categories"]]) {
-        if (safeUpdates[field] === undefined) continue;
-        const refSnap = await tx.get(db.collection(col).doc(safeUpdates[field].trim()));
-        if (!refSnap.exists) {
-          throw new HttpsError("not-found", "الماركة أو التصنيف غير موجود");
+     if (safeUpdates.brand_id !== undefined) {
+        const brandSnap = await tx.get(db.collection("brands").doc(safeUpdates.brand_id.trim()));
+        if (!brandSnap.exists) {
+          throw new HttpsError("not-found", "الشركة غير موجودة");
+        }
+        // مزامنة الصنف تلقائياً مع صنف الشركة الجديد لضمان سلامة الكتالوج
+        const derivedCatId = brandSnap.data()?.category_id;
+        if (derivedCatId) {
+          safeUpdates.category_id = derivedCatId;
+        }
+      } else if (safeUpdates.category_id !== undefined) {
+        const catSnap = await tx.get(db.collection("categories").doc(safeUpdates.category_id.trim()));
+        if (!catSnap.exists) {
+          throw new HttpsError("not-found", "التصنيف غير موجود");
         }
       }
       const sourceUnits = updates.units ?? existing.units ?? [];
@@ -2869,25 +3125,85 @@ exports.adminUpdateProduct = onCall(
         };
       });
 
-      financialUpdates.units = sourceUnits.map((unit) => ({
-        label: String(unit.label || "").trim(),
-        cost_price: unit.cost_price == null
-          ? existingUnitCosts.get(String(unit.label || "").trim()) || 0
-          : Math.max(0, Number(unit.cost_price) || 0),
-      }));
+   financialUpdates.units = sourceUnits.map((unit) => {
+        const uLabel = String(unit.label || "").trim();
+        const existingCost = existingUnitCosts.get(uLabel) || 0;
+        const incomingCost = (unit.cost_price !== undefined && unit.cost_price !== null && Number.isFinite(Number(unit.cost_price)))
+          ? Number(unit.cost_price)
+          : existingCost;
+        return {
+          label: uLabel,
+          cost_price: Math.max(0, incomingCost),
+        };
+      });
+    // استخراج الباركودات بشكل موحد وفحص فرادتها
+  if (updates.variants !== undefined) {
+        const rawVars = Array.isArray(updates.variants) ? updates.variants : [];
+        safeUpdates.variants = rawVars.map((v, idx) => ({
+          id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+          label: String(v.label || "").trim(),
+          price: Math.max(0, Number(v.price) || 0),
+          stock: Math.max(0, Number(v.stock) || 0),
+          items_per_carton: Math.max(1, parseInt(v.items_per_carton, 10) || 1),
+          size_text: v.size_text ? String(v.size_text).trim() : null,
+          size_ml: v.size_ml != null ? Number(v.size_ml) : null,
+          image_url: v.image_url ? String(v.image_url).trim() : null,
+          barcode: Normalizer.barcode(v.barcode) || null,
+          production_date: Normalizer.toSafeTimestamp(v.production_date),
+          expiry_date: Normalizer.toSafeTimestamp(v.expiry_date),
+          units: Array.isArray(v.units)
+            ? v.units.map((u) => ({
+                label: String(u.label || "").trim(),
+                price: Math.max(0, Number(u.price) || 0),
+                qty: Math.max(1, parseInt(u.qty, 10) || 1),
+                size_ml: u.size_ml != null ? Number(u.size_ml) : null,
+                image_url: u.image_url ? String(u.image_url).trim() : null,
+                barcode: Normalizer.barcode(u.barcode) || null,
+                production_date: Normalizer.toSafeTimestamp(u.production_date),
+                expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
+              })).filter((u) => u.label.length > 0)
+            : [],
+        })).filter((v) => v.label.length > 0);
 
-      // استخراج الباركودات بشكل موحد بدون تكرار الكود
-      if (updates.barcode !== undefined || updates.units !== undefined) {
+        financialUpdates.variants = rawVars.map((v, idx) => ({
+          id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+          label: String(v.label || "").trim(),
+          cost_price: Math.max(0, Number(v.cost_price) || 0),
+          units: Array.isArray(v.units)
+            ? v.units.map((u) => ({
+                label: String(u.label || "").trim(),
+                cost_price: Math.max(0, Number(u.cost_price) || 0),
+              })).filter((u) => u.label.length > 0)
+            : [],
+        })).filter((v) => v.label.length > 0);
+      }
+
+      if (updates.barcode !== undefined || updates.units !== undefined || updates.variants !== undefined) {
         const targetBarcode = updates.barcode !== undefined ? updates.barcode : existing.barcode;
         const targetUnits = updates.units !== undefined ? updates.units : (existing.units ?? []);
-        
+        const targetVariants = updates.variants !== undefined ? updates.variants : (existing.variants ?? []);
+
         if (updates.barcode === null || updates.barcode === "") {
           safeUpdates.barcode = FieldValue.delete();
         } else if (targetBarcode) {
           safeUpdates.barcode = Normalizer.barcode(targetBarcode);
         }
 
-        const allBarcodes = Normalizer.extractAllBarcodes(targetBarcode, targetUnits);
+        const allBarcodes = Normalizer.extractAllBarcodes(targetBarcode, targetUnits, targetVariants);
+        // 🔒 فحص عدم تكرار الباركود مع منتج آخر نشط في المستودع
+        if (allBarcodes.length > 0) {
+          const barcodeQuery = await tx.get(
+            db.collection("products")
+              .where("is_deleted", "==", false)
+              .where("all_barcodes", "array-contains-any", allBarcodes.slice(0, 10))
+              .limit(5)
+          );
+          const duplicate = barcodeQuery.docs.find((d) => d.id !== cleanId);
+          if (duplicate) {
+            throw new HttpsError("already-exists", `الباركود مسجل بالفعل للمنتج (${duplicate.data()?.name || duplicate.id})`);
+          }
+        }
+
         safeUpdates.all_barcodes = allBarcodes.length > 0 ? allBarcodes : FieldValue.delete();
       }
 
@@ -2915,11 +3231,11 @@ exports.adminUpdateProduct = onCall(
           performed_by: callerUid,
           created_at: FieldValue.serverTimestamp(),
         });
-      } else if (updates.stock_delta !== undefined) {
+  } else if (updates.stock_delta !== undefined) {
         const currentStock = Math.max(0, Number(existing.stock) || 0);
         const delta = Number(updates.stock_delta) || 0;
-        const effectiveDelta = delta < 0 ? -Math.min(currentStock, Math.abs(delta)) : delta;
-        newStock = currentStock + effectiveDelta;
+        const effectiveDelta = Number((delta < 0 ? -Math.min(currentStock, Math.abs(delta)) : delta).toFixed(4));
+        newStock = Number((currentStock + effectiveDelta).toFixed(4));
         safeUpdates.stock = FieldValue.increment(effectiveDelta);
 
         const auditRef = db.collection("inventory_audit_log").doc();
@@ -3059,19 +3375,36 @@ exports.adminProcessBatchReturn = onCall(
         ),
         tx.get(summaryParentRef),
       ]);
+   const batchProductIds = [...new Set(
+        itemSnaps
+          .filter((s) => s.exists && s.data()?.product_id)
+          .map((s) => String(s.data().product_id)),
+      )];
+      const batchProductSnaps = await Promise.all(
+        batchProductIds.map((pId) => tx.get(db.collection("products").doc(pId))),
+      );
+    const batchProductMap = new Map();
+      batchProductSnaps.forEach((pSnap) => {
+        if (pSnap.exists) {
+          batchProductMap.set(pSnap.id, pSnap.data());
+        }
+      });
+
       const lastResetAt = summarySnap.data()?.last_reset_at?.toMillis?.() ?? 0;
       const orderDeliveredAt = orderData.delivered_at?.toMillis?.() ?? (orderData.created_at?.toMillis?.() ?? 0);
       const isFromCurrentCycle = orderDeliveredAt >= lastResetAt;
-let totalRefund = 0;
+      let totalRefund = 0;
       let totalDeductedProfit = 0;
       const productRestores = new Map();
       const processedItemIds = new Set(returnEntries.map(([itemId]) => itemId));
-
-      // 1. تحديث مستندات الإرجاع المعلقة الخاصة بالأصناف التي تم قبولها فقط
-      for (const pDoc of pendingReturnsSnap.docs) {
-        const pData = pDoc.data();
-        if (processedItemIds.has(pData.order_item_id)) {
-          tx.update(pDoc.ref, {
+// 1. فهرسة مستندات الإرجاع المعلقة لضمان كتابة ذرية واحدة فقط لكل مرجع
+ const pendingByItemId = new Map();
+      for (const doc of pendingReturnsSnap.docs) {
+        const oItemId = doc.data().order_item_id;
+        if (!pendingByItemId.has(oItemId)) {
+          pendingByItemId.set(oItemId, doc);
+        } else {
+          tx.update(doc.ref, {
             status: "accepted",
             reconciled_in_batch: true,
             updated_at: FieldValue.serverTimestamp(),
@@ -3107,10 +3440,16 @@ let totalRefund = 0;
 
         totalRefund += itemRefund;
         totalDeductedProfit += itemProfit;
-
-        const pId = itemData.product_id;
+const pId = itemData.product_id;
+        const vId = itemData.variant_id ? String(itemData.variant_id).trim() : null;
         if (pId) {
-          productRestores.set(pId, (productRestores.get(pId) || 0) + cartonsToRestore);
+          const restoreKey = vId ? `${pId}__v_${vId}` : pId;
+          const prev = productRestores.get(restoreKey);
+          productRestores.set(restoreKey, {
+            productId: pId,
+            variantId: vId,
+            delta: Number(((prev?.delta || 0) + cartonsToRestore).toFixed(4)),
+          });
         }
 
         tx.update(itemSnap.ref, {
@@ -3118,21 +3457,24 @@ let totalRefund = 0;
           updated_at: FieldValue.serverTimestamp(),
         });
 
-        // إنشاء مستند جديد فقط إذا لم يكن هناك مستند معلق مطابق تم تحديثه مسبقاً
-             const matchingPending = pendingReturnsSnap.docs.find(
-          (doc) => doc.data().order_item_id === returnItemId
-        );
-        const hasPendingDoc = !!matchingPending;
-        if (matchingPending && Number(matchingPending.data().quantity) !== returnQty) {
-          tx.update(matchingPending.ref, {
-            quantity: returnQty,
-            unit_price: price,
-            refund_amount: itemRefund,
+        const matchingPending = pendingByItemId.get(returnItemId);
+        if (matchingPending) {
+          // تحديث ذري وحيد وموحد للمستند المعلق (يمنع استثناء Multiple Mutations)
+          const updatePayload = {
+            status: "accepted",
+            reconciled_in_batch: true,
             updated_at: FieldValue.serverTimestamp(),
-          });
-        }
-        if (!hasPendingDoc) {
-       const retRef = db.collection("order_returns").doc();
+          };
+          if (Number(matchingPending.data().quantity) !== returnQty) {
+            updatePayload.quantity = returnQty;
+            updatePayload.unit_price = price;
+            updatePayload.refund_amount = itemRefund;
+            updatePayload.returned_amount = itemRefund;
+          }
+          tx.update(matchingPending.ref, updatePayload);
+        } else {
+          // إنشاء مستند إرجاع جديد إذا لم يكن مقدماً مسبقاً
+          const retRef = db.collection("order_returns").doc();
           const returnNumber = IdGenerator.generateReturnNumber();
           tx.set(retRef, {
             order_id: cleanOrderId,
@@ -3156,34 +3498,22 @@ let totalRefund = 0;
           });
         }
       }
-    // استرجاع المخزون الفعلي وتوثيقه في سجل التدقيق
-      for (const [pId, restoreCartons] of productRestores.entries()) {
-        const safeRestore = Number(restoreCartons.toFixed(4));
-        tx.update(db.collection("products").doc(pId), {
-          stock: FieldValue.increment(safeRestore),
-          updated_at: FieldValue.serverTimestamp(),
-        });
-
-        const auditRef = db.collection("inventory_audit_log").doc();
-        tx.set(auditRef, {
-          product_id: pId,
+      OrderCalculator.applyProductStockDeltas({
+        tx,
+        entries: Array.from(productRestores.values()),
+        productMap: batchProductMap,
+        isRestore: true,
+        auditMeta: {
           order_id: cleanOrderId,
           action: "return_accepted",
-          delta: safeRestore,
           performed_by: callerUid,
-          created_at: FieldValue.serverTimestamp(),
-        });
-      }
-
+        },
+      });
   // تحديث بيانات الفاتورة الأصلية وتصفير عداد المرتجعات المعلقة لفتح إمكانية الإرجاع مستقبلاً
       const currentTotal = Number(orderData.total_amount || orderData.total || 0);
       const safeNewTotal = Math.max(0, currentTotal - totalRefund);
-      const currentProfit = Number(
-        orderFinancialSnap.data()?.total_profit ?? orderData.total_profit,
-      );
-      if (!Number.isFinite(currentProfit)) {
-        throw new HttpsError("failed-precondition", "بيانات أرباح الطلب غير متاحة");
-      }
+    const rawProfit = orderFinancialSnap.data()?.total_profit ?? orderData?.total_profit;
+      const currentProfit = Number.isFinite(Number(rawProfit)) ? Number(rawProfit) : 0;
 
           const remainingPending = pendingReturnsSnap.docs.filter(
         (d) => !processedItemIds.has(d.data().order_item_id),
@@ -3196,11 +3526,24 @@ let totalRefund = 0;
         pending_returns_count: remainingPending,
         updated_at: FieldValue.serverTimestamp(),
       });
-      tx.set(orderFinancialRef, {
+tx.set(orderFinancialRef, {
         order_id: cleanOrderId,
         total_profit: currentProfit - totalDeductedProfit,
         updated_at: FieldValue.serverTimestamp(),
       }, { merge: true });
+
+      // 🔔 إشعار التاجر باعتماد وتسوية المرتجعات الجماعية
+      if (orderData.merchant_id) {
+        tx.set(db.collection("user_notifications").doc(), {
+          user_id: orderData.merchant_id,
+          title: "✅ تم قبول وتسوية المرتجعات",
+          body: `تمت تسوية مرتجع (${returnEntries.length}) أصناف بقيمة مستردة ${totalRefund.toFixed(0)} ر.ي`,
+          order_id: cleanOrderId,
+          type: "order_status",
+          is_read: false,
+          created_at: FieldValue.serverTimestamp(),
+        });
+      }
 
 // 🔒 لا يتم خصم الأرباح إلا إذا كانت قد سُجلت فعلياً عند التسليم
       if (orderData.profit_recorded === true) {

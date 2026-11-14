@@ -7,7 +7,6 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/products_service.dart';
 import '../../cart/providers/cart_provider.dart';
-import 'package:wissal/core/models/product_unit.dart';
 import 'product_details_sheet.dart';
 
 class ProductCard extends ConsumerStatefulWidget {
@@ -19,67 +18,15 @@ class ProductCard extends ConsumerStatefulWidget {
 }
 
 class _ProductCardState extends ConsumerState<ProductCard> {
-  late PageController _pageController;
-  int _currentIndex = 0;
   int _qty = 1;
-  static const int _kInitialPage = 1000;
 
-  List<ProductUnit> get _units {
-    if (widget.product.units.isNotEmpty) {
-      return widget.product.units;
-    }
-    return [
-      ProductUnit(
-        label: 'كرتون',
-        qty: widget.product.itemsPerCarton ?? 1,
-        price: widget.product.price,
-        imageUrl: widget.product.imageUrl,
-        sizeMl: widget.product.sizeMl,
-      ),
-    ];
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final units = _units;
-    final initialPage =
-        units.length > 1 ? _kInitialPage - (_kInitialPage % units.length) : 0;
-    _pageController = PageController(initialPage: initialPage);
-  }
-
-  @override
-  void didUpdateWidget(covariant ProductCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.product.id != widget.product.id ||
-        oldWidget.product.units.length != widget.product.units.length) {
-      final units = _units;
-      setState(() {
-        _currentIndex = 0;
-        _qty = 1;
-      });
-      if (_pageController.hasClients) {
-        final initialPage = units.length > 1
-            ? _kInitialPage - (_kInitialPage % units.length)
-            : 0;
-        _pageController.jumpToPage(initialPage);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _showManualQtyDialog(ProductUnit unit) async {
+  Future<void> _showManualQtyDialog() async {
     HapticFeedback.mediumImpact();
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => _ManualQtyDialog(
         initialQty: _qty,
-        unitLabel: unit.label,
+        unitLabel: 'كرتون',
       ),
     );
 
@@ -88,20 +35,46 @@ class _ProductCardState extends ConsumerState<ProductCard> {
     }
   }
 
-  void _addToCart(ProductUnit unit) {
+  void _addToCart() {
+    if (widget.product.stock <= 0) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('عذراً، هذا الصنف غير متوفر حالياً في المستودع',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (widget.product.stock < 1) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'المتبقي أقل من كرتون كامل، اختر وحدة أصغر من تفاصيل الصنف',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      _openSheet();
+      return;
+    }
+    if (_qty > widget.product.stock) {
+      setState(() => _qty = widget.product.stock.floor().clamp(1, 999));
+    }
     HapticFeedback.mediumImpact();
 
     ref.read(cartProvider.notifier).addItem(
           widget.product,
           _qty,
-          unit: unit,
         );
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '✅ تمت إضافة $_qty ${unit.label} من (${widget.product.name}) إلى السلة',
+          '✅ تمت إضافة $_qty من (${widget.product.name}) إلى السلة',
           style: const TextStyle(fontFamily: 'Cairo'),
           textAlign: TextAlign.right,
         ),
@@ -113,381 +86,328 @@ class _ProductCardState extends ConsumerState<ProductCard> {
     );
   }
 
+  void _openSheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProductDetailsSheet(product: widget.product),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final units = _units;
-    final hasMultipleUnits = units.length > 1;
-    final currentUnit = units[_currentIndex % units.length];
-
-    final cartKey = (currentUnit.label.trim() == 'كرتون')
-        ? widget.product.id
-        : '${widget.product.id}__${currentUnit.label.trim()}';
-
     final cartQty = ref.watch(
-      cartProvider.select((c) => c[cartKey]?.quantity ?? 0),
+      cartProvider.select((c) => c.values
+          .where((item) => item.product.id == widget.product.id)
+          .fold<int>(0, (sum, item) => sum + item.quantity)),
     );
+    final hasVariants = widget.product.hasVariants;
+    final isOutOfStock = hasVariants
+        ? widget.product.totalStock <= 0
+        : widget.product.stock <= 0;
+    final pageTotal = (hasVariants
+            ? widget.product.effectiveMinPrice
+            : widget.product.price) *
+        _qty;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: context.bgCard,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: context.borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: context.shadowColor.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ── ترويسة البطاقة: اسم المنتج ──
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.product.name,
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.w800,
-                      color: context.textPrimary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (hasMultipleUnits) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.09),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.swipe_rounded,
-                            size: 12, color: AppColors.primary),
-                        const SizedBox(width: 4),
-                        Text(
-                          currentUnit.label,
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            // ── منطقة التمرير اللانهائي بين الكميات ──
-            SizedBox(
-              height: 86,
-              child: PageView.builder(
-                controller: _pageController,
-                physics: hasMultipleUnits
-                    ? const BouncingScrollPhysics()
-                    : const NeverScrollableScrollPhysics(),
-                onPageChanged: (index) {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    _currentIndex =
-                        (index % units.length + units.length) % units.length;
-                    _qty = 1;
-                  });
-                },
-                itemBuilder: (context, index) {
-                  final safeIndex =
-                      (index % units.length + units.length) % units.length;
-                  final unit = units[safeIndex];
-                  final pageTotal = unit.price * _qty;
-                  final unitImageUrl = (unit.imageUrl != null &&
-                          unit.imageUrl!.trim().isNotEmpty)
-                      ? unit.imageUrl!.trim()
-                      : widget.product.imageUrl;
-
-                  return Row(
-                    children: [
-                      // 1. الإجمالي
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'الإجمالي',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 11,
-                                color: context.textSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${pageTotal.toStringAsFixed(0)} ر.ي',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: context.textPrimary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // 2. سعر الوحدة
-                      Expanded(
-                        flex: 3,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'سعر ${unit.label}',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 11,
-                                color: context.textSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${unit.price.toStringAsFixed(0)} ر.ي',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: context.textPrimary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(width: 10),
-
-                      // 3. صورة المنتج/الوحدة (نقر الصورة يفتح التفاصيل)
-                      GestureDetector(
-                        onTap: () {
-                          HapticFeedback.lightImpact();
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (_) => ProductDetailsSheet(
-                              product: widget.product,
-                              initialUnit: unit,
-                            ),
-                          );
-                        },
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Container(
-                            width: 76,
-                            height: 76,
-                            color: context.bgInput,
-                            child: unitImageUrl != null &&
-                                    unitImageUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    cacheManager: ImagePrecacheService
-                                        .instance.cacheManager,
-                                    imageUrl: unitImageUrl,
-                                    fit: BoxFit.contain,
-                                    memCacheWidth: 200,
-                                    placeholder: (_, __) => const Center(
-                                      child: Icon(Icons.inventory_2_outlined,
-                                          color: Colors.grey, size: 28),
-                                    ),
-                                    errorWidget: (_, __, ___) => const Center(
-                                      child: Icon(Icons.inventory_2_outlined,
-                                          color: AppColors.primary, size: 28),
-                                    ),
-                                  )
-                                : const Center(
-                                    child: Icon(Icons.inventory_2_outlined,
-                                        color: AppColors.primary, size: 28),
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-
-            // ── مؤشرات النقاط عند وجود أكثر من كمية ──
-            if (hasMultipleUnits) ...[
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(units.length, (i) {
-                  final isActive = i == (_currentIndex % units.length);
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                    width: isActive ? 16 : 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color:
-                          isActive ? AppColors.primary : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  );
-                }),
-              ),
-            ],
-
-            const SizedBox(height: 12),
-
-            // ── عداد الكمية (تم عكس أماكن + و - ودعم النقر المزدوج لإدخال الرقم) ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (cartQty > 0) ...[
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        const Icon(Icons.shopping_cart_rounded,
-                            size: 16, color: AppColors.primary),
-                        Positioned(
-                          top: -7,
-                          right: -7,
-                          child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                                color: Colors.red, shape: BoxShape.circle),
-                            child: Text(
-                              '$cartQty',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                ],
-
-                // 1. زر النقصان (-) انتقل إلى اليمين
-                GestureDetector(
-                  onTap: () {
-                    if (_qty > 1) {
-                      HapticFeedback.lightImpact();
-                      setState(() => _qty--);
-                    }
-                  },
-                  child: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: context.bgInput,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: context.borderColor),
-                    ),
-                    child: Icon(
-                      Icons.remove_rounded,
-                      color:
-                          _qty > 1 ? context.textPrimary : Colors.grey.shade400,
-                      size: 20,
-                    ),
-                  ),
-                ),
-
-                // 2. رقم الكمية (نقر مزدوج لفتح لوحة المفاتيح وكتابة الرقم يدوياً)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onDoubleTap: () => _showManualQtyDialog(currentUnit),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    child: Text(
-                      '$_qty',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: context.textPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-
-                // 3. زر الزيادة (+) انتقل إلى اليسار
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _qty++);
-                  },
-                  child: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.add_rounded,
-                        color: Colors.white, size: 20),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // ── زر إضافة للسلة ──
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: ElevatedButton.icon(
-                onPressed: () => _addToCart(currentUnit),
-                icon: const Icon(Icons.shopping_cart_outlined, size: 19),
-                label: Text(
-                  'إضافة للسلة (${currentUnit.label})',
-                  style: const TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
+    return GestureDetector(
+      onTap: _openSheet,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: context.bgCard,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: context.borderColor),
+          boxShadow: [
+            BoxShadow(
+              color: context.shadowColor.withValues(alpha: 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── اسم المنتج ──
+              Text(
+                widget.product.name,
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w800,
+                  color: context.textPrimary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 10),
+
+              // ── السعر والإجمالي والصورة ──
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'الإجمالي',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: context.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${pageTotal.toStringAsFixed(0)} ر.ي',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          hasVariants ? 'ابتداءً من' : 'سعر الكرتون',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: context.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${(hasVariants ? widget.product.effectiveMinPrice : widget.product.price).toStringAsFixed(0)} ر.ي',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _openSheet,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: 76,
+                        height: 76,
+                        color: context.bgInput,
+                        child: widget.product.imageUrl != null &&
+                                widget.product.imageUrl!.isNotEmpty
+                            ? CachedNetworkImage(
+                                cacheManager:
+                                    ImagePrecacheService.instance.cacheManager,
+                                imageUrl: widget.product.imageUrl!,
+                                fit: BoxFit.contain,
+                                memCacheWidth: 200,
+                                placeholder: (_, __) => const Center(
+                                  child: Icon(Icons.inventory_2_outlined,
+                                      color: Colors.grey, size: 28),
+                                ),
+                                errorWidget: (_, __, ___) => const Center(
+                                  child: Icon(Icons.inventory_2_outlined,
+                                      color: AppColors.primary, size: 28),
+                                ),
+                              )
+                            : const Center(
+                                child: Icon(Icons.inventory_2_outlined,
+                                    color: AppColors.primary, size: 28),
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (hasVariants) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: widget.product.variants.map((v) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.2)),
+                      ),
+                      child: Text(
+                        '${v.label} (${v.price.toStringAsFixed(0)} ر.ي)',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ] else ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (cartQty > 0) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Icon(Icons.shopping_cart_rounded,
+                                size: 16, color: AppColors.primary),
+                            Positioned(
+                              top: -7,
+                              right: -7,
+                              child: Container(
+                                padding: const EdgeInsets.all(3),
+                                decoration: const BoxDecoration(
+                                    color: Colors.red, shape: BoxShape.circle),
+                                child: Text(
+                                  '$cartQty',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                    ],
+                    GestureDetector(
+                      onTap: () {
+                        if (_qty > 1) {
+                          HapticFeedback.lightImpact();
+                          setState(() => _qty--);
+                        }
+                      },
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: context.bgInput,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: context.borderColor),
+                        ),
+                        child: Icon(
+                          Icons.remove_rounded,
+                          color: _qty > 1
+                              ? context.textPrimary
+                              : Colors.grey.shade400,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onDoubleTap: _showManualQtyDialog,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        child: Text(
+                          '$_qty',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        setState(() => _qty++);
+                      },
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.add_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton.icon(
+                  onPressed: isOutOfStock
+                      ? null
+                      : (hasVariants ? _openSheet : _addToCart),
+                  icon: Icon(
+                      isOutOfStock
+                          ? Icons.remove_shopping_cart_rounded
+                          : (hasVariants
+                              ? Icons.tune_rounded
+                              : Icons.shopping_cart_outlined),
+                      size: 19),
+                  label: Text(
+                    isOutOfStock
+                        ? 'نفد المخزون'
+                        : (hasVariants
+                            ? 'اختيار الحجم والكمية${cartQty > 0 ? " ($cartQty بالسلة)" : ""}'
+                            : 'إضافة للسلة'),
+                    style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        isOutOfStock ? Colors.grey : AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
