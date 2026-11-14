@@ -15,8 +15,16 @@ class ArabicDigitsInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    var text = ArabicNormalizer.normalizeDigits(newValue.text);
-    text = text.replaceAll(
+    final rawOffset =
+        newValue.selection.baseOffset.clamp(0, newValue.text.length);
+    final textBeforeCursor =
+        ArabicNormalizer.normalizeDigits(newValue.text.substring(0, rawOffset));
+    final validCharsBeforeCursor = textBeforeCursor
+        .replaceAll(allowDecimal ? RegExp(r'[^0-9.]') : RegExp(r'[^0-9]'), '')
+        .length;
+
+    final normalizedNew = ArabicNormalizer.normalizeDigits(newValue.text);
+    var text = normalizedNew.replaceAll(
       allowDecimal ? RegExp(r'[^0-9.]') : RegExp(r'[^0-9]'),
       '',
     );
@@ -27,9 +35,10 @@ class ArabicDigitsInputFormatter extends TextInputFormatter {
             text.substring(firstDot + 1).replaceAll('.', '');
       }
     }
+    final newOffset = validCharsBeforeCursor.clamp(0, text.length);
     return TextEditingValue(
       text: text,
-      selection: TextSelection.collapsed(offset: text.length),
+      selection: TextSelection.collapsed(offset: newOffset),
     );
   }
 }

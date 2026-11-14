@@ -3707,7 +3707,41 @@ exports.adminAddCategory = onCall(
   }
 );
 
-// 3. إضافة شركة جديدة بسلطة السيرفر
+// 3. تحديث صنف موجود بسلطة السيرفر
+exports.adminUpdateCategory = onCall(
+  { region: "us-central1", cors: true },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "يجب تسجيل الدخول");
+
+    await requireActiveRole(
+      request.auth.uid,
+      ["admin", "super_admin", "warehouse_manager"],
+      "هذه العملية مخصصة للإدارة فقط",
+    );
+
+    const { id, name, imageUrl } = request.data || {};
+    const cleanId = String(id || "").trim();
+    const cleanName = String(name || "").trim();
+    if (!cleanId || !cleanName) throw new HttpsError("invalid-argument", "معرف الصنف واسمه مطلوبان");
+
+    const docRef = db.collection("categories").doc(cleanId);
+    const snap = await docRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "الصنف غير موجود");
+
+    const updates = {
+      name: cleanName,
+      updated_at: FieldValue.serverTimestamp(),
+    };
+    if (imageUrl !== undefined) {
+      updates.image_url = imageUrl ? String(imageUrl).trim() : null;
+    }
+
+    await docRef.update(updates);
+    return { success: true };
+  }
+);
+
+// 4. إضافة شركة جديدة بسلطة السيرفر
 exports.adminAddBrand = onCall(
   { region: "us-central1", cors: true },
   async (request) => {
@@ -3737,6 +3771,71 @@ exports.adminAddBrand = onCall(
     });
 
     return { success: true, id: docRef.id };
+  }
+);
+
+// 5. تحديث شركة موجودة بسلطة السيرفر
+exports.adminUpdateBrand = onCall(
+  { region: "us-central1", cors: true },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "يجب تسجيل الدخول");
+
+    await requireActiveRole(
+      request.auth.uid,
+      ["admin", "super_admin", "warehouse_manager"],
+      "هذه العملية مخصصة للإدارة فقط",
+    );
+
+    const { id, name, categoryId, logoUrl } = request.data || {};
+    const cleanId = String(id || "").trim();
+    const cleanName = String(name || "").trim();
+    const cleanCatId = String(categoryId || "").trim();
+    if (!cleanId || !cleanName || !cleanCatId) {
+      throw new HttpsError("invalid-argument", "معرف الشركة، الاسم، والصنف مطلوبون");
+    }
+
+    const docRef = db.collection("brands").doc(cleanId);
+    const snap = await docRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "الشركة غير موجودة");
+
+    const catSnap = await db.collection("categories").doc(cleanCatId).get();
+    if (!catSnap.exists) throw new HttpsError("not-found", "الصنف المختار غير موجود");
+
+    const existingBrand = snap.data() || {};
+    const updates = {
+      name: cleanName,
+      category_id: cleanCatId,
+      updated_at: FieldValue.serverTimestamp(),
+    };
+    if (logoUrl !== undefined) {
+      updates.logo_url = logoUrl ? String(logoUrl).trim() : null;
+    }
+
+    await docRef.update(updates);
+
+    // إذا تغير الصنف، مزامنة الصنف في جميع منتجات الشركة تلقائياً
+    if (existingBrand.category_id !== cleanCatId) {
+      try {
+        const prodsSnap = await db.collection("products")
+          .where("brand_id", "==", cleanId)
+          .where("is_deleted", "==", false)
+          .get();
+        if (!prodsSnap.empty) {
+          const batch = db.batch();
+          prodsSnap.docs.forEach((doc) => {
+            batch.update(doc.ref, {
+              category_id: cleanCatId,
+              updated_at: FieldValue.serverTimestamp(),
+            });
+          });
+          await batch.commit();
+        }
+      } catch (err) {
+        console.error(`[adminUpdateBrand] failed to sync product categories: ${err.message}`);
+      }
+    }
+
+    return { success: true };
   }
 );
 // ══════════════════════════════════════════════════════════════

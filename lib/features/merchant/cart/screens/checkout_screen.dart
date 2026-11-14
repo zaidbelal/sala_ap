@@ -328,41 +328,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
 
-    // ── 4. فحص طريقة الدفع ──
-    if (_paymentMethod == 'deferred') {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          icon: const Icon(Icons.schedule_rounded,
-              color: Colors.orange, size: 40),
-          title: const Text('قريباً',
-              textAlign: TextAlign.center,
-              style:
-                  TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.w800)),
-          content: const Text(
-            'سيتم العمل بنظام الدفع الآجل قريباً\nالتطبيق يعمل حالياً بالدفع النقدي فقط',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Cairo', fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                setState(() => _paymentMethod = 'cash');
-              },
-              child: const Text('التحويل للدفع النقدي',
-                  style: TextStyle(
-                      fontFamily: 'Cairo',
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w700)),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
 
     if (!_formKey.currentState!.validate()) return;
 
@@ -859,26 +824,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                               value: 'cash',
                               groupValue: _paymentMethod,
                               label: 'نقداً عند الاستلام',
-                              subtitle: 'ادفع عند وصول الطلب',
+                              subtitle: 'الدفع نقداً بعد استلام البضاعة وفحصها',
                               icon: Icons.payments_outlined,
                               onChanged: (v) =>
                                   setState(() => _paymentMethod = v!),
                             ),
-                            const SizedBox(height: 8),
-                            Opacity(
-                              opacity: 0.45,
-                              child: AbsorbPointer(
-                                child: _PaymentOption(
-                                  value: 'deferred',
-                                  groupValue: _paymentMethod,
-                                  label: 'الدفع الآجل (قريباً)',
-                                  subtitle: 'سيتوفر في تحديث قادم',
-                                  icon: Icons.schedule_rounded,
-                                  onChanged: (_) {},
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 30),
+                            const SizedBox(height: 24),
                           ],
                         ),
                       ),

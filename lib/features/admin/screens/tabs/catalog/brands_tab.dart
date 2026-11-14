@@ -100,6 +100,12 @@ class BrandsTab extends ConsumerWidget {
                           name: item['name'] ?? '',
                           categoryName: cat['name'] as String?,
                           logoUrl: item['logo_url'],
+                          onEdit: () => _showEditBrandDialog(
+                            context,
+                            ref,
+                            item,
+                            categoriesAsync.value ?? [],
+                          ),
                           onDelete: () async {
                             if (await confirmDelete(
                                 context, item['name'] ?? '')) {
@@ -144,10 +150,12 @@ class _BrandTile extends StatelessWidget {
   final String name;
   final String? categoryName;
   final String? logoUrl;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _BrandTile({
     required this.name,
+    required this.onEdit,
     required this.onDelete,
     this.categoryName,
     this.logoUrl,
@@ -195,17 +203,34 @@ class _BrandTile extends StatelessWidget {
                         fontFamily: 'Cairo', fontSize: 11, color: Colors.grey)),
               ])
             : null,
-        trailing: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.red.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.edit_rounded,
+                    color: AppColors.primary, size: 18),
+              ),
+              onPressed: onEdit,
             ),
-            child:
-                const Icon(Icons.delete_rounded, color: Colors.red, size: 18),
-          ),
-          onPressed: onDelete,
+            IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child:
+                    const Icon(Icons.delete_rounded, color: Colors.red, size: 18),
+              ),
+              onPressed: onDelete,
+            ),
+          ],
         ),
       ),
     );
@@ -238,6 +263,263 @@ class _BrandTile extends StatelessWidget {
       ),
     );
   }
+}
+
+void _showEditBrandDialog(
+  BuildContext context,
+  WidgetRef ref,
+  Map<String, dynamic> brand,
+  List<Map<String, dynamic>> categories,
+) {
+  final id = brand['id'].toString();
+  final nameCtrl = TextEditingController(text: brand['name'] ?? '');
+  String? selectedCategoryId = brand['category_id']?.toString();
+  XFile? newLogo;
+  Uint8List? newLogoBytes;
+  bool removeLogo = false;
+  final String? existingLogoUrl = brand['logo_url']?.toString();
+  bool loading = false;
+  String? error;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => StatefulBuilder(
+      builder: (sheetCtx, setSt) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.edit_rounded,
+                        color: AppColors.primary, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'تعديل الشركة / الماركة',
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              // شعار الشركة
+              GestureDetector(
+                onTap: loading
+                    ? null
+                    : () async {
+                        final (file, bytes) = await pickCatalogImage();
+                        if (file != null && bytes != null) {
+                          setSt(() {
+                            newLogo = file;
+                            newLogoBytes = bytes;
+                            removeLogo = false;
+                            error = null;
+                          });
+                        }
+                      },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: newLogoBytes != null
+                            ? Image.memory(newLogoBytes!,
+                                width: 50, height: 50, fit: BoxFit.cover)
+                            : (!removeLogo &&
+                                    existingLogoUrl != null &&
+                                    existingLogoUrl.isNotEmpty)
+                                ? CachedNetworkImage(
+                                    cacheManager: ImagePrecacheService
+                                        .instance.cacheManager,
+                                    imageUrl: existingLogoUrl,
+                                    width: 50,
+                                    height: 50,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 50,
+                                    height: 50,
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.08),
+                                    child: const Icon(Icons.business_rounded,
+                                        color: AppColors.primary),
+                                  ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          newLogoBytes != null
+                              ? 'تم اختيار شعار جديد'
+                              : (!removeLogo && existingLogoUrl != null)
+                                  ? 'اضغط لتغيير الشعار'
+                                  : 'شعار الشركة (اختياري)',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo', fontSize: 13),
+                        ),
+                      ),
+                      if (newLogoBytes != null ||
+                          (!removeLogo && existingLogoUrl != null))
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded,
+                              color: Colors.red, size: 20),
+                          onPressed: () => setSt(() {
+                            newLogo = null;
+                            newLogoBytes = null;
+                            removeLogo = true;
+                          }),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                textDirection: TextDirection.rtl,
+                decoration: catalogInputDec('اسم الشركة *'),
+                style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: categories.any(
+                        (c) => c['id'].toString() == selectedCategoryId)
+                    ? selectedCategoryId
+                    : null,
+                hint: const Text('اختر الصنف التابع له *',
+                    style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                decoration: catalogInputDec('الصنف التابع له'),
+                items: categories
+                    .map((c) => DropdownMenuItem(
+                          value: c['id'].toString(),
+                          child: Text(c['name'] ?? '',
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13)),
+                        ))
+                    .toList(),
+                onChanged: (v) => setSt(() => selectedCategoryId = v),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!,
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        color: Colors.red,
+                        fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          final cleanName = nameCtrl.text.trim();
+                          if (cleanName.isEmpty) {
+                            setSt(() => error = 'اسم الشركة مطلوب');
+                            return;
+                          }
+                          if (selectedCategoryId == null) {
+                            setSt(() => error = 'اختر الصنف التابع له');
+                            return;
+                          }
+                          setSt(() {
+                            loading = true;
+                            error = null;
+                          });
+                          try {
+                            String? uploadedUrl;
+                            if (newLogo != null) {
+                              uploadedUrl =
+                                  await uploadCatalogImage(newLogo!);
+                            }
+                            await ref.read(adminServiceProvider).updateBrand(
+                                  id,
+                                  name: cleanName,
+                                  categoryId: selectedCategoryId!,
+                                  logoUrl: uploadedUrl ??
+                                      (removeLogo ? null : existingLogoUrl),
+                                  removeLogo: removeLogo,
+                                );
+                            ref.invalidate(brandsProvider);
+                            ref
+                                .read(adminProductsProvider.notifier)
+                                .loadInitial(forceServer: true);
+                            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                          } catch (e) {
+                            setSt(() {
+                              loading = false;
+                              error = 'فشل تحديث الشركة: $e';
+                            });
+                          }
+                        },
+                  icon: loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: Text(
+                    loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ════════════════════════════════════════

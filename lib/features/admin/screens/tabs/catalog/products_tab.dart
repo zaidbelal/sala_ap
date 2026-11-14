@@ -893,16 +893,16 @@ class _Divider extends StatelessWidget {
 // ════════════════════════════════════════
 // فورم إضافة منتج
 // ════════════════════════════════════════
-class AddProductBar extends StatefulWidget {
+class AddProductBar extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> brands;
   final Future<void> Function(Map<String, dynamic> data) onAdd;
   const AddProductBar({super.key, required this.brands, required this.onAdd});
 
   @override
-  State<AddProductBar> createState() => _AddProductBarState();
+  ConsumerState<AddProductBar> createState() => _AddProductBarState();
 }
 
-class _AddProductBarState extends State<AddProductBar> {
+class _AddProductBarState extends ConsumerState<AddProductBar> {
   final _nameCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
   final _costCtrl = TextEditingController();
@@ -956,6 +956,236 @@ class _AddProductBarState extends State<AddProductBar> {
         setState(() => _error = 'تعذّر فتح المعرض، تحقق من صلاحية الصور');
       }
     }
+  }
+
+  Future<void> _quickAddBrand(BuildContext sheetCtx, StateSetter setSt) async {
+    final nameCtrl = TextEditingController();
+    String? selectedCatId;
+    XFile? logoFile;
+    Uint8List? logoBytes;
+    bool savingBrand = false;
+    String? brandErr;
+
+    final categories = ref.read(adminCategoriesProvider).value ?? [];
+
+    await showModalBottomSheet<String>(
+      context: sheetCtx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bCtx) => StatefulBuilder(
+        builder: (dialogCtx, setBSt) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(dialogCtx).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.business_rounded,
+                          color: AppColors.primary, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'إضافة شركة جديدة سريعاً',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                GestureDetector(
+                  onTap: savingBrand
+                      ? null
+                      : () async {
+                          final (f, b) = await pickCatalogImage();
+                          if (f != null && b != null) {
+                            setBSt(() {
+                              logoFile = f;
+                              logoBytes = b;
+                            });
+                          }
+                        },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFB),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: logoBytes != null
+                              ? Image.memory(logoBytes!,
+                                  width: 40, height: 40, fit: BoxFit.cover)
+                              : Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: AppColors.primary
+                                      .withValues(alpha: 0.08),
+                                  child: const Icon(Icons.add_a_photo_rounded,
+                                      color: AppColors.primary, size: 20),
+                                ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            logoBytes != null
+                                ? 'تم اختيار الشعار ✓'
+                                : 'شعار الشركة (اختياري)',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo', fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: nameCtrl,
+                  textDirection: TextDirection.rtl,
+                  decoration: catalogInputDec('اسم الشركة *'),
+                  style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedCatId,
+                  hint: const Text('اختر الصنف التابع له *',
+                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                  decoration: catalogInputDec('الصنف التابع له'),
+                  items: categories
+                      .map((c) => DropdownMenuItem(
+                            value: c['id'].toString(),
+                            child: Text(c['name'] ?? '',
+                                style: const TextStyle(
+                                    fontFamily: 'Cairo', fontSize: 13)),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setBSt(() => selectedCatId = v),
+                ),
+                if (brandErr != null) ...[
+                  const SizedBox(height: 8),
+                  Text(brandErr!,
+                      style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          color: Colors.red,
+                          fontSize: 12)),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: savingBrand
+                        ? null
+                        : () async {
+                            final bName = nameCtrl.text.trim();
+                            if (bName.isEmpty) {
+                              setBSt(() => brandErr = 'اسم الشركة مطلوب');
+                              return;
+                            }
+                            if (selectedCatId == null) {
+                              setBSt(() => brandErr = 'اختر الصنف التابع له');
+                              return;
+                            }
+                            setBSt(() {
+                              savingBrand = true;
+                              brandErr = null;
+                            });
+                            try {
+                              String? logoUrl;
+                              if (logoFile != null) {
+                                logoUrl = await uploadCatalogImage(logoFile!);
+                              }
+                              await ref.read(adminServiceProvider).addBrand(
+                                    name: bName,
+                                    categoryId: selectedCatId!,
+                                    logoUrl: logoUrl,
+                                  );
+                              ref.invalidate(brandsProvider);
+                              final updated =
+                                  await ref.read(brandsProvider.future);
+                              final match = updated.firstWhere(
+                                (b) => b['name'] == bName,
+                                orElse: () => updated.last,
+                              );
+                              final newId = match['id'].toString();
+                              if (dialogCtx.mounted) {
+                                Navigator.pop(dialogCtx, newId);
+                              }
+                            } catch (e) {
+                              setBSt(() {
+                                savingBrand = false;
+                                brandErr = 'فشل إضافة الشركة: $e';
+                              });
+                            }
+                          },
+                    icon: savingBrand
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.add_rounded, size: 20),
+                    label: Text(
+                      savingBrand ? 'جاري الإضافة...' : 'حفظ واختيار الشركة',
+                      style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ).then((newBrandId) {
+      if (newBrandId != null && mounted) {
+        setSt(() {
+          _selectedBrandId = newBrandId;
+        });
+      }
+    });
   }
 
   void _clearForm() {
@@ -1246,45 +1476,91 @@ class _AddProductBarState extends State<AddProductBar> {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          DropdownButtonFormField<String>(
-                            key: _brandFieldKey,
-                            initialValue: widget.brands.any((b) =>
-                                    b['id'].toString() == _selectedBrandId)
-                                ? _selectedBrandId
-                                : null,
-                            hint: const Text('اختر الشركة *',
+                          Row(
+                            children: [
+                              const Text(
+                                'الشركة / الماركة *',
                                 style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF555555),
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: _loading
+                                    ? null
+                                    : () => _quickAddBrand(sheetContext, setSt),
+                                icon: const Icon(
+                                    Icons.add_circle_outline_rounded,
+                                    size: 15,
+                                    color: AppColors.primary),
+                                label: const Text(
+                                  '+ شركة جديدة',
+                                  style: TextStyle(
                                     fontFamily: 'Cairo',
-                                    fontSize: 13,
-                                    color: Colors.grey)),
-                            decoration: catalogInputDec(''),
-                            isExpanded: true,
-                            style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 13,
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                                color: AppColors.primary),
-                            items: widget.brands
-                                .map((b) => DropdownMenuItem(
-                                      value: b['id'].toString(),
-                                      child: Text(
-                                        b['name'] ?? '',
-                                        style: const TextStyle(
-                                          fontFamily: 'Cairo',
-                                          fontSize: 13,
-                                          color: Colors.black87,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ))
-                                .toList(),
-                            onChanged: _loading
-                                ? null
-                                : (v) => setSt(() => _selectedBrandId = v),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 4),
+                          Builder(builder: (_) {
+                            final currentBrands =
+                                ref.watch(brandsProvider).value ??
+                                    widget.brands;
+                            return DropdownButtonFormField<String>(
+                              key: _brandFieldKey,
+                              initialValue: currentBrands.any((b) =>
+                                      b['id'].toString() == _selectedBrandId)
+                                  ? _selectedBrandId
+                                  : null,
+                              hint: const Text('اختر الشركة *',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 13,
+                                      color: Colors.grey)),
+                              decoration: catalogInputDec(''),
+                              isExpanded: true,
+                              style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 13,
+                                color: Colors.black87,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              icon: const Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: AppColors.primary),
+                              items: currentBrands
+                                  .map((b) => DropdownMenuItem(
+                                        value: b['id'].toString(),
+                                        child: Text(
+                                          b['name'] ?? '',
+                                          style: const TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 13,
+                                            color: Colors.black87,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ))
+                                  .toList(),
+                              onChanged: _loading
+                                  ? null
+                                  : (v) => setSt(() => _selectedBrandId = v),
+                            );
+                          }),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _nameCtrl,
@@ -1590,6 +1866,32 @@ class _ManualDateField extends StatelessWidget {
     required this.icon,
   });
 
+  Future<void> _pickDate(BuildContext context) async {
+    final parsed = DateTime.tryParse(ctrl.text.trim());
+    final initial = parsed ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: AppColors.primary,
+            onPrimary: Colors.white,
+            onSurface: Colors.black87,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      ctrl.text = '${picked.year}-'
+          '${picked.month.toString().padLeft(2, '0')}-'
+          '${picked.day.toString().padLeft(2, '0')}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return TextField(
@@ -1606,7 +1908,11 @@ class _ManualDateField extends StatelessWidget {
           fontSize: 11,
           color: Color(0xFFAAAAAA),
         ),
-        prefixIcon: Icon(icon, size: 16, color: Colors.grey[500]),
+        prefixIcon: IconButton(
+          icon: Icon(icon, size: 16, color: AppColors.primary),
+          tooltip: 'اختيار من التقويم',
+          onPressed: () => _pickDate(context),
+        ),
         filled: true,
         fillColor: const Color(0xFFF8FAFB),
         contentPadding:
@@ -1888,25 +2194,69 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                         const SizedBox(height: 10),
 
                         // ── 2. اختيار / تغيير الشركة ──
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedBrandId,
-                          hint: const Text('اختر الشركة / الماركة *',
-                              style:
-                                  TextStyle(fontFamily: 'Cairo', fontSize: 13)),
-                          decoration: catalogInputDec('الشركة'),
-                          isExpanded: true,
-                          icon: const Icon(Icons.keyboard_arrow_down_rounded,
-                              color: AppColors.primary),
-                          items: widget.brands
-                              .map((b) => DropdownMenuItem(
-                                    value: b['id'].toString(),
-                                    child: Text(b['name'] ?? '',
-                                        style: const TextStyle(
-                                            fontFamily: 'Cairo', fontSize: 13)),
-                                  ))
-                              .toList(),
-                          onChanged: (v) => setState(() => selectedBrandId = v),
+                        Row(
+                          children: [
+                            const Text(
+                              'الشركة / الماركة *',
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF555555),
+                              ),
+                            ),
+                            const Spacer(),
+                            TextButton.icon(
+                              onPressed: saving ? null : _quickAddBrandInEdit,
+                              icon: const Icon(Icons.add_circle_outline_rounded,
+                                  size: 15, color: AppColors.primary),
+                              label: const Text(
+                                '+ شركة جديدة',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 4),
+                        Builder(builder: (_) {
+                          final currentBrands =
+                              ref.watch(brandsProvider).value ?? widget.brands;
+                          return DropdownButtonFormField<String>(
+                            initialValue: currentBrands.any(
+                                    (b) => b['id'].toString() == selectedBrandId)
+                                ? selectedBrandId
+                                : null,
+                            hint: const Text('اختر الشركة / الماركة *',
+                                style: TextStyle(
+                                    fontFamily: 'Cairo', fontSize: 13)),
+                            decoration: catalogInputDec('الشركة'),
+                            isExpanded: true,
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                                color: AppColors.primary),
+                            items: currentBrands
+                                .map((b) => DropdownMenuItem(
+                                      value: b['id'].toString(),
+                                      child: Text(b['name'] ?? '',
+                                          style: const TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 13)),
+                                    ))
+                                .toList(),
+                            onChanged: (v) =>
+                                setState(() => selectedBrandId = v),
+                          );
+                        }),
                         const SizedBox(height: 10),
 
                         // ── 3. السعر والمخزون ──
@@ -2112,6 +2462,236 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _quickAddBrandInEdit() async {
+    final nameCtrl = TextEditingController();
+    String? selectedCatId;
+    XFile? logoFile;
+    Uint8List? logoBytes;
+    bool savingBrand = false;
+    String? brandErr;
+
+    final categories = ref.read(adminCategoriesProvider).value ?? [];
+
+    await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bCtx) => StatefulBuilder(
+        builder: (dialogCtx, setBSt) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(dialogCtx).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.business_rounded,
+                          color: AppColors.primary, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'إضافة شركة جديدة سريعاً',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                GestureDetector(
+                  onTap: savingBrand
+                      ? null
+                      : () async {
+                          final (f, b) = await pickCatalogImage();
+                          if (f != null && b != null) {
+                            setBSt(() {
+                              logoFile = f;
+                              logoBytes = b;
+                            });
+                          }
+                        },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFB),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: logoBytes != null
+                              ? Image.memory(logoBytes!,
+                                  width: 40, height: 40, fit: BoxFit.cover)
+                              : Container(
+                                  width: 40,
+                                  height: 40,
+                                  color: AppColors.primary
+                                      .withValues(alpha: 0.08),
+                                  child: const Icon(Icons.add_a_photo_rounded,
+                                      color: AppColors.primary, size: 20),
+                                ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            logoBytes != null
+                                ? 'تم اختيار الشعار ✓'
+                                : 'شعار الشركة (اختياري)',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo', fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: nameCtrl,
+                  textDirection: TextDirection.rtl,
+                  decoration: catalogInputDec('اسم الشركة *'),
+                  style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedCatId,
+                  hint: const Text('اختر الصنف التابع له *',
+                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                  decoration: catalogInputDec('الصنف التابع له'),
+                  items: categories
+                      .map((c) => DropdownMenuItem(
+                            value: c['id'].toString(),
+                            child: Text(c['name'] ?? '',
+                                style: const TextStyle(
+                                    fontFamily: 'Cairo', fontSize: 13)),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setBSt(() => selectedCatId = v),
+                ),
+                if (brandErr != null) ...[
+                  const SizedBox(height: 8),
+                  Text(brandErr!,
+                      style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          color: Colors.red,
+                          fontSize: 12)),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: savingBrand
+                        ? null
+                        : () async {
+                            final bName = nameCtrl.text.trim();
+                            if (bName.isEmpty) {
+                              setBSt(() => brandErr = 'اسم الشركة مطلوب');
+                              return;
+                            }
+                            if (selectedCatId == null) {
+                              setBSt(() => brandErr = 'اختر الصنف التابع له');
+                              return;
+                            }
+                            setBSt(() {
+                              savingBrand = true;
+                              brandErr = null;
+                            });
+                            try {
+                              String? logoUrl;
+                              if (logoFile != null) {
+                                logoUrl = await uploadCatalogImage(logoFile!);
+                              }
+                              await ref.read(adminServiceProvider).addBrand(
+                                    name: bName,
+                                    categoryId: selectedCatId!,
+                                    logoUrl: logoUrl,
+                                  );
+                              ref.invalidate(brandsProvider);
+                              final updated =
+                                  await ref.read(brandsProvider.future);
+                              final match = updated.firstWhere(
+                                (b) => b['name'] == bName,
+                                orElse: () => updated.last,
+                              );
+                              final newId = match['id'].toString();
+                              if (dialogCtx.mounted) {
+                                Navigator.pop(dialogCtx, newId);
+                              }
+                            } catch (e) {
+                              setBSt(() {
+                                savingBrand = false;
+                                brandErr = 'فشل إضافة الشركة: $e';
+                              });
+                            }
+                          },
+                    icon: savingBrand
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.add_rounded, size: 20),
+                    label: Text(
+                      savingBrand ? 'جاري الإضافة...' : 'حفظ واختيار الشركة',
+                      style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ).then((newBrandId) {
+      if (newBrandId != null && mounted) {
+        setState(() {
+          selectedBrandId = newBrandId;
+        });
+      }
+    });
   }
 
   Future<void> _saveProductUpdates() async {

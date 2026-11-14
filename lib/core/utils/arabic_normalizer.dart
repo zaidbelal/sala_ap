@@ -82,8 +82,8 @@ class AppDateParser {
   static DateTime parse(dynamic value, [DateTime? fallback]) {
     if (value == null) return fallback ?? DateTime(2000);
     if (value is DateTime) return value;
-    if (value is dynamic && value.runtimeType.toString() == 'Timestamp') {
-      return (value as dynamic).toDate() as DateTime;
+    if (value is Timestamp) {
+      return value.toDate();
     }
     if (value is String && value.trim().isNotEmpty) {
       return DateTime.tryParse(value.trim()) ?? (fallback ?? DateTime(2000));

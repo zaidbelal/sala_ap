@@ -94,6 +94,11 @@ class CategoriesTab extends ConsumerWidget {
                       (_, i) => _CategoryTile(
                         name: list[i]['name'] ?? '',
                         imageUrl: list[i]['image_url'],
+                        onEdit: () => _showEditCategoryDialog(
+                          context,
+                          ref,
+                          list[i],
+                        ),
                         onDelete: () async {
                           if (await confirmDelete(
                               context, list[i]['name'] ?? '')) {
@@ -137,10 +142,12 @@ class CategoriesTab extends ConsumerWidget {
 class _CategoryTile extends StatelessWidget {
   final String name;
   final String? imageUrl;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _CategoryTile({
     required this.name,
+    required this.onEdit,
     required this.onDelete,
     this.imageUrl,
   });
@@ -213,6 +220,23 @@ class _CategoryTile extends StatelessWidget {
             ),
           ),
 
+          // زر التعديل
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: GestureDetector(
+              onTap: onEdit,
+              child: Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.edit_rounded,
+                    color: AppColors.primary, size: 18),
+              ),
+            ),
+          ),
+
           // زر الحذف
           Padding(
             padding: const EdgeInsets.only(left: 12),
@@ -230,7 +254,7 @@ class _CategoryTile extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(width: 12),
+          const SizedBox(width: 4),
         ],
       ),
     );
@@ -251,6 +275,240 @@ class _CategoryTile extends StatelessWidget {
           ),
         ),
       );
+}
+
+void _showEditCategoryDialog(
+  BuildContext context,
+  WidgetRef ref,
+  Map<String, dynamic> category,
+) {
+  final id = category['id'].toString();
+  final nameCtrl = TextEditingController(text: category['name'] ?? '');
+  XFile? newImage;
+  Uint8List? newImageBytes;
+  bool removeImage = false;
+  final String? existingImageUrl = category['image_url']?.toString();
+  bool loading = false;
+  String? error;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => StatefulBuilder(
+      builder: (sheetCtx, setSt) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.edit_rounded,
+                        color: AppColors.primary, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'تعديل الصنف',
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              // صورة الصنف
+              GestureDetector(
+                onTap: loading
+                    ? null
+                    : () async {
+                        final (file, bytes) = await pickCatalogImage();
+                        if (file != null && bytes != null) {
+                          setSt(() {
+                            newImage = file;
+                            newImageBytes = bytes;
+                            removeImage = false;
+                            error = null;
+                          });
+                        }
+                      },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: newImageBytes != null
+                            ? Image.memory(newImageBytes!,
+                                width: 50, height: 50, fit: BoxFit.cover)
+                            : (!removeImage &&
+                                    existingImageUrl != null &&
+                                    existingImageUrl.isNotEmpty)
+                                ? CachedNetworkImage(
+                                    cacheManager: ImagePrecacheService
+                                        .instance.cacheManager,
+                                    imageUrl: existingImageUrl,
+                                    width: 50,
+                                    height: 50,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 50,
+                                    height: 50,
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.08),
+                                    child: const Icon(Icons.add_a_photo_rounded,
+                                        color: AppColors.primary),
+                                  ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          newImageBytes != null
+                              ? 'تم اختيار صورة جديدة'
+                              : (!removeImage && existingImageUrl != null)
+                                  ? 'اضغط لتغيير صورة الصنف'
+                                  : 'إضافة صورة للصنف (اختياري)',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo', fontSize: 13),
+                        ),
+                      ),
+                      if (newImageBytes != null ||
+                          (!removeImage && existingImageUrl != null))
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded,
+                              color: Colors.red, size: 20),
+                          onPressed: () => setSt(() {
+                            newImage = null;
+                            newImageBytes = null;
+                            removeImage = true;
+                          }),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                textDirection: TextDirection.rtl,
+                decoration: catalogInputDec('اسم الصنف *'),
+                style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!,
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        color: Colors.red,
+                        fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          final cleanName = nameCtrl.text.trim();
+                          if (cleanName.isEmpty) {
+                            setSt(() => error = 'اسم الصنف مطلوب');
+                            return;
+                          }
+                          setSt(() {
+                            loading = true;
+                            error = null;
+                          });
+                          try {
+                            String? uploadedUrl;
+                            if (newImage != null) {
+                              uploadedUrl =
+                                  await uploadCatalogImage(newImage!);
+                            }
+                            await ref
+                                .read(adminServiceProvider)
+                                .updateCategory(
+                                  id,
+                                  name: cleanName,
+                                  imageUrl: uploadedUrl ??
+                                      (removeImage ? null : existingImageUrl),
+                                  removeImage: removeImage,
+                                );
+                            ref.invalidate(adminCategoriesProvider);
+                            ref.invalidate(brandsProvider);
+                            ref
+                                .read(adminProductsProvider.notifier)
+                                .loadInitial();
+                            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                          } catch (e) {
+                            setSt(() {
+                              loading = false;
+                              error = 'فشل تحديث الصنف: $e';
+                            });
+                          }
+                        },
+                  icon: loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: Text(
+                    loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ════════════════════════════════════════

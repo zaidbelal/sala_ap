@@ -788,6 +788,32 @@ class _UnitManualDateField extends StatelessWidget {
     required this.icon,
   });
 
+  Future<void> _pickDate(BuildContext context) async {
+    final parsed = DateTime.tryParse(ctrl.text.trim());
+    final initial = parsed ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: AppColors.primary,
+            onPrimary: Colors.white,
+            onSurface: Colors.black87,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      ctrl.text = '${picked.year}-'
+          '${picked.month.toString().padLeft(2, '0')}-'
+          '${picked.day.toString().padLeft(2, '0')}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return TextField(
@@ -804,7 +830,11 @@ class _UnitManualDateField extends StatelessWidget {
           fontSize: 11,
           color: Color(0xFFAAAAAA),
         ),
-        prefixIcon: Icon(icon, size: 16, color: Colors.grey[500]),
+        prefixIcon: IconButton(
+          icon: Icon(icon, size: 16, color: AppColors.primary),
+          tooltip: 'اختيار من التقويم',
+          onPressed: () => _pickDate(context),
+        ),
         filled: true,
         fillColor: Colors.white,
         contentPadding:

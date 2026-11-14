@@ -905,6 +905,32 @@ class AdminService {
     await AppCache.instance.invalidateCategories();
   }
 
+  Future<void> updateCategory(
+    String id, {
+    required String name,
+    String? imageUrl,
+    bool removeImage = false,
+  }) async {
+    final cleanId = id.trim();
+    final cleanName = name.trim();
+    if (cleanId.isEmpty || cleanName.isEmpty) {
+      throw ArgumentError('معرف الصنف واسمه مطلوبان');
+    }
+
+    final callable =
+        FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+      'adminUpdateCategory',
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+    );
+
+    await callable.call({
+      'id': cleanId,
+      'name': cleanName,
+      'imageUrl': removeImage ? null : imageUrl,
+    });
+    await AppCache.instance.invalidateCategories();
+  }
+
 // ── جلب الشركات مع الفرز السريع في الذاكرة والكاش ──
   Future<List<Map<String, dynamic>>> getBrands({String? categoryId}) async {
     try {
@@ -956,6 +982,36 @@ class AdminService {
       'logoUrl': logoUrl,
     });
     await AppCache.instance.invalidateBrands();
+  }
+
+  Future<void> updateBrand(
+    String id, {
+    required String name,
+    required String categoryId,
+    String? logoUrl,
+    bool removeLogo = false,
+  }) async {
+    final cleanId = id.trim();
+    final cleanName = name.trim();
+    final cleanCatId = categoryId.trim();
+    if (cleanId.isEmpty || cleanName.isEmpty || cleanCatId.isEmpty) {
+      throw ArgumentError('بيانات الشركة والصنف مطلوبة');
+    }
+
+    final callable =
+        FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+      'adminUpdateBrand',
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+    );
+
+    await callable.call({
+      'id': cleanId,
+      'name': cleanName,
+      'categoryId': cleanCatId,
+      'logoUrl': removeLogo ? null : logoUrl,
+    });
+    await AppCache.instance.invalidateBrands();
+    await AppCache.instance.invalidateProducts();
   }
 
 // ── حذف الصنف تسلسلياً مع جميع الشركات والمنتجات سحابياً وبضمان 100% ──

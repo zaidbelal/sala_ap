@@ -129,19 +129,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   int? _itemsFor(ProductVariant? v) =>
       _selectedUnit?.qty ?? v?.itemsPerCarton ?? widget.product.itemsPerCarton;
 
-  DateTime? _expiryFor(ProductVariant? v) {
-    if (_selectedUnit?.expiryDate != null) return _selectedUnit!.expiryDate;
-    if (v?.expiryDate != null) return v!.expiryDate;
-    return DateTime.tryParse(widget.product.expiryDate ?? '');
-  }
 
-  DateTime? _productionFor(ProductVariant? v) {
-    if (_selectedUnit?.productionDate != null) {
-      return _selectedUnit!.productionDate;
-    }
-    if (v?.productionDate != null) return v!.productionDate;
-    return DateTime.tryParse(widget.product.productionDate ?? '');
-  }
 
   String _formatDate(String? date) {
     if (date == null || date.isEmpty) return '—';
