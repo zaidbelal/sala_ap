@@ -201,7 +201,7 @@ class OrderModel {
       orderNumber: j['order_number']?.toString(),
       storeName: j['store_name']?.toString(),
       customerName: j['customer_name']?.toString(),
-      contact: j['contact']?.toString(),
+      contact: (j['contact'] ?? j['phone_number'])?.toString(),
       latitude: (j['latitude'] as num?)?.toDouble(),
       longitude: (j['longitude'] as num?)?.toDouble(),
       paymentMethod: j['payment_method']?.toString(),

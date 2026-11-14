@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class ArabicNormalizer {
   ArabicNormalizer._();
 
@@ -70,5 +72,32 @@ class ArabicNormalizer {
     if (tokens.isEmpty) return true;
     final normalizedTarget = normalize(target);
     return tokens.every((token) => normalizedTarget.contains(token));
+  }
+}
+
+/// فئة معمارية موحدة لمعالجة وفرز وتنسيق كافة تواريخ التطبيق (Single Source of Truth)
+class AppDateParser {
+  AppDateParser._();
+
+  static DateTime parse(dynamic value, [DateTime? fallback]) {
+    if (value == null) return fallback ?? DateTime(2000);
+    if (value is DateTime) return value;
+    if (value is dynamic && value.runtimeType.toString() == 'Timestamp') {
+      return (value as dynamic).toDate() as DateTime;
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      return DateTime.tryParse(value.trim()) ?? (fallback ?? DateTime(2000));
+    }
+    return fallback ?? DateTime(2000);
+  }
+
+  static String formatDate(dynamic value, {bool includeTime = false}) {
+    final dt = parse(value);
+    final dateStr =
+        '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
+    if (!includeTime) return dateStr;
+    final timeStr =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    return '$dateStr  $timeStr';
   }
 }

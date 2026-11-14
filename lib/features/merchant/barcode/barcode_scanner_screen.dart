@@ -266,7 +266,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       CurvedAnimation(parent: _laserAnimCtrl, curve: Curves.easeInOut),
     );
 
-    BarcodeIndexManager.instance.ensureInitialized();
+    BarcodeIndexManager.instance.rebuildIndex();
     unawaited(_startCamera());
   }
 
@@ -730,6 +730,65 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                     ),
             ),
           ),
+          if (_cameraError != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.92),
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.videocam_off_rounded,
+                        color: Colors.redAccent,
+                        size: 48,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      _cameraError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1.7,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() => _cameraError = null);
+                        unawaited(_startCamera());
+                      },
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text(
+                        'إعادة المحاولة',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // شريط التحكم العلوي المدمج
           SafeArea(

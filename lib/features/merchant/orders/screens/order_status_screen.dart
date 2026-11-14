@@ -6,6 +6,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_radius.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
+import 'order_detail_screen.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderStatusScreen extends StatefulWidget {
@@ -51,8 +52,45 @@ class _OrderStatusScreenState extends State<OrderStatusScreen> {
                         _InfoGrid(order: current),
                         const SizedBox(height: 16),
                         _OrderSummaryCard(order: current),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      OrderDetailScreen(order: current),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.inventory_2_outlined,
+                                size: 18),
+                            label: Text(
+                              current.status == OrderStatus.delivered
+                                  ? 'عرض الأصناف / طلب إرجاع'
+                                  : 'عرض أصناف الطلب',
+                              style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: BorderSide(
+                                color: AppColors.primary.withValues(alpha: 0.4),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
                         if (current.status == OrderStatus.pending) ...[
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           _CancelButton(order: current),
                         ],
                         const SizedBox(height: 8),
@@ -79,7 +117,8 @@ class _Header extends StatelessWidget {
 
   static _StatusMeta _meta(OrderStatus s) => switch (s) {
         OrderStatus.pending => const _StatusMeta(Colors.orange, 'قيد الانتظار'),
-        OrderStatus.accepted => const _StatusMeta(AppColors.primary, 'مقبول'),
+        OrderStatus.accepted =>
+          const _StatusMeta(AppColors.primary, 'تم القبول'),
         OrderStatus.preparing => const _StatusMeta(Colors.blue, 'جاري التحضير'),
         OrderStatus.onTheWay => const _StatusMeta(Colors.indigo, 'في الطريق'),
         OrderStatus.delivered =>

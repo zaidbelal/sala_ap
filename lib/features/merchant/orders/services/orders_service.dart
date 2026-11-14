@@ -5,6 +5,7 @@ import 'package:wissal/core/services/app_cache.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 import 'package:wissal/core/services/local_storage.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class OrdersService {
   static final _db = FirebaseFirestore.instance;
@@ -182,6 +183,25 @@ class OrdersService {
         .where('order_id', isEqualTo: orderId)
         .get(const GetOptions(source: Source.serverAndCache));
     return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+  }
+
+  /// جلب سجل الطلبات المسلمة للسائق مفروزة زمنياً ونظيفة معمارياً
+  static Future<List<Map<String, dynamic>>> getDriverHistory(
+      String driverId) async {
+    if (driverId.isEmpty) return [];
+    final snap = await _db
+        .collection('orders')
+        .where('driver_id', isEqualTo: driverId)
+        .where('status', isEqualTo: 'delivered')
+        .limit(100)
+        .get(const GetOptions(source: Source.serverAndCache));
+    final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    docs.sort((a, b) {
+      final dateA = AppDateParser.parse(a['delivered_at'] ?? a['created_at']);
+      final dateB = AppDateParser.parse(b['delivered_at'] ?? b['created_at']);
+      return dateB.compareTo(dateA);
+    });
+    return docs;
   }
 
   // ════════════════════════════════════════

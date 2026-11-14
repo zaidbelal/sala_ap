@@ -16,6 +16,7 @@ import '../../products/widgets/product_details_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'package:wissal/core/models/product_unit.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class CartItemCard extends ConsumerStatefulWidget {
   final CartItem item;
@@ -34,8 +35,8 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
   VoidCallback? get onDelete => widget.onDelete;
 
   ProductModel _resolveFullProduct() {
-    final cached = AppCache.instance.getProducts();
-    if (cached != null && cached.isNotEmpty) {
+    final cached = AppCache.instance.getAllCachedProducts();
+    if (cached.isNotEmpty) {
       final match = cached.firstWhere(
         (p) => p['id'] == item.product.id,
         orElse: () => <String, dynamic>{},
@@ -522,20 +523,7 @@ class _ManualCartQtyDialogState extends State<_ManualCartQtyDialog> {
   }
 
   void _submit() {
-    const arabic = {
-      '٠': '0',
-      '١': '1',
-      '٢': '2',
-      '٣': '3',
-      '٤': '4',
-      '٥': '5',
-      '٦': '6',
-      '٧': '7',
-      '٨': '8',
-      '٩': '9'
-    };
-    var text = _controller.text.trim();
-    arabic.forEach((k, v) => text = text.replaceAll(k, v));
+    final text = ArabicNormalizer.normalizeDigits(_controller.text).trim();
     final val = int.tryParse(text);
     FocusScope.of(context).unfocus();
     Navigator.pop(context, (val != null && val >= 0) ? val : null);

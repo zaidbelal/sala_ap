@@ -9,7 +9,7 @@ import 'tabs/history_tab.dart';
 import 'tabs/orders_tab.dart';
 import 'tabs/profile_tab.dart';
 
-final _activeTabProvider = StateProvider<int>((ref) => 0);
+final _activeTabProvider = StateProvider.autoDispose<int>((ref) => 0);
 
 class MerchantHomeScreen extends ConsumerStatefulWidget {
   const MerchantHomeScreen({super.key});
@@ -19,20 +19,6 @@ class MerchantHomeScreen extends ConsumerStatefulWidget {
 }
 
 class _MerchantHomeScreenState extends ConsumerState<MerchantHomeScreen> {
-  late PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final activeTab = ref.watch(_activeTabProvider);

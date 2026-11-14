@@ -42,86 +42,95 @@ class BrandsTab extends ConsumerWidget {
               ],
             ),
           ),
-          data: (list) => Column(
-            children: [
-              AddBrandBar(
-                categories: categoriesAsync.value ?? [],
-                onAdd: (name, categoryId, imageUrl) async {
-                  await ref.read(adminServiceProvider).addBrand(
-                      name: name, categoryId: categoryId, logoUrl: imageUrl);
-                  ref.invalidate(brandsProvider);
-                },
-              ),
-              // ── عداد ──
-              if (list.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Row(children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.09),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${list.length} شركة',
-                        style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary),
-                      ),
-                    ),
-                  ]),
+          data: (list) => CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: AddBrandBar(
+                  categories: categoriesAsync.value ?? [],
+                  onAdd: (name, categoryId, imageUrl) async {
+                    await ref.read(adminServiceProvider).addBrand(
+                        name: name, categoryId: categoryId, logoUrl: imageUrl);
+                    ref.invalidate(brandsProvider);
+                  },
                 ),
-              Expanded(
-                child: list.isEmpty
-                    ? const CatalogEmptyState(
-                        label: 'لا توجد شركات', icon: Icons.business_outlined)
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
-                        itemCount: list.length,
-                        itemBuilder: (_, i) {
-                          final item = list[i];
-                          final catId = item['category_id']?.toString();
-                          final cat = (categoriesAsync.value ?? []).firstWhere(
-                            (c) => c['id'].toString() == catId,
-                            orElse: () => <String, dynamic>{},
-                          );
-                          return _BrandTile(
-                            name: item['name'] ?? '',
-                            categoryName: cat['name'] as String?,
-                            logoUrl: item['logo_url'],
-                            onDelete: () async {
-                              if (await confirmDelete(
-                                  context, item['name'] ?? '')) {
-                                try {
-                                  await ref
-                                      .read(adminServiceProvider)
-                                      .deleteBrand(item['id'].toString());
-                                  ref.invalidate(brandsProvider);
-                                  ref
-                                      .read(adminProductsProvider.notifier)
-                                      .loadInitial(forceServer: true);
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('فشل حذف الشركة: $e',
-                                            style: const TextStyle(
-                                                fontFamily: 'Cairo')),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
+              ),
+              if (list.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Row(children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '${list.length} شركة',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              if (list.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: CatalogEmptyState(
+                      label: 'لا توجد شركات', icon: Icons.business_outlined),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (_, i) {
+                        final item = list[i];
+                        final catId = item['category_id']?.toString();
+                        final cat = (categoriesAsync.value ?? []).firstWhere(
+                          (c) => c['id'].toString() == catId,
+                          orElse: () => <String, dynamic>{},
+                        );
+                        return _BrandTile(
+                          name: item['name'] ?? '',
+                          categoryName: cat['name'] as String?,
+                          logoUrl: item['logo_url'],
+                          onDelete: () async {
+                            if (await confirmDelete(
+                                context, item['name'] ?? '')) {
+                              try {
+                                await ref
+                                    .read(adminServiceProvider)
+                                    .deleteBrand(item['id'].toString());
+                                ref.invalidate(brandsProvider);
+                                ref
+                                    .read(adminProductsProvider.notifier)
+                                    .loadInitial(forceServer: true);
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('فشل حذف الشركة: $e',
+                                          style: const TextStyle(
+                                              fontFamily: 'Cairo')),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
                                 }
                               }
-                            },
-                          );
-                        },
-                      ),
-              ),
+                            }
+                          },
+                        );
+                      },
+                      childCount: list.length,
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -261,17 +270,23 @@ class _AddBrandBarState extends State<AddBrandBar> {
 
   Future<void> _pickImage() async {
     setState(() => _error = null);
-    final (file, bytes) = await pickCatalogImage(); // ← الدالة المحسّنة
-    if (file != null && bytes != null) {
-      // فحص حجم 3MB
-      if (bytes.lengthInBytes > 3 * 1024 * 1024) {
-        setState(() => _error = 'الصورة كبيرة جداً، الحد الأقصى 3MB');
-        return;
+    try {
+      final (file, bytes) = await pickCatalogImage();
+      if (!mounted) return;
+      if (file != null && bytes != null) {
+        if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+          setState(() => _error = 'الصورة كبيرة جداً، الحد الأقصى 3MB');
+          return;
+        }
+        setState(() {
+          _image = file;
+          _imageBytes = bytes;
+        });
       }
-      setState(() {
-        _image = file;
-        _imageBytes = bytes;
-      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'تعذّر فتح المعرض، تحقق من الصلاحيات');
+      }
     }
   }
 

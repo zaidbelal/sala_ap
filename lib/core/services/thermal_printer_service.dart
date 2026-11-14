@@ -23,27 +23,32 @@ class ThermalPrinterService {
       final context = key.currentContext;
       if (context == null) return null;
       final boundary = context.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null || !boundary.attached || boundary.size.isEmpty)
+      if (boundary == null || !boundary.attached || boundary.size.isEmpty) {
         return null;
+      }
 
-      await Future.delayed(const Duration(milliseconds: 150));
-      WidgetsBinding.instance.scheduleFrame();
-      await WidgetsBinding.instance.endOfFrame.timeout(
-        const Duration(milliseconds: 1000),
-        onTimeout: () => null,
-      );
+      // منح الأجهزة الضعيفة مهلة كافية لإنهاء الرسم وتأكيد اكتمال طبقة الـ Canvas
+      for (int attempt = 0; attempt < 3; attempt++) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        WidgetsBinding.instance.scheduleFrame();
+        await WidgetsBinding.instance.endOfFrame.timeout(
+          const Duration(milliseconds: 800),
+          onTimeout: () => null,
+        );
+      }
 
       ui.Image? image;
-      try {
-        image = await boundary.toImage(pixelRatio: 1.0);
-      } catch (_) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        if (boundary.attached && !boundary.size.isEmpty) {
-          try {
-            image = await boundary.toImage(pixelRatio: 1.0);
-          } catch (_) {}
+      for (int retry = 0; retry < 4; retry++) {
+        try {
+          if (boundary.attached && !boundary.size.isEmpty) {
+            image = await boundary.toImage(pixelRatio: 2.0);
+            if (image.width > 0 && image.height > 0) break;
+          }
+        } catch (_) {
+          await Future.delayed(const Duration(milliseconds: 150));
         }
       }
+
       if (image == null) return null;
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();

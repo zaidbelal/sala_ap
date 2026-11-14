@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -41,13 +42,20 @@ class AdminReturnsPaginationNotifier
     extends StateNotifier<AdminReturnsPaginationState> {
   static const int _pageSize = 30;
   DocumentSnapshot? _lastDoc;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _liveSub;
+  final Map<String, Map<String, dynamic>> _olderReturns = {};
 
   AdminReturnsPaginationNotifier()
       : super(const AdminReturnsPaginationState(returns: [], isLoading: true)) {
     loadInitial();
   }
 
-  // 🚀 تحديث محلي فوري (0ms) للواجهة دون أي انتظار
+  @override
+  void dispose() {
+    _liveSub?.cancel();
+    super.dispose();
+  }
+
   void updateLocally(String returnId, String newStatus,
       {String? rejectionReason}) {
     final updated = state.returns.map((r) {
@@ -67,26 +75,41 @@ class AdminReturnsPaginationNotifier
     if (!silent) {
       state = state.copyWith(isLoading: true, error: null);
     }
-    try {
-      // 🚀 إزالة التعارض لجعل الاستعلام يعمل فوراً بدون طلب Composite Index
-      final snap = await FirebaseFirestore.instance
-          .collection('order_returns')
-          .orderBy('created_at', descending: true)
-          .limit(_pageSize)
-          .get();
-      if (!mounted) return;
-      _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
-      final returns = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    await _liveSub?.cancel();
+    _olderReturns.clear();
+    _lastDoc = null;
 
-      state = state.copyWith(
-        returns: returns,
-        isLoading: false,
-        hasMore: snap.docs.length == _pageSize,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      state = state.copyWith(isLoading: false, error: e);
-    }
+    _liveSub = FirebaseFirestore.instance
+        .collection('order_returns')
+        .orderBy('created_at', descending: true)
+        .limit(_pageSize)
+        .snapshots(includeMetadataChanges: false)
+        .listen(
+      (snap) {
+        if (!mounted) return;
+        if (_olderReturns.isEmpty) {
+          _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
+        }
+        final liveMap = {
+          for (final d in snap.docs) d.id: {'id': d.id, ...d.data()}
+        };
+        final merged = <String, Map<String, dynamic>>{
+          ..._olderReturns,
+          ...liveMap,
+        };
+        state = state.copyWith(
+          returns: merged.values.toList(),
+          isLoading: false,
+          hasMore: _olderReturns.isEmpty
+              ? snap.docs.length == _pageSize
+              : state.hasMore,
+        );
+      },
+      onError: (e) {
+        if (!mounted) return;
+        state = state.copyWith(isLoading: false, error: e);
+      },
+    );
   }
 
   Future<void> loadMore() async {
@@ -102,12 +125,12 @@ class AdminReturnsPaginationNotifier
           .get();
       if (!mounted) return;
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
-      final more = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      for (final d in snap.docs) {
+        _olderReturns[d.id] = {'id': d.id, ...d.data()};
+      }
 
       final map = {for (final r in state.returns) r['id'].toString(): r};
-      for (final r in more) {
-        map[r['id'].toString()] = r;
-      }
+      map.addAll(_olderReturns);
 
       state = state.copyWith(
         returns: map.values.toList(),
@@ -438,8 +461,7 @@ class _ReturnCard extends ConsumerWidget {
               ],
             ),
           ),
-
-          // ── السبب ──
+// ── السبب ──
           if (reason.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
@@ -460,7 +482,29 @@ class _ReturnCard extends ConsumerWidget {
                 ],
               ),
             ),
-
+          if (status == 'rejected' &&
+              (data['rejection_reason']?.toString().trim().isNotEmpty ?? false))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.cancel_outlined,
+                      size: 14, color: Colors.red),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'سبب الرفض: ${data['rejection_reason']}',
+                      style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          color: Colors.red,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // ── أزرار القبول / الرفض (للمعلقة فقط) ──
           if (status == 'pending')
             Padding(

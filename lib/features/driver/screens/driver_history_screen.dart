@@ -4,6 +4,7 @@ import 'package:wissal/core/constants/app_colors.dart';
 import 'package:wissal/core/services/local_storage.dart';
 import 'driver_order_detail_screen.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/features/merchant/orders/services/orders_service.dart';
 
 class DriverHistoryScreen extends StatefulWidget {
   const DriverHistoryScreen({super.key});
@@ -13,7 +14,7 @@ class DriverHistoryScreen extends StatefulWidget {
 }
 
 class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
-  final _db = FirebaseFirestore.instance;
+  final db = FirebaseFirestore.instance;
   List<Map<String, dynamic>> _orders = [];
   bool _loading = true;
 
@@ -26,27 +27,8 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
   Future<void> _loadHistory() async {
     try {
       final driverId = AppStorage.userId ?? '';
-      final snap = await _db
-          .collection('orders')
-          .where('driver_id', isEqualTo: driverId)
-          .where('status', isEqualTo: 'delivered')
-          .limit(100)
-          .get(const GetOptions(source: Source.serverAndCache));
+      final docs = await OrdersService.getDriverHistory(driverId);
       if (mounted) {
-        final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-        // فرز بالذاكرة لمنع FAILED_PRECONDITION وضمان العمل دون الحاجة لإنشاء Index مركب
-        docs.sort((a, b) {
-          DateTime parse(dynamic v) {
-            if (v is Timestamp) return v.toDate();
-            if (v is DateTime) return v;
-            if (v is String) return DateTime.tryParse(v) ?? DateTime(2000);
-            return DateTime(2000);
-          }
-
-          final dateA = parse(a['delivered_at'] ?? a['created_at']);
-          final dateB = parse(b['delivered_at'] ?? b['created_at']);
-          return dateB.compareTo(dateA);
-        });
         setState(() {
           _orders = docs;
           _loading = false;

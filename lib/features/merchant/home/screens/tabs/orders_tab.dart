@@ -235,6 +235,8 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         .toList();
                   }
 
+                  final canLoadOlder = _hasMoreOrders && allOrders.length >= 50;
+
                   return TabBarView(
                     controller: _tabController,
                     physics: const BouncingScrollPhysics(),
@@ -242,12 +244,11 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: allOrders,
                         emptyType: _EmptyType.all,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
-                        onRefresh: () => _refreshOrders(
-                            merchantId), // 👈 تحديث صحيح لأعلى القائمة
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                       _OrdersList(
                         orders: filterBy(const [
@@ -259,7 +260,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                           'on_the_way',
                         ]),
                         emptyType: _EmptyType.pending,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -268,7 +269,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: filterBy(const ['delivered']),
                         emptyType: _EmptyType.delivered,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -277,7 +278,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: filterBy(const ['cancelled', 'rejected']),
                         emptyType: _EmptyType.rejected,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -287,7 +288,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         orders:
                             filterBy(const ['returned', 'return_requested']),
                         emptyType: _EmptyType.returned,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),

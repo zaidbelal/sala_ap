@@ -118,11 +118,12 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
   void _flushSaveToDisk() {
     final itemsSnapshot = Map<String, CartItem>.from(state);
+    final targetKey = _key;
 
     _cartSaveChain = _cartSaveChain.then((_) async {
       await _loadFuture;
       await _repository.saveCart(
-        key: _key,
+        key: targetKey,
         items: itemsSnapshot,
       );
     }).catchError((Object error, StackTrace stackTrace) {
@@ -152,9 +153,23 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
   void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
     final oldKey = oldItem.cartKey;
+    final availableStock =
+        oldItem.selectedVariant?.stock ?? oldItem.product.stock;
+    final cartonCapacity = oldItem.selectedVariant?.itemsPerCarton ??
+        oldItem.product.itemsPerCarton ??
+        1;
+    final safeCapacity = cartonCapacity > 0 ? cartonCapacity : 1;
+    final newUnitQty = newUnit.qty > 0 ? newUnit.qty : 1;
+    final maxAllowed = availableStock > 0
+        ? ((availableStock * safeCapacity) / newUnitQty)
+            .floor()
+            .clamp(1, _maxQuantity)
+        : _maxQuantity;
+
+    final clampedQty = oldItem.quantity.clamp(1, maxAllowed);
     final newItem = CartItem(
       product: oldItem.product,
-      quantity: oldItem.quantity.clamp(1, _maxQuantity),
+      quantity: clampedQty,
       selectedUnit: newUnit,
       selectedVariant: oldItem.selectedVariant,
     );
@@ -168,13 +183,50 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     if (newState.containsKey(newKey)) {
       final existing = newState[newKey]!;
       newState[newKey] = existing.copyWith(
-        quantity: (existing.quantity + oldItem.quantity).clamp(1, _maxQuantity),
+        quantity: (existing.quantity + clampedQty).clamp(1, maxAllowed),
       );
     } else {
       newState[newKey] = newItem;
     }
     state = newState;
     _save();
+  }
+
+  int _maxUnitsAllowedFor(CartItem targetItem, {String? ignoreKey}) {
+    final double availableStock =
+        targetItem.selectedVariant?.stock ?? targetItem.product.stock;
+    if (availableStock <= 0) return 0;
+
+    final int cartonCap = (targetItem.selectedVariant?.itemsPerCarton ??
+            targetItem.product.itemsPerCarton ??
+            1)
+        .clamp(1, 9999);
+    final int unitQty =
+        (targetItem.selectedUnit?.qty ?? cartonCap).clamp(1, 9999);
+
+    double usedCartonsByOtherUnits = 0.0;
+    final String targetVarId = targetItem.selectedVariant?.id ?? '';
+
+    for (final entry in state.entries) {
+      if (entry.key == ignoreKey) continue;
+      final other = entry.value;
+      if (other.product.id == targetItem.product.id &&
+          (other.selectedVariant?.id ?? '') == targetVarId) {
+        final otherCap = (other.selectedVariant?.itemsPerCarton ??
+                other.product.itemsPerCarton ??
+                1)
+            .clamp(1, 9999);
+        final otherUnitQty =
+            (other.selectedUnit?.qty ?? otherCap).clamp(1, 9999);
+        usedCartonsByOtherUnits += (other.quantity * otherUnitQty) / otherCap;
+      }
+    }
+
+    final remainingCartons =
+        (availableStock - usedCartonsByOtherUnits).clamp(0.0, availableStock);
+    return ((remainingCartons * cartonCap) / unitQty)
+        .floor()
+        .clamp(0, _maxQuantity);
   }
 
   void addItem(
@@ -191,9 +243,12 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       selectedVariant: variant,
     );
     final key = item.cartKey;
+    final maxAllowed = _maxUnitsAllowedFor(item, ignoreKey: key);
+    if (maxAllowed <= 0) return;
+
     final existing = state[key];
     final currentQty = existing?.quantity ?? 0;
-    final newQty = (currentQty + quantity).clamp(1, _maxQuantity);
+    final newQty = (currentQty + quantity).clamp(1, maxAllowed);
 
     state = {
       ...state,
@@ -209,9 +264,14 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       return;
     }
     final existing = state[key] ?? item;
+    final maxAllowed = _maxUnitsAllowedFor(existing, ignoreKey: key);
+    if (maxAllowed <= 0) {
+      removeItem(key);
+      return;
+    }
     state = {
       ...state,
-      key: existing.copyWith(quantity: quantity.clamp(1, _maxQuantity)),
+      key: existing.copyWith(quantity: quantity.clamp(1, maxAllowed)),
     };
     _save();
   }
@@ -227,10 +287,16 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     final key = item.cartKey;
     final existing = state[key];
     if (existing == null) {
-      addItem(item.product, 1, unit: item.selectedUnit);
+      addItem(
+        item.product,
+        1,
+        unit: item.selectedUnit,
+        variant: item.selectedVariant,
+      );
       return;
     }
-    if (existing.quantity >= _maxQuantity) return;
+    final maxAllowed = _maxUnitsAllowedFor(existing, ignoreKey: key);
+    if (existing.quantity >= maxAllowed) return;
     state = {
       ...state,
       key: existing.copyWith(quantity: existing.quantity + 1),

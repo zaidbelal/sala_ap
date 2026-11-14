@@ -60,21 +60,50 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       _openSheet();
       return;
     }
-    if (_qty > widget.product.stock) {
-      setState(() => _qty = widget.product.stock.floor().clamp(1, 999));
+    final cartonCap = (widget.product.itemsPerCarton ?? 1) > 0
+        ? widget.product.itemsPerCarton!
+        : 1;
+    double usedCartons = 0.0;
+    for (final item in ref.read(cartProvider).values) {
+      if (item.product.id == widget.product.id) {
+        final uQty = item.selectedUnit?.qty ?? cartonCap;
+        usedCartons += (item.quantity * uQty) / cartonCap;
+      }
+    }
+    final remainingCartons = (widget.product.stock - usedCartons).floor();
+    if (remainingCartons <= 0) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'وصلت للحد الأقصى المتوفر في المستودع لهذا الصنف داخل سلتك',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final qtyToAdd = _qty > remainingCartons ? remainingCartons : _qty;
+    if (qtyToAdd != _qty) {
+      setState(() => _qty = qtyToAdd);
     }
     HapticFeedback.mediumImpact();
 
     ref.read(cartProvider.notifier).addItem(
           widget.product,
-          _qty,
+          qtyToAdd,
         );
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '✅ تمت إضافة $_qty من (${widget.product.name}) إلى السلة',
+          qtyToAdd < _qty
+              ? '⚠️ تم إضافة المتبقي فقط ($qtyToAdd كرتون) من (${widget.product.name})'
+              : '✅ تمت إضافة $qtyToAdd من (${widget.product.name}) إلى السلة',
           style: const TextStyle(fontFamily: 'Cairo'),
           textAlign: TextAlign.right,
         ),
@@ -350,8 +379,12 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                     ),
                     GestureDetector(
                       onTap: () {
-                        HapticFeedback.lightImpact();
-                        setState(() => _qty++);
+                        final maxWholeCartons =
+                            widget.product.stock.floor().clamp(1, 999);
+                        if (_qty < maxWholeCartons) {
+                          HapticFeedback.lightImpact();
+                          setState(() => _qty++);
+                        }
                       },
                       child: Container(
                         width: 38,

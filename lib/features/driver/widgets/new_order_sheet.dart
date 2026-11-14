@@ -197,7 +197,7 @@ class _NewOrderSheetState extends State<NewOrderSheet>
                         ? Icons.money_rounded
                         : Icons.credit_card_rounded,
                     label: 'الدفع',
-                    value: payMethod == 'cash' ? 'كاش عند الاستلام' : 'بطاقة',
+                    value: payMethod == 'cash' ? 'كاش عند الاستلام' : 'دفع آجل',
                     color: Colors.purple,
                   ),
                 ],

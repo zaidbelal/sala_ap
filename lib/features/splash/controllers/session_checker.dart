@@ -150,8 +150,7 @@ class SessionChecker {
         if (!isActive) {
           final accountStatus =
               data['account_status']?.toString().trim().toLowerCase() ?? '';
-          // إذا لم يكمل التاجر إدخال تفاصيل المتجر والموقع، لا يُحجز في شاشة الانتظار
-          if (accountStatus == 'otp_verified' || data['store_name'] == null) {
+          if (accountStatus != 'pending' || data['store_name'] == null) {
             await FirebaseAuth.instance.signOut();
             await AppStorage.clearUserData();
             return SessionResult.unauthenticated;

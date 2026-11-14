@@ -101,6 +101,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
   @override
   Widget build(BuildContext context) {
     final name = AppStorage.userName ?? '';
+    final storeName = AppStorage.storeName ?? '';
     final rawPhone = AppStorage.userPhone ?? '';
     final phone = _cleanPhone(rawPhone);
     final role = AppStorage.userRole ?? 'merchant';
@@ -110,7 +111,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
       body: SafeArea(
         child: ListView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
           children: [
             // ── ترويسة الشاشة ──
             Row(
@@ -239,6 +240,13 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
             ),
             const SizedBox(height: 10),
 
+            if (storeName.isNotEmpty)
+              _buildTile(
+                context: context,
+                icon: Icons.storefront_rounded,
+                title: 'اسم البقالة / المتجر',
+                value: storeName,
+              ),
             _buildTile(
               context: context,
               icon: Icons.person_outline_rounded,

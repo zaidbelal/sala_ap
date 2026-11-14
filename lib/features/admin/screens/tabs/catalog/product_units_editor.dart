@@ -618,7 +618,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
                               validator: (v) {
-                                final p = double.tryParse(v?.trim() ?? '');
+                                final p = double.tryParse(
+                                    ArabicNormalizer.normalizeDigits(v ?? '')
+                                        .trim());
                                 return (p == null || p < 0)
                                     ? 'أدخل سعراً صحيحاً'
                                     : null;
@@ -658,7 +660,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
                               validator: (v) {
-                                final q = int.tryParse(v?.trim() ?? '');
+                                final q = int.tryParse(
+                                    ArabicNormalizer.normalizeDigits(v ?? '')
+                                        .trim());
                                 return (q == null || q <= 0)
                                     ? 'أدخل عدد الحبات'
                                     : null;
@@ -790,7 +794,6 @@ class _UnitManualDateField extends StatelessWidget {
       controller: ctrl,
       keyboardType: TextInputType.number,
       inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
         DateInputFormatter(),
       ],
       style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
@@ -1442,9 +1445,14 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                               decoration: _dec('سعر البيع ر.ي *'),
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
-                              validator: (v) => (v == null || v.trim().isEmpty)
-                                  ? 'السعر مطلوب'
-                                  : null,
+                              validator: (v) {
+                                final p = double.tryParse(
+                                    ArabicNormalizer.normalizeDigits(v ?? '')
+                                        .trim());
+                                return (p == null || p < 0)
+                                    ? 'أدخل سعر بيع صحيحاً'
+                                    : null;
+                              },
                             ),
                           ),
                           const SizedBox(width: 8),

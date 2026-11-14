@@ -40,9 +40,19 @@ class DateInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    final buffer = StringBuffer();
+    final normalizedOld = ArabicNormalizer.normalizeDigits(oldValue.text);
+    final normalizedNew = ArabicNormalizer.normalizeDigits(newValue.text);
 
+    var digits = normalizedNew.replaceAll(RegExp(r'[^0-9]'), '');
+    final oldDigits = normalizedOld.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (normalizedNew.length < normalizedOld.length &&
+        digits == oldDigits &&
+        digits.isNotEmpty) {
+      digits = digits.substring(0, digits.length - 1);
+    }
+
+    final buffer = StringBuffer();
     for (int i = 0; i < digits.length && i < 8; i++) {
       if (i == 4 || i == 6) {
         buffer.write('-');
@@ -51,13 +61,27 @@ class DateInputFormatter extends TextInputFormatter {
     }
 
     final formatted = buffer.toString();
+    final rawOffset =
+        newValue.selection.baseOffset.clamp(0, normalizedNew.length);
+    final digitsBeforeCursor = normalizedNew
+        .substring(0, rawOffset)
+        .replaceAll(RegExp(r'[^0-9]'), '')
+        .length;
+
     int cursorPosition = formatted.length;
-    if (newValue.selection.baseOffset < newValue.text.length) {
-      cursorPosition = newValue.selection.baseOffset;
-      if (cursorPosition == 5 || cursorPosition == 8) {
+    if (normalizedNew.length >= normalizedOld.length || digits != oldDigits) {
+      int seenDigits = 0;
+      cursorPosition = 0;
+      while (cursorPosition < formatted.length &&
+          seenDigits < digitsBeforeCursor) {
+        if (formatted[cursorPosition] != '-') seenDigits++;
         cursorPosition++;
       }
-      cursorPosition = cursorPosition.clamp(0, formatted.length);
+      if (cursorPosition < formatted.length &&
+          formatted[cursorPosition] == '-' &&
+          digitsBeforeCursor > 0) {
+        cursorPosition++;
+      }
     }
 
     return TextEditingValue(
@@ -209,7 +233,10 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
             children: [
               // فلتر الصنف
               DropdownButton<String?>(
-                value: _filterCategoryId,
+                value: categoriesList
+                        .any((c) => c['id'].toString() == _filterCategoryId)
+                    ? _filterCategoryId
+                    : null,
                 hint: const Text('كل الأصناف',
                     style: TextStyle(fontFamily: 'Cairo', fontSize: 11)),
                 underline: const SizedBox.shrink(),
@@ -225,32 +252,55 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                               fontFamily: 'Cairo', fontSize: 11)))),
                 ],
                 onChanged: (v) {
-                  setState(() => _filterCategoryId = v);
+                  setState(() {
+                    _filterCategoryId = v;
+                    if (v != null && _filterBrandId != null) {
+                      final stillValid = brandsList.any((b) =>
+                          b['id'].toString() == _filterBrandId &&
+                          b['category_id']?.toString() == v);
+                      if (!stillValid) _filterBrandId = null;
+                    }
+                  });
                   _reloadServerFilter();
                 },
               ),
               const SizedBox(width: 8),
 
-              // فلتر الشركة
-              DropdownButton<String?>(
-                value: _filterBrandId,
-                hint: const Text('كل الشركات',
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 11)),
-                underline: const SizedBox.shrink(),
-                items: [
-                  const DropdownMenuItem(
-                      value: null,
-                      child: Text('كل الشركات',
-                          style: TextStyle(fontFamily: 'Cairo', fontSize: 11))),
-                  ...brandsList.map((b) => DropdownMenuItem(
-                      value: b['id'].toString(),
-                      child: Text(b['name'] ?? '',
-                          style: const TextStyle(
-                              fontFamily: 'Cairo', fontSize: 11)))),
-                ],
-                onChanged: (v) {
-                  setState(() => _filterBrandId = v);
-                  _reloadServerFilter();
+              // فلتر الشركة (مصفّى تلقائياً حسب الصنف المختار)
+              Builder(
+                builder: (_) {
+                  final scopedBrands = _filterCategoryId == null
+                      ? brandsList
+                      : brandsList
+                          .where((b) =>
+                              b['category_id']?.toString() == _filterCategoryId)
+                          .toList();
+                  final validBrandValue = scopedBrands
+                          .any((b) => b['id'].toString() == _filterBrandId)
+                      ? _filterBrandId
+                      : null;
+                  return DropdownButton<String?>(
+                    value: validBrandValue,
+                    hint: const Text('كل الشركات',
+                        style: TextStyle(fontFamily: 'Cairo', fontSize: 11)),
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      const DropdownMenuItem(
+                          value: null,
+                          child: Text('كل الشركات',
+                              style: TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 11))),
+                      ...scopedBrands.map((b) => DropdownMenuItem(
+                          value: b['id'].toString(),
+                          child: Text(b['name'] ?? '',
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 11)))),
+                    ],
+                    onChanged: (v) {
+                      setState(() => _filterBrandId = v);
+                      _reloadServerFilter();
+                    },
+                  );
                 },
               ),
               const SizedBox(width: 8),
@@ -887,17 +937,24 @@ class _AddProductBarState extends State<AddProductBar> {
 
   Future<void> _pickImage() async {
     setState(() => _error = null);
-    final (file, bytes) = await pickCatalogImage();
-    if (file != null && bytes != null) {
-      if (bytes.lengthInBytes > 3 * 1024 * 1024) {
-        setState(() => _error = 'الصورة كبيرة جداً، الحد الأقصى 3MB');
-        return;
+    try {
+      final (file, bytes) = await pickCatalogImage();
+      if (!mounted) return;
+      if (file != null && bytes != null) {
+        if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+          setState(() => _error = 'الصورة كبيرة جداً، الحد الأقصى 3MB');
+          return;
+        }
+        setState(() {
+          _image = file;
+          _imageBytes = bytes;
+          _uploadedImageUrl = null;
+        });
       }
-      setState(() {
-        _image = file;
-        _imageBytes = bytes;
-        _uploadedImageUrl = null;
-      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'تعذّر فتح المعرض، تحقق من صلاحية الصور');
+      }
     }
   }
 
@@ -972,9 +1029,11 @@ class _AddProductBarState extends State<AddProductBar> {
       final parsedCost = double.tryParse(
               ArabicNormalizer.normalizeDigits(_costCtrl.text).trim()) ??
           0;
-      final parsedStock = double.tryParse(
-              ArabicNormalizer.normalizeDigits(_stockCtrl.text).trim()) ??
-          0.0;
+      final rawStockText =
+          ArabicNormalizer.normalizeDigits(_stockCtrl.text).trim();
+      final parsedStock = _variants.isNotEmpty && rawStockText.isEmpty
+          ? _variants.fold<double>(0.0, (sum, v) => sum + v.stock)
+          : (double.tryParse(rawStockText) ?? 0.0);
       final parsedItems = int.tryParse(
           ArabicNormalizer.normalizeDigits(_itemsCtrl.text).trim());
 
@@ -1595,8 +1654,9 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
   XFile? _newImage;
   Uint8List? _newImageBytes;
   String? _existingImageUrl;
+  bool _removeImage = false;
   bool saving = false;
-
+  String? _editError;
   @override
   void initState() {
     super.initState();
@@ -1718,20 +1778,34 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ── 0. تعديل صورة المنتج ──
+                        // ── 0. تعديل أو إزالة صورة المنتج ──
                         GestureDetector(
                           onTap: saving
                               ? null
                               : () async {
-                                  final (file, bytes) =
-                                      await pickCatalogImage();
-                                  if (file != null &&
-                                      bytes != null &&
-                                      mounted) {
-                                    setState(() {
-                                      _newImage = file;
-                                      _newImageBytes = bytes;
-                                    });
+                                  try {
+                                    final (file, bytes) =
+                                        await pickCatalogImage();
+                                    if (!mounted) return;
+                                    if (file != null && bytes != null) {
+                                      if (bytes.lengthInBytes >
+                                          3 * 1024 * 1024) {
+                                        setState(() => _editError =
+                                            'الصورة كبيرة جداً، الحد الأقصى 3MB');
+                                        return;
+                                      }
+                                      setState(() {
+                                        _editError = null;
+                                        _newImage = file;
+                                        _newImageBytes = bytes;
+                                        _removeImage = false;
+                                      });
+                                    }
+                                  } catch (_) {
+                                    if (mounted) {
+                                      setState(() => _editError =
+                                          'تعذّر فتح المعرض، تحقق من الصلاحيات');
+                                    }
                                   }
                                 },
                           child: Container(
@@ -1754,7 +1828,8 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                                           width: 46,
                                           height: 46,
                                           fit: BoxFit.cover)
-                                      : (_existingImageUrl != null &&
+                                      : (!_removeImage &&
+                                              _existingImageUrl != null &&
                                               _existingImageUrl!.isNotEmpty)
                                           ? CachedNetworkImage(
                                               cacheManager: ImagePrecacheService
@@ -1784,11 +1859,26 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                                         fontWeight: FontWeight.w700),
                                   ),
                                 ),
+                                if (_newImageBytes != null ||
+                                    (!_removeImage &&
+                                        _existingImageUrl != null &&
+                                        _existingImageUrl!.isNotEmpty))
+                                  IconButton(
+                                    onPressed: saving
+                                        ? null
+                                        : () => setState(() {
+                                              _newImage = null;
+                                              _newImageBytes = null;
+                                              _removeImage = true;
+                                            }),
+                                    icon: const Icon(Icons.close_rounded,
+                                        color: Colors.red, size: 18),
+                                    tooltip: 'إزالة الصورة',
+                                  ),
                               ],
                             ),
                           ),
                         ),
-
                         // ── 1. اسم المنتج ──
                         CatalogEditField(
                           ctrl: nameCtrl,
@@ -1962,6 +2052,31 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                   ),
                   const SizedBox(height: 16),
 
+                  if (_editError != null) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: Colors.red.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        _editError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ],
+
                   // ── زر حفظ التعديلات ──
                   SizedBox(
                     width: double.infinity,
@@ -2002,49 +2117,47 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
   Future<void> _saveProductUpdates() async {
     final nameText = nameCtrl.text.trim();
     if (nameText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content:
-                Text('اسم المنتج مطلوب', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red),
-      );
+      setState(() => _editError = 'اسم المنتج مطلوب');
       return;
     }
+
     final stockText = ArabicNormalizer.normalizeDigits(stockCtrl.text).trim();
     final newStockInput = double.tryParse(stockText);
     if (newStockInput != null && newStockInput < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('لا يمكن أن يكون المخزون سالباً',
-                style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red),
-      );
+      setState(() => _editError = 'لا يمكن أن يكون المخزون سالباً');
       return;
     }
 
     final prodText = ArabicNormalizer.normalizeDigits(prodCtrl.text).trim();
     if (prodText.isNotEmpty && DateTime.tryParse(prodText) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)',
-                style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red),
-      );
+      setState(
+          () => _editError = 'صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
       return;
     }
 
     final expText = ArabicNormalizer.normalizeDigits(expCtrl.text).trim();
     if (expText.isNotEmpty && DateTime.tryParse(expText) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)',
-                style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red),
-      );
+      setState(() =>
+          _editError = 'صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
       return;
     }
 
-    setState(() => saving = true);
+    double? parsedPrice = double.tryParse(
+        ArabicNormalizer.normalizeDigits(priceCtrl.text).trim());
+    if (parsedPrice == null && editVariants.isNotEmpty) {
+      parsedPrice =
+          editVariants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
+    }
+    if (parsedPrice == null || parsedPrice < 0) {
+      setState(() => _editError = 'أدخل سعر بيع صحيحاً أو أضف حجماً بسعر محدد');
+      return;
+    }
+
+    setState(() {
+      _editError = null;
+      saving = true;
+    });
+
     final String originalStockText =
         (initialStockValue - initialStockValue.round()).abs() < 0.001
             ? initialStockValue.round().toString()
@@ -2065,18 +2178,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
     }
 
     final customSizeText = sizeCtrl.text.trim();
-    final double? numericSize = parseSizeMlFromText(customSizeText);
-    final parsedPrice = double.tryParse(
-        ArabicNormalizer.normalizeDigits(priceCtrl.text).trim());
-    if (parsedPrice == null || parsedPrice < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('أدخل سعر بيع صحيحاً',
-                style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.red),
-      );
-      return;
-    }
+    final numericSize = parseSizeMlFromText(customSizeText);
     final parsedCost = costCtrl.text.trim().isEmpty
         ? 0.0
         : (double.tryParse(
@@ -2087,6 +2189,10 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         : (int.tryParse(
                 ArabicNormalizer.normalizeDigits(itemsCtrl.text).trim()) ??
             1);
+
+    final double? syncedVariantStock = editVariants.isNotEmpty
+        ? editVariants.fold<double>(0.0, (sum, v) => sum + v.stock)
+        : null;
 
     try {
       String? updatedImageUrl;
@@ -2100,10 +2206,16 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         'name': nameText,
         if (selectedBrandId != null) 'brand_id': selectedBrandId,
         if (categoryId != null) 'category_id': categoryId,
-        if (updatedImageUrl != null) 'image_url': updatedImageUrl,
+        if (updatedImageUrl != null)
+          'image_url': updatedImageUrl
+        else if (_removeImage)
+          'image_url': null,
         'price': parsedPrice,
         'cost_price': parsedCost,
-        if (stockWasManuallyChanged) 'stock_delta': stockDelta,
+        if (syncedVariantStock != null)
+          'stock': syncedVariantStock
+        else if (stockWasManuallyChanged)
+          'stock_delta': stockDelta,
         'items_per_carton': parsedItems,
         'size_text': customSizeText,
         'size_ml': numericSize,
@@ -2126,12 +2238,11 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _editError = 'فشل التحديث: $e');
+      }
+    } finally {
+      if (mounted) {
         setState(() => saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('فشل التحديث: $e',
-                  style: const TextStyle(fontFamily: 'Cairo'))),
-        );
       }
     }
   }

@@ -140,7 +140,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                         itemCount: notifs.length +
-                            (notificationsNotifier.hasMore ? 1 : 0),
+                            (notificationsNotifier.hasMore &&
+                                    notifs.length >= 50
+                                ? 1
+                                : 0),
                         itemBuilder: (context, i) {
                           if (i < notifs.length) {
                             return _NotifCard(data: notifs[i]);

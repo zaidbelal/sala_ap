@@ -1,9 +1,6 @@
-// ==================================================
-// FILE: lib/core/services/realtime_hub.dart
-// ==================================================
-
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -16,7 +13,7 @@ import 'notification_service.dart';
 import 'connectivity_service.dart';
 import 'package:wissal/core/services/app_cache.dart';
 import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
-
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 // ══════════════════════════════════════════════════════════
 //  RealtimeHub — Production-Grade
 // ══════════════════════════════════════════════════════════
@@ -391,6 +388,11 @@ class RealtimeHub {
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-token-revoked') {
             await resetOnSignOut();
+            try {
+              await FirebaseAuth.instance
+                  .signOut()
+                  .timeout(const Duration(seconds: 3));
+            } catch (_) {}
             await AppStorage.clearUserData();
             final navContext = NotificationService.navigatorKey.currentContext;
             if (navContext != null && navContext.mounted) {
@@ -452,6 +454,22 @@ class RealtimeHub {
                   phone: data['phone_number'] as String?,
                 );
                 await startForUser(userId, role: newRole);
+                final retryCtx =
+                    NotificationService.navigatorKey.currentContext;
+                if (retryCtx != null &&
+                    retryCtx.mounted &&
+                    AppStorage.isLoggedIn) {
+                  final nextRoute = switch (newRole) {
+                    'admin' ||
+                    'super_admin' ||
+                    'accountant' ||
+                    'warehouse_manager' =>
+                      '/admin',
+                    'driver' => '/driver',
+                    _ => '/merchant',
+                  };
+                  retryCtx.go(nextRoute);
+                }
               }
             } catch (_) {}
           });
@@ -535,8 +553,6 @@ class RealtimeHub {
   void _watchNotifications(String userId) {
     if (userId.isEmpty) return;
 
-    unawaited(_container?.read(realtimeNotifsProvider.notifier).reload(userId));
-
     bool isFirstLoad = true;
     final Set<String> knownNotifIds = {};
 
@@ -554,16 +570,8 @@ class RealtimeHub {
         .listen(
       (snap) {
         final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
-          ..sort((a, b) {
-            DateTime parse(dynamic v) {
-              if (v is Timestamp) return v.toDate();
-              if (v is DateTime) return v;
-              if (v is String) return DateTime.tryParse(v) ?? DateTime(2000);
-              return DateTime(2000);
-            }
-
-            return parse(b['created_at']).compareTo(parse(a['created_at']));
-          });
+          ..sort((a, b) => AppDateParser.parse(b['created_at'])
+              .compareTo(AppDateParser.parse(a['created_at'])));
         _container?.read(realtimeNotifsProvider.notifier).update(data);
         _setConnected();
         if (knownNotifIds.length > 500) {
@@ -607,15 +615,25 @@ class RealtimeHub {
         final lastReadIso = AppStorage.getString('broadcast_read_at_$userId');
         final lastReadAt =
             lastReadIso != null ? DateTime.tryParse(lastReadIso) : null;
+        Set<String> readBroadcastIds = {};
+        try {
+          final rawIds = AppStorage.getString('broadcast_read_ids_$userId');
+          if (rawIds != null && rawIds.isNotEmpty) {
+            readBroadcastIds =
+                (jsonDecode(rawIds) as List).map((e) => e.toString()).toSet();
+          }
+        } catch (_) {}
+
         final broadcastData = snap.docs.map((d) {
           final data = d.data();
           final rawCreated = data['created_at'];
           final created = rawCreated is Timestamp
               ? rawCreated.toDate()
               : (rawCreated is DateTime ? rawCreated : null);
-          final isRead = lastReadAt != null &&
-              created != null &&
-              !created.isAfter(lastReadAt);
+          final isRead = readBroadcastIds.contains(d.id) ||
+              (lastReadAt != null &&
+                  created != null &&
+                  !created.isAfter(lastReadAt));
           return {
             'id': d.id,
             'is_read': isRead,
@@ -731,16 +749,8 @@ class RealtimeHub {
         .listen(
       (snap) {
         final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
-          ..sort((a, b) {
-            DateTime parse(dynamic v) {
-              if (v is Timestamp) return v.toDate();
-              if (v is DateTime) return v;
-              if (v is String) return DateTime.tryParse(v) ?? DateTime(2000);
-              return DateTime(2000);
-            }
-
-            return parse(b['created_at']).compareTo(parse(a['created_at']));
-          });
+          ..sort((a, b) => AppDateParser.parse(b['created_at'])
+              .compareTo(AppDateParser.parse(a['created_at'])));
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
         final currentIds = LinkedHashSet<String>.from(
@@ -943,16 +953,8 @@ class _OrdersNotifier extends StateNotifier<List<Map<String, dynamic>>> {
             .limit(200)
             .get();
         final list = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
-          ..sort((a, b) {
-            DateTime parse(dynamic v) {
-              if (v is Timestamp) return v.toDate();
-              if (v is DateTime) return v;
-              if (v is String) return DateTime.tryParse(v) ?? DateTime(2000);
-              return DateTime(2000);
-            }
-
-            return parse(b['created_at']).compareTo(parse(a['created_at']));
-          });
+          ..sort((a, b) => AppDateParser.parse(b['created_at'])
+              .compareTo(AppDateParser.parse(a['created_at'])));
         return list;
       },
       tag: 'orders-reload',
@@ -1022,9 +1024,28 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   }
 
   Future<void> loadMore(String userId) async {
-    final cursor = _lastLoadedDoc;
-    if (userId.isEmpty || !_hasMore || _isLoadingMore || cursor == null) {
+    if (userId.isEmpty || !_hasMore || _isLoadingMore) {
       return;
+    }
+    var cursor = _lastLoadedDoc;
+    if (cursor == null) {
+      try {
+        final seed = await _db
+            .collection('user_notifications')
+            .where('user_id', isEqualTo: userId)
+            .orderBy('created_at', descending: true)
+            .limit(_pageSize)
+            .get(const GetOptions(source: Source.serverAndCache));
+        if (seed.docs.length < _pageSize) {
+          _hasMore = false;
+          if (mounted) state = List<Map<String, dynamic>>.from(state);
+          return;
+        }
+        cursor = seed.docs.last;
+        _lastLoadedDoc = cursor;
+      } catch (_) {
+        return;
+      }
     }
     _isLoadingMore = true;
     loadMoreError = null;
@@ -1078,6 +1099,17 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
           'broadcast_read_at_$userId',
           DateTime.now().toIso8601String(),
         );
+        try {
+          final currentIds = state
+              .map((n) => n['id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty)
+              .take(50)
+              .toList();
+          await AppStorage.setString(
+            'broadcast_read_ids_$userId',
+            jsonEncode(currentIds),
+          );
+        } catch (_) {}
         final query = _db
             .collection('user_notifications')
             .where('user_id', isEqualTo: userId)

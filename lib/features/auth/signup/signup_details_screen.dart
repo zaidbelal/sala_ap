@@ -633,7 +633,11 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
         AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           decoration: BoxDecoration(
-            color: hasError ? AppColors.errorSurface : AppColors.grey100,
+            color: hasError
+                ? (context.isDark
+                    ? AppColors.error.withValues(alpha: 0.14)
+                    : AppColors.errorSurface)
+                : context.bgInput,
             borderRadius: AppRadius.mdAll,
             border: Border.all(
               // ✅ إصلاح: withValues بدلاً من withOpacity
@@ -694,39 +698,54 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
     final parts = text.isEmpty
         ? 0
         : text.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).length;
+    final isComplete = parts >= 4;
 
     return Padding(
       padding: const EdgeInsets.only(top: 8, right: 4, left: 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── الخطوط الأربعة التفاعلية ──
-          ...List.generate(4, (i) {
-            final filled = i < parts;
-            return Expanded(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                height: 5,
-                decoration: BoxDecoration(
-                  color: filled
-                      ? AppColors.primary
-                      : (context.isDark
-                          ? const Color(0xFF2C2C2C)
-                          : const Color(0xFFE0E0E0)),
-                  borderRadius: BorderRadius.circular(4),
-                  boxShadow: filled
-                      ? [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.4),
-                            blurRadius: 6,
-                            offset: const Offset(0, 1),
-                          )
-                        ]
-                      : [],
+          Row(
+            children: List.generate(4, (i) {
+              final filled = i < parts;
+              return Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: filled
+                        ? AppColors.primary
+                        : (context.isDark
+                            ? const Color(0xFF2C2C2C)
+                            : const Color(0xFFE0E0E0)),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: filled
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.4),
+                              blurRadius: 6,
+                              offset: const Offset(0, 1),
+                            )
+                          ]
+                        : [],
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            isComplete
+                ? 'تم إدخال الاسم الرباعي ✓'
+                : 'مطلوب الاسم الرباعي كاملاً (${parts.clamp(0, 4)}/4 كلمات)',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isComplete ? AppColors.primary : context.textSecondary,
+            ),
+          ),
         ],
       ),
     );

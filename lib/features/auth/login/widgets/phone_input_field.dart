@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_radius.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class PhoneInputField extends StatefulWidget {
   final TextEditingController controller;
@@ -212,22 +213,8 @@ class _PhoneInputFieldState extends State<PhoneInputField>
                       ),
                       inputFormatters: [
                         TextInputFormatter.withFunction((oldValue, newValue) {
-                          const arabicDigits = {
-                            '٠': '0',
-                            '١': '1',
-                            '٢': '2',
-                            '٣': '3',
-                            '٤': '4',
-                            '٥': '5',
-                            '٦': '6',
-                            '٧': '7',
-                            '٨': '8',
-                            '٩': '9',
-                          };
-                          var text = newValue.text;
-                          arabicDigits.forEach((ar, en) {
-                            text = text.replaceAll(ar, en);
-                          });
+                          var text =
+                              ArabicNormalizer.normalizeDigits(newValue.text);
                           text = text.replaceAll(RegExp(r'[^0-9]'), '');
 
                           if (text.startsWith('00967')) {

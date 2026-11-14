@@ -30,11 +30,25 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   int _qty = 1;
   int _variantIndex = 0;
   ProductUnit? _selectedUnit;
+  final Map<int, ProductUnit?> _variantUnits = {};
+  final Map<int, int> _variantQtys = {};
   PageController? _pageController;
 
   ProductVariant? get _currentVariant => widget.product.hasVariants
       ? widget.product.variants[_variantIndex]
       : null;
+
+  ProductUnit? _unitForIndex(int idx) {
+    if (!widget.product.hasVariants) return _selectedUnit;
+    if (_variantUnits.containsKey(idx)) return _variantUnits[idx];
+    final units = widget.product.variants[idx].units;
+    return units.isNotEmpty ? units.first : null;
+  }
+
+  int _qtyForIndex(int idx) {
+    if (!widget.product.hasVariants) return _qty;
+    return _variantQtys[idx] ?? 1;
+  }
 
   @override
   void initState() {
@@ -49,14 +63,19 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         if (idx != -1) _variantIndex = idx;
       }
       _pageController = PageController(initialPage: _variantIndex);
-      final units = widget.product.variants[_variantIndex].units;
-      _selectedUnit = widget.initialUnit != null
-          ? units
-                  .where(
-                      (u) => u.label.trim() == widget.initialUnit!.label.trim())
-                  .firstOrNull ??
-              (units.isNotEmpty ? units.first : null)
-          : (units.isNotEmpty ? units.first : null);
+      for (var i = 0; i < widget.product.variants.length; i++) {
+        final units = widget.product.variants[i].units;
+        _variantUnits[i] = (i == _variantIndex && widget.initialUnit != null)
+            ? (units
+                    .where((u) =>
+                        u.label.trim() == widget.initialUnit!.label.trim())
+                    .firstOrNull ??
+                (units.isNotEmpty ? units.first : null))
+            : (units.isNotEmpty ? units.first : null);
+        _variantQtys[i] = 1;
+      }
+      _selectedUnit = _variantUnits[_variantIndex];
+      _qty = 1;
     } else {
       _selectedUnit = widget.initialUnit ??
           (widget.product.units.isNotEmpty ? widget.product.units.first : null);
@@ -74,21 +93,25 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
 
   String get _currentUnitLabel => _selectedUnit?.label ?? 'كرتون';
 
-  String? _imageFor(ProductVariant? v) {
-    if (_selectedUnit?.imageUrl != null &&
-        _selectedUnit!.imageUrl!.trim().isNotEmpty) {
-      return _selectedUnit!.imageUrl!.trim();
+  String? _imageFor(ProductVariant? v, {ProductUnit? unit}) {
+    final activeUnit = unit ?? _selectedUnit;
+    if (activeUnit?.imageUrl != null &&
+        activeUnit!.imageUrl!.trim().isNotEmpty) {
+      return activeUnit.imageUrl!.trim();
     }
     if (v?.imageUrl != null && v!.imageUrl!.trim().isNotEmpty) {
       return v.imageUrl!.trim();
     }
-    if (_selectedUnit == null || _selectedUnit!.label == 'كرتون') {
-      return widget.product.imageUrl;
-    }
-    return null;
+    return widget.product.imageUrl;
   }
 
   String _sizeDisplayFor(ProductVariant? v) {
+    if (_selectedUnit != null &&
+        _selectedUnit!.label.trim() != 'كرتون' &&
+        _selectedUnit!.sizeMl != null) {
+      final us = _selectedUnit!.sizeMl!;
+      return us % 1 == 0 ? '${us.toInt()} مل' : '$us مل';
+    }
     if (v?.sizeText != null && v!.sizeText!.trim().isNotEmpty) {
       return v.sizeText!.trim();
     }
@@ -132,11 +155,10 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
 
   void _onVariantChanged(int newIndex) {
     HapticFeedback.selectionClick();
-    final v = widget.product.variants[newIndex];
     setState(() {
       _variantIndex = newIndex;
-      _qty = 1;
-      _selectedUnit = v.units.isNotEmpty ? v.units.first : null;
+      _qty = _qtyForIndex(newIndex);
+      _selectedUnit = _unitForIndex(newIndex);
     });
   }
 
@@ -145,14 +167,50 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final availableStock = v?.stock ?? widget.product.stock;
     if (availableStock <= 0) return;
 
+    final cartonCap = v?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1;
+    final safeCap = cartonCap > 0 ? cartonCap : 1;
+    final unitQty = (_selectedUnit?.qty ?? safeCap) > 0
+        ? (_selectedUnit?.qty ?? safeCap)
+        : 1;
+
+    double usedCartons = 0.0;
+    for (final cItem in ref.read(cartProvider).values) {
+      if (cItem.product.id == widget.product.id &&
+          (cItem.selectedVariant?.id ?? '') == (v?.id ?? '')) {
+        final cCap = cItem.selectedVariant?.itemsPerCarton ??
+            cItem.product.itemsPerCarton ??
+            1;
+        final uQty = cItem.selectedUnit?.qty ?? cCap;
+        usedCartons += (cItem.quantity * uQty) / (cCap > 0 ? cCap : 1);
+      }
+    }
+
+    final remainingCartons =
+        (availableStock - usedCartons).clamp(0.0, availableStock);
+    final maxAddableUnits = ((remainingCartons * safeCap) / unitQty).floor();
+
+    if (maxAddableUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'وصلت للحد الأقصى المتوفر في المستودع لهذا الصنف داخل سلتك',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final qtyToAdd = _qty > maxAddableUnits ? maxAddableUnits : _qty;
     HapticFeedback.mediumImpact();
     ref.read(cartProvider.notifier).addItem(
           widget.product,
-          _qty,
+          qtyToAdd,
           unit: _selectedUnit,
           variant: v,
         );
-
     final title = v != null
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
@@ -306,14 +364,14 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                     context,
                     product,
                     product.variants[idx],
+                    pageIndex: idx,
                   ),
                 ),
               )
             else
               Flexible(
-                child: _buildPageContent(context, product, null),
+                child: _buildPageContent(context, product, null, pageIndex: 0),
               ),
-
             // زر الإضافة للسلة الثابت بالأسفل
             Padding(
               padding: EdgeInsets.fromLTRB(
@@ -379,23 +437,30 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   Widget _buildPageContent(
     BuildContext context,
     ProductModel product,
-    ProductVariant? v,
-  ) {
-    final currentImage = _imageFor(v);
+    ProductVariant? v, {
+    int pageIndex = 0,
+  }) {
+    final pageUnit =
+        product.hasVariants ? _unitForIndex(pageIndex) : _selectedUnit;
+    final pageQty = product.hasVariants ? _qtyForIndex(pageIndex) : _qty;
+    final pageUnitLabel = pageUnit?.label ?? 'كرتون';
+    final currentImage = _imageFor(v, unit: pageUnit);
     final hasImage = currentImage != null && currentImage.isNotEmpty;
-    final currentPrice = _priceFor(v);
+    final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
     final units = v != null ? v.units : product.units;
-    final currentBarcode =
-        _selectedUnit?.barcode ?? v?.barcode ?? product.barcode;
+    final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
     final currentStock = v?.stock ?? product.stock;
-    final currentProduction = _productionFor(v);
-    final currentExpiry = _expiryFor(v);
+    final currentProduction = pageUnit?.productionDate ??
+        v?.productionDate ??
+        DateTime.tryParse(product.productionDate ?? '');
+    final currentExpiry = pageUnit?.expiryDate ??
+        v?.expiryDate ??
+        DateTime.tryParse(product.expiryDate ?? '');
     final isExpiringSoon = currentExpiry != null &&
         currentExpiry.isBefore(DateTime.now().add(const Duration(days: 30)));
     final titleText = v != null
-        ? '${product.name} (${v.label}) - $_currentUnitLabel'
-        : '${product.name} - $_currentUnitLabel';
-
+        ? '${product.name} (${v.label}) - $pageUnitLabel'
+        : '${product.name} - $pageUnitLabel';
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Column(
@@ -507,11 +572,20 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
               spacing: 10,
               runSpacing: 10,
               children: units.map((unit) {
-                final selected = _selectedUnit?.label == unit.label;
+                final selected = pageUnit?.label == unit.label;
                 return GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
-                    setState(() => _selectedUnit = unit);
+                    setState(() {
+                      if (product.hasVariants) {
+                        _variantUnits[pageIndex] = unit;
+                        if (pageIndex == _variantIndex) {
+                          _selectedUnit = unit;
+                        }
+                      } else {
+                        _selectedUnit = unit;
+                      }
+                    });
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -607,15 +681,24 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // عداد الكمية
+// عداد الكمية (مقيد بالمخزون المتاح)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _QtyBtn(
                 icon: Icons.remove_rounded,
                 onTap: () {
-                  if (_qty > 1) setState(() => _qty--);
+                  if (pageQty > 1) {
+                    setState(() {
+                      final next = pageQty - 1;
+                      if (product.hasVariants) {
+                        _variantQtys[pageIndex] = next;
+                        if (pageIndex == _variantIndex) _qty = next;
+                      } else {
+                        _qty = next;
+                      }
+                    });
+                  }
                 },
               ),
               Padding(
@@ -625,8 +708,8 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                   transitionBuilder: (child, anim) =>
                       ScaleTransition(scale: anim, child: child),
                   child: Text(
-                    '$_qty',
-                    key: ValueKey(_qty),
+                    '$pageQty',
+                    key: ValueKey('${pageIndex}_$pageQty'),
                     style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 28,
@@ -638,7 +721,26 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
               ),
               _QtyBtn(
                 icon: Icons.add_rounded,
-                onTap: () => setState(() => _qty++),
+                onTap: () {
+                  final cartonCap =
+                      (v?.itemsPerCarton ?? product.itemsPerCarton ?? 1)
+                          .clamp(1, 9999);
+                  final unitQty = (pageUnit?.qty ?? cartonCap).clamp(1, 9999);
+                  final maxUnits = ((currentStock * cartonCap) / unitQty)
+                      .floor()
+                      .clamp(1, 999);
+                  if (currentStock > 0 && pageQty < maxUnits) {
+                    setState(() {
+                      final next = pageQty + 1;
+                      if (product.hasVariants) {
+                        _variantQtys[pageIndex] = next;
+                        if (pageIndex == _variantIndex) _qty = next;
+                      } else {
+                        _qty = next;
+                      }
+                    });
+                  }
+                },
                 filled: true,
               ),
             ],

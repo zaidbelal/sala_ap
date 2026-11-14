@@ -221,17 +221,70 @@ class Normalizer {
     return text.replace(/[^0-9a-zA-Z]/g, "").trim();
   }
 
-  static extractBarcodeVariants(cleanBarcode) {
-    const variants = new Set();
-    if (!cleanBarcode) return [];
-    variants.add(cleanBarcode);
-    const stripped = cleanBarcode.replace(/^0+/, "");
-    if (stripped) {
-      variants.add(stripped);
-      variants.add("0" + stripped);
-      variants.add("00" + stripped);
+  static _checkDigit(body) {
+    let sum = 0;
+    for (let i = 0; i < body.length; i++) {
+      const d = body.charCodeAt(body.length - 1 - i) - 48;
+      sum += (i % 2 === 0) ? d * 3 : d;
     }
-    return Array.from(variants);
+    return (10 - sum % 10) % 10;
+  }
+
+  static isValidGtin(s) {
+    if (!/^\d+$/.test(s)) return false;
+    if (![8, 12, 13, 14].includes(s.length)) return false;
+    return this._checkDigit(s.slice(0, -1)) === s.charCodeAt(s.length - 1) - 48;
+  }
+
+  static _upcEtoA(e) {
+    if (e.length !== 8 || !/^\d+$/.test(e)) return null;
+    const n = e[0], d = e.slice(1, 7), chk = e[7], d6 = d[5];
+    let body;
+    switch (d6) {
+      case "0":
+      case "1":
+      case "2":
+        body = `${d.slice(0, 2)}${d6}0000${d.slice(2, 5)}`;
+        break;
+      case "3":
+        body = `${d.slice(0, 3)}00000${d.slice(3, 5)}`;
+        break;
+      case "4":
+        body = `${d.slice(0, 4)}00000${d[4]}`;
+        break;
+      default:
+        body = `${d.slice(0, 5)}0000${d6}`;
+    }
+    return `${n}${body}${chk}`;
+  }
+
+  static extractBarcodeVariants(cleanBarcode) {
+    const out = new Set();
+    if (!cleanBarcode) return [];
+    out.add(cleanBarcode);
+    if (!/^\d+$/.test(cleanBarcode)) return Array.from(out);
+
+    const s = cleanBarcode.replace(/^0+/, "");
+    if (!s) return Array.from(out);
+    out.add(s);
+    for (const len of [13, 12, 14, 8]) {
+      if (s.length <= len) out.add(s.padStart(len, "0"));
+    }
+    out.add("0" + s);
+    out.add("00" + s);
+
+    const a = this._upcEtoA(cleanBarcode);
+    if (a) {
+      out.add(a);
+      out.add(a.padStart(13, "0"));
+    }
+    if (cleanBarcode.length === 14 && this.isValidGtin(cleanBarcode)) {
+      const body12 = cleanBarcode.slice(1, 13);
+      const inner13 = `${body12}${this._checkDigit(body12)}`;
+      out.add(inner13);
+      out.add(inner13.replace(/^0+/, ""));
+    }
+    return Array.from(out).filter(Boolean);
   }
 
 static extractAllBarcodes(mainBarcode, units = [], variants = []) {
@@ -453,25 +506,24 @@ return {
         : bucket.totalDelta;
       updatePayload.sales_count = FieldValue.increment(salesDelta);
 
-      let remainingRootDelta = bucket.rootDelta;
-      if (bucket.variantDeltas.size > 0 && Array.isArray(pDoc.variants)) {
+if (bucket.variantDeltas.size > 0 && Array.isArray(pDoc.variants)) {
+        let totalVariantStock = 0;
         const updatedVariants = pDoc.variants.map((v) => {
           const key = String(v.id || v.label).trim();
           const vDelta = bucket.variantDeltas.get(key);
-          if (!vDelta) return v;
           const currentVStock = Math.max(0, Number(v.stock) || 0);
-          const nextVStock = isRestore ? currentVStock + vDelta : Math.max(0, currentVStock - vDelta);
-          return { ...v, stock: Number(nextVStock.toFixed(4)) };
+          const nextVStock = vDelta
+            ? (isRestore ? currentVStock + vDelta : Math.max(0, currentVStock - vDelta))
+            : currentVStock;
+          const rounded = Number(nextVStock.toFixed(4));
+          totalVariantStock += rounded;
+          return { ...v, stock: rounded };
         });
         updatePayload.variants = updatedVariants;
-      } else if (bucket.variantDeltas.size > 0) {
-        for (const vDelta of bucket.variantDeltas.values()) {
-          remainingRootDelta = Number((remainingRootDelta + vDelta).toFixed(4));
-        }
-      }
-
-      if (remainingRootDelta > 0) {
-        updatePayload.stock = FieldValue.increment(isRestore ? remainingRootDelta : -remainingRootDelta);
+        // مزامنة المخزون الكلي للمنتج ليطابق مجموع الأحجام بدقة تامة
+        updatePayload.stock = Number((totalVariantStock + (isRestore ? bucket.rootDelta : -bucket.rootDelta)).toFixed(4));
+      } else if (bucket.totalDelta > 0) {
+        updatePayload.stock = FieldValue.increment(isRestore ? bucket.totalDelta : -bucket.totalDelta);
       }
 
       tx.update(productRef, updatePayload);
@@ -579,6 +631,9 @@ if (purpose === "login") {
       }
       if (userData?.account_status === "otp_verified") {
         throw new HttpsError("failed-precondition", "لم تكتمل بيانات متجرك مسبقاً، يرجى إنشاء حساب لإكمالها");
+      }
+      if (userData?.is_active === false && userData?.account_status !== "pending") {
+        throw new HttpsError("permission-denied", "الحساب معطل حالياً من قِبل الإدارة، يرجى التواصل مع الدعم الفني");
       }
     } else if (purpose === "signup") {
       if (userExists && userData?.is_deleted !== true && userData?.account_status !== "otp_verified") {
@@ -1720,7 +1775,16 @@ const [itemSnap, itemFinancialSnap, summarySnap] = await Promise.all([
       const productMap = new Map();
       if (productSnap.exists) productMap.set(productSnap.id, productSnap.data());
 
-      const returnQty = Number(returnData.quantity) || 0;
+const returnQty = Number(returnData.quantity) || 0;
+      const orderedQty = Number(itemData.quantity) || 0;
+      const alreadyReturned = Number(itemData.returned_quantity) || 0;
+      const maxReturnable = Math.max(0, orderedQty - alreadyReturned);
+      if (returnQty <= 0 || returnQty > maxReturnable) {
+        throw new HttpsError(
+          "failed-precondition",
+          `الكمية المطلوب إرجاعها (${returnQty}) تتجاوز المتبقي (${maxReturnable})`,
+        );
+      }
       const capacity = Number(itemData.carton_capacity) || 1;
       const unitQty = Number(itemData.unit_qty) || capacity;
       const cartonsToRestore = Number(((returnQty * unitQty) / capacity).toFixed(4));
@@ -1796,20 +1860,22 @@ const [itemSnap, itemFinancialSnap, summarySnap] = await Promise.all([
         updated_at: FieldValue.serverTimestamp(),
       });
 
-    // 5. تحديث مستند الإحصائيات
-      const statsUpdates = {
-        accumulated_profit: FieldValue.increment(-deductedProfit),
-        accumulated_returns: FieldValue.increment(refundAmount),
-        accumulated_revenue: FieldValue.increment(-refundAmount),
-        last_updated: FieldValue.serverTimestamp(),
-      };
+    // 5. تحديث مستند الإحصائيات (فقط إذا كانت الأرباح مسجلة مسبقاً عند التسليم)
+      if (orderData?.profit_recorded === true) {
+        const statsUpdates = {
+          accumulated_profit: FieldValue.increment(-deductedProfit),
+          accumulated_returns: FieldValue.increment(refundAmount),
+          accumulated_revenue: FieldValue.increment(-refundAmount),
+          last_updated: FieldValue.serverTimestamp(),
+        };
 
-      if (isFromCurrentCycle) {
-        statsUpdates.cycle_profit = FieldValue.increment(-deductedProfit);
-      } else {
-        statsUpdates.prior_period_adjustments = FieldValue.increment(-deductedProfit);
+        if (isFromCurrentCycle) {
+          statsUpdates.cycle_profit = FieldValue.increment(-deductedProfit);
+        } else {
+          statsUpdates.prior_period_adjustments = FieldValue.increment(-deductedProfit);
+        }
+        tx.set(summaryParentRef, statsUpdates, { merge: true });
       }
-      tx.set(summaryParentRef, statsUpdates, { merge: true });
       return { success: true };
     });
   }
@@ -2868,14 +2934,21 @@ const cleanMainBarcode = Normalizer.barcode(data.barcode);
     const rawVariants = Array.isArray(data.variants) ? data.variants : [];
     const allBarcodes = Normalizer.extractAllBarcodes(data.barcode, data.units, rawVariants);
 
-    if (allBarcodes.length > 0) {
-      const existingBarcodeSnap = await db.collection("products")
-        .where("is_deleted", "==", false)
-        .where("all_barcodes", "array-contains-any", allBarcodes.slice(0, 10))
-        .limit(1)
-        .get();
-
-      if (!existingBarcodeSnap.empty) {
+ if (allBarcodes.length > 0) {
+      const barcodeChunks = [];
+      for (let i = 0; i < allBarcodes.length; i += 10) {
+        barcodeChunks.push(allBarcodes.slice(i, i + 10));
+      }
+      const barcodeSnaps = await Promise.all(
+        barcodeChunks.map((chunk) =>
+          db.collection("products")
+            .where("is_deleted", "==", false)
+            .where("all_barcodes", "array-contains-any", chunk)
+            .limit(1)
+            .get()
+        )
+      );
+      if (barcodeSnaps.some((snap) => !snap.empty)) {
         throw new HttpsError("already-exists", "الباركود المدخل مسجل بالفعل لمنتج آخر نشط في المستودع");
       }
     }
@@ -2940,6 +3013,9 @@ const parsedVariants = rawVariants.map((v, idx) => {
           })).filter((u) => u.label.length > 0)
         : [],
     })).filter((v) => v.label.length > 0);
+const effectiveStock = parsedVariants.length > 0
+      ? Number(parsedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0).toFixed(4))
+      : stock;
 
     const newDocRef = db.collection("products").doc();
     const productPayload = {
@@ -2948,7 +3024,7 @@ const parsedVariants = rawVariants.map((v, idx) => {
       brand_id: brandId,
       category_id: categoryId,
       price: price,
-      stock: stock,
+      stock: effectiveStock,
       is_active: true,
       is_deleted: false,
       items_per_carton: (Number.isInteger(Number(data.itemsPerCarton)) && Number(data.itemsPerCarton) >= 1) ? Number(data.itemsPerCarton) : 1,
@@ -2976,20 +3052,18 @@ const parsedVariants = rawVariants.map((v, idx) => {
       variants: variantFinancials,
       updated_at: FieldValue.serverTimestamp(),
     });
-    // 🔒 ضم قيد التدقيق المخزني إلى نفس الدفعة الذرية لمنع ضياع السجل عند انقطاع الاتصال
-    if (stock > 0) {
+    if (effectiveStock > 0) {
       const auditDocRef = db.collection("inventory_audit_log").doc();
       batch.set(auditDocRef, {
         product_id: newDocRef.id,
         product_name: cleanName,
         action: "initial_stock",
-        delta: stock,
-        resulting_stock: stock,
+        delta: effectiveStock,
+        resulting_stock: effectiveStock,
         performed_by: callerUid,
         created_at: FieldValue.serverTimestamp(),
       });
     }
-
     await batch.commit();
     return { success: true, id: newDocRef.id };
   }
@@ -3190,17 +3264,26 @@ exports.adminUpdateProduct = onCall(
         }
 
         const allBarcodes = Normalizer.extractAllBarcodes(targetBarcode, targetUnits, targetVariants);
-        // 🔒 فحص عدم تكرار الباركود مع منتج آخر نشط في المستودع
-        if (allBarcodes.length > 0) {
-          const barcodeQuery = await tx.get(
-            db.collection("products")
-              .where("is_deleted", "==", false)
-              .where("all_barcodes", "array-contains-any", allBarcodes.slice(0, 10))
-              .limit(5)
+   if (allBarcodes.length > 0) {
+          const barcodeChunks = [];
+          for (let i = 0; i < allBarcodes.length; i += 10) {
+            barcodeChunks.push(allBarcodes.slice(i, i + 10));
+          }
+          const barcodeSnaps = await Promise.all(
+            barcodeChunks.map((chunk) =>
+              tx.get(
+                db.collection("products")
+                  .where("is_deleted", "==", false)
+                  .where("all_barcodes", "array-contains-any", chunk)
+                  .limit(5)
+              )
+            )
           );
-          const duplicate = barcodeQuery.docs.find((d) => d.id !== cleanId);
-          if (duplicate) {
-            throw new HttpsError("already-exists", `الباركود مسجل بالفعل للمنتج (${duplicate.data()?.name || duplicate.id})`);
+          for (const bSnap of barcodeSnaps) {
+            const duplicate = bSnap.docs.find((d) => d.id !== cleanId);
+            if (duplicate) {
+              throw new HttpsError("already-exists", `الباركود مسجل بالفعل للمنتج (${duplicate.data()?.name || duplicate.id})`);
+            }
           }
         }
 
@@ -3215,9 +3298,31 @@ exports.adminUpdateProduct = onCall(
         const safeTs = Normalizer.toSafeTimestamp(updates.expiry_date);
         safeUpdates.expiry_date = safeTs ? safeTs : FieldValue.delete();
       }
-// تعديل المخزون الذري المباشر أو النسبي مع الحماية والتدقيق
-      let newStock = Number(existing.stock) || 0;
-      if (updates.stock !== undefined) {
+let newStock = Number(existing.stock) || 0;
+      const hasUpdatedVariants =
+        Array.isArray(safeUpdates.variants) && safeUpdates.variants.length > 0;
+
+      if (hasUpdatedVariants) {
+        newStock = Number(
+          safeUpdates.variants
+            .reduce((sum, v) => sum + (Number(v.stock) || 0), 0)
+            .toFixed(4)
+        );
+        safeUpdates.stock = newStock;
+        const stockDiff = Number((newStock - (Number(existing.stock) || 0)).toFixed(4));
+        if (Math.abs(stockDiff) > 0.0001) {
+          const auditRef = db.collection("inventory_audit_log").doc();
+          tx.set(auditRef, {
+            product_id: cleanId,
+            product_name: safeUpdates.name || existing.name || "",
+            action: "variants_stock_sync",
+            delta: stockDiff,
+            resulting_stock: newStock,
+            performed_by: callerUid,
+            created_at: FieldValue.serverTimestamp(),
+          });
+        }
+      } else if (updates.stock !== undefined) {
         newStock = Math.max(0, Number(updates.stock) || 0);
         safeUpdates.stock = newStock;
 
@@ -3231,10 +3336,12 @@ exports.adminUpdateProduct = onCall(
           performed_by: callerUid,
           created_at: FieldValue.serverTimestamp(),
         });
-  } else if (updates.stock_delta !== undefined) {
+      } else if (updates.stock_delta !== undefined) {
         const currentStock = Math.max(0, Number(existing.stock) || 0);
         const delta = Number(updates.stock_delta) || 0;
-        const effectiveDelta = Number((delta < 0 ? -Math.min(currentStock, Math.abs(delta)) : delta).toFixed(4));
+        const effectiveDelta = Number(
+          (delta < 0 ? -Math.min(currentStock, Math.abs(delta)) : delta).toFixed(4)
+        );
         newStock = Number((currentStock + effectiveDelta).toFixed(4));
         safeUpdates.stock = FieldValue.increment(effectiveDelta);
 

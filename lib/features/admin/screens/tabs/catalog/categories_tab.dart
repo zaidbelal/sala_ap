@@ -42,83 +42,89 @@ class CategoriesTab extends ConsumerWidget {
               ],
             ),
           ),
-          data: (list) => Column(
-            children: [
-              // فورم الإضافة
-              AddWithImageBar(
-                hint: 'اسم الصنف',
-                onAdd: (name, imageUrl) async {
-                  await ref
-                      .read(adminServiceProvider)
-                      .addCategory(name, imageUrl: imageUrl);
-                  ref.invalidate(adminCategoriesProvider);
-                },
+          data: (list) => CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: AddWithImageBar(
+                  hint: 'اسم الصنف',
+                  onAdd: (name, imageUrl) async {
+                    await ref
+                        .read(adminServiceProvider)
+                        .addCategory(name, imageUrl: imageUrl);
+                    ref.invalidate(adminCategoriesProvider);
+                  },
+                ),
               ),
-              // عداد الأصناف
               if (list.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.09),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${list.length} صنف',
-                        style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '${list.length} صنف',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary),
+                        ),
                       ),
                     ),
                   ),
                 ),
-
-              // القائمة
-              Expanded(
-                child: list.isEmpty
-                    ? const CatalogEmptyState(
-                        label: 'لا توجد أصناف', icon: Icons.category_outlined)
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
-                        itemCount: list.length,
-                        itemBuilder: (_, i) => _CategoryTile(
-                          name: list[i]['name'] ?? '',
-                          imageUrl: list[i]['image_url'],
-                          onDelete: () async {
-                            if (await confirmDelete(
-                                context, list[i]['name'] ?? '')) {
-                              try {
-                                await ref
-                                    .read(adminServiceProvider)
-                                    .deleteCategory(list[i]['id'].toString());
-                                ref.invalidate(adminCategoriesProvider);
-                                ref.invalidate(brandsProvider);
-                                ref
-                                    .read(adminProductsProvider.notifier)
-                                    .loadInitial();
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('فشل حذف الصنف: $e',
-                                          style: const TextStyle(
-                                              fontFamily: 'Cairo')),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                  );
-                                }
+              if (list.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: CatalogEmptyState(
+                      label: 'لا توجد أصناف', icon: Icons.category_outlined),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (_, i) => _CategoryTile(
+                        name: list[i]['name'] ?? '',
+                        imageUrl: list[i]['image_url'],
+                        onDelete: () async {
+                          if (await confirmDelete(
+                              context, list[i]['name'] ?? '')) {
+                            try {
+                              await ref
+                                  .read(adminServiceProvider)
+                                  .deleteCategory(list[i]['id'].toString());
+                              ref.invalidate(adminCategoriesProvider);
+                              ref.invalidate(brandsProvider);
+                              ref
+                                  .read(adminProductsProvider.notifier)
+                                  .loadInitial();
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('فشل حذف الصنف: $e',
+                                        style: const TextStyle(
+                                            fontFamily: 'Cairo')),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
                               }
                             }
-                          },
-                        ),
+                          }
+                        },
                       ),
-              ),
+                      childCount: list.length,
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -274,16 +280,23 @@ class _AddWithImageBarState extends State<AddWithImageBar> {
 
   Future<void> _pickImage() async {
     setState(() => _error = null);
-    final (file, bytes) = await pickCatalogImage();
-    if (file != null && bytes != null) {
-      if (bytes.lengthInBytes > 3 * 1024 * 1024) {
-        setState(() => _error = 'الصورة أكبر من 3MB');
-        return;
+    try {
+      final (file, bytes) = await pickCatalogImage();
+      if (!mounted) return;
+      if (file != null && bytes != null) {
+        if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+          setState(() => _error = 'الصورة أكبر من 3MB');
+          return;
+        }
+        setState(() {
+          _image = file;
+          _imageBytes = bytes;
+        });
       }
-      setState(() {
-        _image = file;
-        _imageBytes = bytes;
-      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'تعذّر فتح المعرض، تحقق من الصلاحيات');
+      }
     }
   }
 

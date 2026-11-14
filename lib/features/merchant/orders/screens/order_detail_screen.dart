@@ -835,6 +835,25 @@ class _ReturnCard extends StatelessWidget {
                           fontSize: 11,
                           color: Colors.grey[600])),
                 ],
+                if (status == 'rejected' &&
+                    ((data['rejection_reason'] ?? data['reject_reason'])
+                            ?.toString()
+                            .trim()
+                            .isNotEmpty ??
+                        false)) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'سبب الرفض: ${data['rejection_reason'] ?? data['reject_reason']}',
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.red,
+                    ),
+                  ),
+                ],
                 if (createdAt != null) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -942,7 +961,10 @@ class _ReturnSheetState extends State<_ReturnSheet> {
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _inlineError = null;
+    });
     HapticFeedback.mediumImpact();
 
     try {
@@ -1548,7 +1570,7 @@ class _EmptyHint extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.bgCard,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(children: [

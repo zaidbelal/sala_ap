@@ -136,6 +136,7 @@ class AdminMerchantsTab extends ConsumerStatefulWidget {
 }
 
 class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
+  final TextEditingController _searchCtrl = TextEditingController();
   String _search = '';
   _Filter _filter = _Filter.all;
   Timer? _searchDebounce;
@@ -143,6 +144,7 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -202,11 +204,12 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: TextField(
+        controller: _searchCtrl,
         onChanged: (v) {
+          setState(() => _search = v);
           _searchDebounce?.cancel();
           _searchDebounce = Timer(const Duration(milliseconds: 300), () {
             if (!mounted) return;
-            setState(() => _search = v);
             ref
                 .read(_merchantsProvider.notifier)
                 .loadInitial(query: _search, filter: _filter);
@@ -218,9 +221,17 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
               fontFamily: 'Cairo', color: Color(0xFFAAAAAA), fontSize: 13),
           prefixIcon:
               const Icon(Icons.search_rounded, color: Colors.grey, size: 20),
-          suffixIcon: _search.isNotEmpty
+          suffixIcon: _searchCtrl.text.isNotEmpty
               ? GestureDetector(
-                  onTap: () => setState(() => _search = ''),
+                  onTap: () {
+                    _searchDebounce?.cancel();
+                    _searchCtrl.clear();
+                    FocusScope.of(context).unfocus();
+                    setState(() => _search = '');
+                    ref
+                        .read(_merchantsProvider.notifier)
+                        .loadInitial(query: '', filter: _filter);
+                  },
                   child: const Icon(Icons.close_rounded,
                       size: 18, color: Colors.grey))
               : null,
@@ -242,16 +253,8 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     );
   }
 
-// ── فلاتر الحالة مع إعادة الاستعلام من الخادم لضمان عدم حجب أي حساب ──
+// ── فلاتر الحالة الفورية فائقة السلاسة بدون وميض أو تجميد شاشة (0ms) ──
   Widget _buildFilterChips() {
-    void onFilterSelected(_Filter newFilter) {
-      if (_filter == newFilter) return;
-      setState(() => _filter = newFilter);
-      ref
-          .read(_merchantsProvider.notifier)
-          .loadInitial(query: _search, filter: newFilter);
-    }
-
     return SizedBox(
       height: 36,
       child: ListView(
@@ -262,25 +265,37 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
               label: 'الكل',
               filter: _Filter.all,
               current: _filter,
-              onTap: () => onFilterSelected(_Filter.all)),
+              onTap: () {
+                if (_filter != _Filter.all)
+                  setState(() => _filter = _Filter.all);
+              }),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'مفعّل',
               filter: _Filter.active,
               current: _filter,
-              onTap: () => onFilterSelected(_Filter.active)),
+              onTap: () {
+                if (_filter != _Filter.active)
+                  setState(() => _filter = _Filter.active);
+              }),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'معطّل',
               filter: _Filter.inactive,
               current: _filter,
-              onTap: () => onFilterSelected(_Filter.inactive)),
+              onTap: () {
+                if (_filter != _Filter.inactive)
+                  setState(() => _filter = _Filter.inactive);
+              }),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'محظور',
               filter: _Filter.banned,
               current: _filter,
-              onTap: () => onFilterSelected(_Filter.banned)),
+              onTap: () {
+                if (_filter != _Filter.banned)
+                  setState(() => _filter = _Filter.banned);
+              }),
         ],
       ),
     );

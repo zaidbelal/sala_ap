@@ -11,6 +11,7 @@ import '../../cart/providers/cart_provider.dart';
 import '../../cart/screens/cart_screen.dart';
 import '../widgets/product_card.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:wissal/features/merchant/products/services/products_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -42,7 +43,6 @@ class ProductsScreen extends ConsumerStatefulWidget {
 
 class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   String? _selectedBrandId;
-  ProductSizeTier _selectedSizeTier = ProductSizeTier.all;
   ProductSortCriteria _selectedSort = ProductSortCriteria.defaultSort;
   String _searchQuery = '';
   final TextEditingController _searchCtrl = TextEditingController();
@@ -159,8 +159,15 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveCategoryId = widget.categoryId;
-    final productsAsync = ref.watch(productsProvider(effectiveCategoryId));
+    final isBrandOnly = widget.categoryId == null && widget.brandId != null;
+    final brandPageAsync =
+        isBrandOnly ? ref.watch(productsStreamProvider(widget.brandId!)) : null;
+    final productsAsync = isBrandOnly
+        ? brandPageAsync!.whenData(
+            (page) =>
+                page.products.map((p) => {'id': p.id, ...p.toJson()}).toList(),
+          )
+        : ref.watch(productsProvider(widget.categoryId));
     final displayName = widget.categoryName ?? widget.brandName ?? 'المنتجات';
 
     final cart = ref.watch(cartProvider);
@@ -173,9 +180,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
         child: RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () async {
-            await ref
-                .read(productsProvider(effectiveCategoryId).notifier)
-                .refresh();
+            if (isBrandOnly) {
+              ref.invalidate(productsStreamProvider(widget.brandId!));
+            } else {
+              await ref
+                  .read(productsProvider(widget.categoryId).notifier)
+                  .refresh();
+            }
           },
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(
@@ -632,6 +643,31 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                   },
                 ),
               ),
+              if (isBrandOnly &&
+                  brandPageAsync != null &&
+                  (brandPageAsync.valueOrNull?.hasMore ?? false))
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 12),
+                      child: (brandPageAsync.valueOrNull?.isLoadingMore ??
+                              false)
+                          ? const CircularProgressIndicator(
+                              color: AppColors.primary, strokeWidth: 2)
+                          : TextButton.icon(
+                              onPressed: () => ref
+                                  .read(productsStreamProvider(widget.brandId!)
+                                      .notifier)
+                                  .loadMore(),
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: const Text('تحميل المزيد من المنتجات',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                    ),
+                  ),
+                ),
 
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
@@ -641,44 +677,93 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     );
   }
 
-  // ── محرك المعالجة المتكامل: فلترة الماركة + فلترة الحجم + الترتيب الذكي ──
+  // ── محرك المعالجة المتكامل: فلترة الماركة + البحث المطبّع + الترتيب الذكي ──
   List<Map<String, dynamic>> _processProducts(List<Map<String, dynamic>> list) {
+    final normQuery = ArabicNormalizer.normalize(_searchQuery);
+    final queryTokens =
+        normQuery.split(' ').where((t) => t.isNotEmpty).toList();
+    final rawBarcodeQuery =
+        ArabicNormalizer.normalizeDigits(_searchQuery).trim();
+
     // 1. التصفية
     final filtered = list.where((p) {
       if (p['is_deleted'] == true || p['is_active'] == false) return false;
-// فلترة الشركة
+      // فلترة الشركة
       if (_selectedBrandId != null &&
           p['brand_id']?.toString() != _selectedBrandId) {
         return false;
       }
 
-      // فلترة البحث
-      if (_searchQuery.isNotEmpty) {
-        final name = (p['name'] ?? '').toString().toLowerCase();
-        final barcode = (p['barcode'] ?? '').toString().toLowerCase();
-        if (!name.contains(_searchQuery) && !barcode.contains(_searchQuery)) {
+      // فلترة البحث المطبّع والباركودات الشاملة
+      if (normQuery.isNotEmpty) {
+        final normName =
+            ArabicNormalizer.normalize(p['name']?.toString() ?? '');
+        final nameMatch = queryTokens.isNotEmpty &&
+            queryTokens.every((t) => normName.contains(t));
+        final barcodeMatch = rawBarcodeQuery.isNotEmpty &&
+            ((p['barcode']?.toString() ?? '').contains(rawBarcodeQuery) ||
+                (p['all_barcodes'] is List &&
+                    (p['all_barcodes'] as List)
+                        .any((b) => b.toString().contains(rawBarcodeQuery))) ||
+                (p['units'] is List &&
+                    (p['units'] as List).any((u) =>
+                        u is Map &&
+                        (u['barcode']?.toString() ?? '')
+                            .contains(rawBarcodeQuery))) ||
+                (p['variants'] is List &&
+                    (p['variants'] as List).any((v) =>
+                        v is Map &&
+                        ((v['barcode']?.toString() ?? '')
+                                .contains(rawBarcodeQuery) ||
+                            (v['units'] is List &&
+                                (v['units'] as List).any((vu) =>
+                                    vu is Map &&
+                                    (vu['barcode']?.toString() ?? '')
+                                        .contains(rawBarcodeQuery)))))));
+        if (!nameMatch && !barcodeMatch) {
           return false;
         }
       }
 
       return true;
     }).toList();
-
     // 2. الترتيب والفرز المتقدم
     switch (_selectedSort) {
       case ProductSortCriteria.cheapest:
         filtered.sort((a, b) {
-          final pA = (a['price'] as num?)?.toDouble() ?? 0.0;
-          final pB = (b['price'] as num?)?.toDouble() ?? 0.0;
-          return pA.compareTo(pB);
+          double minPriceOf(Map<String, dynamic> m) {
+            final v = m['variants'];
+            if (v is List && v.isNotEmpty) {
+              final prices = v
+                  .whereType<Map>()
+                  .map((e) => (e['price'] as num?)?.toDouble() ?? 0.0)
+                  .toList();
+              if (prices.isNotEmpty)
+                return prices.reduce((x, y) => x < y ? x : y);
+            }
+            return (m['price'] as num?)?.toDouble() ?? 0.0;
+          }
+
+          return minPriceOf(a).compareTo(minPriceOf(b));
         });
         break;
 
       case ProductSortCriteria.highestPrice:
         filtered.sort((a, b) {
-          final pA = (a['price'] as num?)?.toDouble() ?? 0.0;
-          final pB = (b['price'] as num?)?.toDouble() ?? 0.0;
-          return pB.compareTo(pA);
+          double minPriceOf(Map<String, dynamic> m) {
+            final v = m['variants'];
+            if (v is List && v.isNotEmpty) {
+              final prices = v
+                  .whereType<Map>()
+                  .map((e) => (e['price'] as num?)?.toDouble() ?? 0.0)
+                  .toList();
+              if (prices.isNotEmpty)
+                return prices.reduce((x, y) => x < y ? x : y);
+            }
+            return (m['price'] as num?)?.toDouble() ?? 0.0;
+          }
+
+          return minPriceOf(b).compareTo(minPriceOf(a));
         });
         break;
 
@@ -820,40 +905,6 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget buildSizeTierChip(String label, ProductSizeTier tier) {
-    final isSelected = _selectedSizeTier == tier;
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        setState(() => _selectedSizeTier = tier);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(left: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.primary.withValues(alpha: 0.15)
-              : context.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : context.borderColor,
-            width: isSelected ? 1.4 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Cairo',
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-            color: isSelected ? AppColors.primary : context.textSecondary,
-          ),
         ),
       ),
     );

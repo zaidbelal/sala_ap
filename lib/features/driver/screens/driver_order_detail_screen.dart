@@ -293,7 +293,11 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
       ),
 
       // ── زر الإجراء الثابت ──
-      bottomNavigationBar: (status == 'delivered' || status == 'cancelled')
+      bottomNavigationBar: (status == 'delivered' ||
+              status == 'cancelled' ||
+              status == 'rejected' ||
+              status == 'returned' ||
+              status == 'return_requested')
           ? null
           : Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -695,11 +699,11 @@ class _InfoRow extends StatelessWidget {
             child: Text(
               value,
               style: valueStyle ??
-                  const TextStyle(
+                  TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A2E),
+                    color: context.textPrimary,
                   ),
               textAlign: TextAlign.end,
             ),

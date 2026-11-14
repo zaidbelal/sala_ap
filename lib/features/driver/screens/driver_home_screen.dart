@@ -105,7 +105,7 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
         context,
         orderId: orderId,
         data: data,
-      ).timeout(const Duration(seconds: 35), onTimeout: () => false);
+      );
 
       if (accepted == true && mounted) {
         await _acceptOrder(orderId, data);

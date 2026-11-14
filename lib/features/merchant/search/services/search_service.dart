@@ -76,10 +76,9 @@ class SearchService {
 
   static bool _matchesTokens(String target, List<String> tokens) =>
       ArabicNormalizer.matches(target, tokens);
-
   SearchResult? _searchLocally(String q) {
     final cache = AppCache.instance;
-    final allProducts = cache.getProducts() ?? [];
+    final allProducts = cache.getAllCachedProducts();
     final allCategories = cache.getCategories() ?? [];
     final allBrands = cache.getBrands() ?? [];
 
@@ -96,24 +95,10 @@ class SearchService {
           if (p['is_deleted'] == true || p['is_active'] == false) return false;
           final name = p['name']?.toString() ?? '';
           if (_matchesTokens(name, tokens)) return true;
-
-          final barcode = p['barcode']?.toString().trim() ?? '';
-          if (barcode.isNotEmpty && barcode.contains(q)) return true;
-
-          final units = p['units'];
-          if (units is List) {
-            for (final u in units) {
-              if (u is Map &&
-                  (u['barcode']?.toString().trim() ?? '').contains(q)) {
-                return true;
-              }
-            }
-          }
-          return false;
+          return _matchesBarcode(p, q);
         })
         .take(30)
         .toList();
-
     final brands = allBrands
         .where((b) {
           if (b['is_deleted'] == true || b['is_active'] == false) return false;
@@ -142,35 +127,43 @@ class SearchService {
         normalizeArabic(q).split(' ').where((t) => t.isNotEmpty).toList();
     // Firestore stores the original product names; normalize only after retrieval.
     final firstToken = q.split(RegExp(r'\s+')).first;
+    final prefixesToQuery = <String>{firstToken};
+    if (firstToken.isNotEmpty) {
+      prefixesToQuery
+          .add(firstToken[0].toUpperCase() + firstToken.substring(1));
+    }
+    if (firstToken.startsWith('ا') ||
+        firstToken.startsWith('أ') ||
+        firstToken.startsWith('إ') ||
+        firstToken.startsWith('آ')) {
+      final rest = firstToken.substring(1);
+      prefixesToQuery.addAll(['ا$rest', 'أ$rest', 'إ$rest', 'آ$rest']);
+    }
+
+    final cleanBarcode = ArabicNormalizer.normalizeDigits(q)
+        .replaceAll(RegExp(r'[^0-9a-zA-Z]'), '')
+        .trim();
 
     final results = await Future.wait([
       _safeQuery('products', () async {
-        final normalizedQ = normalizeArabic(q);
-        final barcodeQuery = await _db
-            .collection('products')
-            .where('all_barcodes', arrayContains: normalizedQ)
-            .limit(15)
-            .get(const GetOptions(source: Source.serverAndCache));
         final combinedDocs = <String, Map<String, dynamic>>{};
-        for (final d in barcodeQuery.docs) {
-          if (d.data()['is_deleted'] != true &&
-              d.data()['is_active'] != false) {
-            combinedDocs[d.id] = {'id': d.id, ...d.data()};
+        if (cleanBarcode.isNotEmpty) {
+          final barcodeVariants = <String>{
+            cleanBarcode,
+            cleanBarcode.toLowerCase(),
+            cleanBarcode.toUpperCase(),
+          }.toList();
+          final barcodeQuery = await _db
+              .collection('products')
+              .where('all_barcodes', arrayContainsAny: barcodeVariants)
+              .limit(15)
+              .get(const GetOptions(source: Source.serverAndCache));
+          for (final d in barcodeQuery.docs) {
+            if (d.data()['is_deleted'] != true &&
+                d.data()['is_active'] != false) {
+              combinedDocs[d.id] = {'id': d.id, ...d.data()};
+            }
           }
-        }
-
-        final prefixesToQuery = <String>{firstToken};
-        if (firstToken.isNotEmpty) {
-          final capitalized =
-              firstToken[0].toUpperCase() + firstToken.substring(1);
-          prefixesToQuery.add(capitalized);
-        }
-        if (firstToken.startsWith('ا') ||
-            firstToken.startsWith('أ') ||
-            firstToken.startsWith('إ') ||
-            firstToken.startsWith('آ')) {
-          final rest = firstToken.substring(1);
-          prefixesToQuery.addAll(['ا$rest', 'أ$rest', 'إ$rest', 'آ$rest']);
         }
 
         await Future.wait(prefixesToQuery.map((pfx) async {
@@ -185,7 +178,6 @@ class SearchService {
           }
         }));
 
-        // تصفية متعددة الكلمات في الذاكرة مع إبقاء نتائج الباركود المطابقة.
         final filteredList = combinedDocs.values.where((p) {
           final name = p['name']?.toString() ?? '';
           return _matchesTokens(name, tokens) || _matchesBarcode(p, q);
@@ -195,27 +187,40 @@ class SearchService {
         return filteredList.take(30).toList();
       }),
       _safeQuery('brands', () async {
-        final list = await _fetchNameMatches(
-          collectionName: 'brands',
-          prefix: firstToken,
-          tokens: tokens,
-          resultLimit: 15,
-        );
+        final combined = <String, Map<String, dynamic>>{};
+        await Future.wait(prefixesToQuery.map((pfx) async {
+          final items = await _fetchNameMatches(
+            collectionName: 'brands',
+            prefix: pfx,
+            tokens: tokens,
+            resultLimit: 15,
+          );
+          for (final item in items) {
+            combined[item['id'].toString()] = item;
+          }
+        }));
+        final list = combined.values.take(15).toList();
         ImagePrecacheService.instance.prewarmBrands(list);
         return list;
       }),
       _safeQuery('categories', () async {
-        final list = await _fetchNameMatches(
-          collectionName: 'categories',
-          prefix: firstToken,
-          tokens: tokens,
-          resultLimit: 10,
-        );
+        final combined = <String, Map<String, dynamic>>{};
+        await Future.wait(prefixesToQuery.map((pfx) async {
+          final items = await _fetchNameMatches(
+            collectionName: 'categories',
+            prefix: pfx,
+            tokens: tokens,
+            resultLimit: 10,
+          );
+          for (final item in items) {
+            combined[item['id'].toString()] = item;
+          }
+        }));
+        final list = combined.values.take(10).toList();
         ImagePrecacheService.instance.prewarmCategories(list);
         return list;
       }),
     ]);
-
     final result = SearchResult(
       products: results[0],
       brands: results[1],
@@ -298,15 +303,28 @@ class SearchService {
   }
 
   bool _matchesBarcode(Map<String, dynamic> product, String query) {
+    final cleanQ = ArabicNormalizer.normalizeDigits(query).trim().toLowerCase();
+    if (cleanQ.isEmpty) return false;
+
     bool matches(Object? value) =>
-        value?.toString().trim().toLowerCase().contains(query) ?? false;
+        value?.toString().trim().toLowerCase().contains(cleanQ) ?? false;
 
     if (matches(product['barcode'])) return true;
     final barcodes = product['all_barcodes'];
     if (barcodes is List && barcodes.any(matches)) return true;
     final units = product['units'];
-    return units is List &&
-        units.any((unit) => unit is Map && matches(unit['barcode']));
+    if (units is List &&
+        units.any((unit) => unit is Map && matches(unit['barcode']))) {
+      return true;
+    }
+    final variants = product['variants'];
+    return variants is List &&
+        variants.any((v) =>
+            v is Map &&
+            (matches(v['barcode']) ||
+                (v['units'] is List &&
+                    (v['units'] as List)
+                        .any((vu) => vu is Map && matches(vu['barcode'])))));
   }
 
   Future<List<Map<String, dynamic>>> _safeQuery(
@@ -338,13 +356,22 @@ final searchResultsProvider = StreamProvider.autoDispose
     yield const SearchResult(products: [], brands: [], categories: []);
     return;
   }
+
+  final cached = _cache[cleanQ];
+  if (cached != null &&
+      DateTime.now().difference(cached.cachedAt) < SearchService._cacheTtl) {
+    yield cached.result;
+    return;
+  }
+
   final service = ref.read(searchServiceProvider);
-  // 1. بث النتيجة المحلية فوراً في أول إطار (0ms)
   final local = service._searchLocally(cleanQ);
   if (local != null && !local.isEmpty) {
     yield local;
   }
-  // 2. بث النتيجة السحابية المحدثة فور اكتمالها لتحديث الواجهة تلقائياً
+
   final fresh = await service._fetchAndUpdateCache(cleanQ);
-  yield fresh;
+  if (!fresh.isEmpty || local == null || local.isEmpty) {
+    yield fresh;
+  }
 });

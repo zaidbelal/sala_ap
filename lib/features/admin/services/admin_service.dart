@@ -524,6 +524,11 @@ class AdminService {
       // إضافة قيمة المرتجعات بعد اكتمال حسابها لتوحيد الأساس المحاسبي مع الشظايا
       grossRevenue += returnedRevenue;
     }
+    final netRevenue =
+        (grossRevenue - returnedRevenue).clamp(0.0, double.infinity);
+    final bool hasValidCostData = totalProfit < 0 ||
+        (netRevenue > 0 && (netRevenue - totalProfit).abs() > 0.01);
+
     return AdminStats(
       totalOrders: totalOrders,
       pendingOrders: pendingOrders,
@@ -533,7 +538,7 @@ class AdminService {
       totalRevenue: grossRevenue,
       totalProfit: totalProfit,
       returnedAmount: returnedRevenue,
-      hasCostData: deliveredOrders > 0 || totalProfit != 0 || grossRevenue > 0,
+      hasCostData: hasValidCostData,
       isPartial: isPartial,
       failureReason: failureReason,
     );

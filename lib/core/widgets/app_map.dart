@@ -82,8 +82,8 @@ class _AppMapState extends State<AppMap> {
     _SanaaPlacesEngine.init();
     if (widget.showCurrentLocation && widget.initialLocation == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // عند فتح الخريطة لتحديد الموقع (allowPick)، نطلب الإذن بنشاط ودون تجاهل صامت
-        _getCurrentLocation(silent: !widget.allowPick);
+        // عند فتح الخريطة نتحقق بصمت دون مقاطعة المستخدم بنافذة فورية؛ ويُطلب الإذن عند الضغط على زر موقعي
+        _getCurrentLocation(silent: true);
       });
     }
   }
@@ -491,11 +491,22 @@ class _AppMapState extends State<AppMap> {
                                 color: Colors.black54,
                               ),
                             ),
-                            onTap: () {
+                            onTap: () async {
                               _searchController.text = place.name;
                               _searchFocus.unfocus();
                               setState(() => _searchResults = []);
-                              _selectLocation(place.location, moveCamera: true);
+                              if (widget.allowPick) {
+                                _selectLocation(place.location,
+                                    moveCamera: true);
+                              } else {
+                                final ctrl = await _controller.future;
+                                if (mounted) {
+                                  ctrl.animateCamera(
+                                    gmaps.CameraUpdate.newLatLngZoom(
+                                        place.location, 16.8),
+                                  );
+                                }
+                              }
                             },
                           );
                         },

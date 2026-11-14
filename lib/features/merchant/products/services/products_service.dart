@@ -23,6 +23,8 @@ class ProductModel {
   final double stock;
   final int salesCount; // 👈 عداد المبيعات الفعلي الموثق سحابياً
   final String? barcode;
+  final int sortOrder;
+  final List<String> allBarcodes;
   final List<ProductUnit> units;
   final List<ProductVariant> variants;
 
@@ -42,6 +44,8 @@ class ProductModel {
     this.stock = 0.0,
     this.salesCount = 0,
     this.barcode,
+    this.sortOrder = 999,
+    this.allBarcodes = const [],
     this.units = const [],
     this.variants = const [],
   });
@@ -247,6 +251,10 @@ class ProductModel {
       stock: (m['stock'] as num?)?.toDouble() ?? 0.0,
       salesCount: (m['sales_count'] as num?)?.toInt() ?? 0,
       barcode: barcode,
+      sortOrder: (m['sort_order'] as num?)?.toInt() ?? 999,
+      allBarcodes: (m['all_barcodes'] as List? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
       units: sanitizedUnits,
       variants: sanitizedVariants,
     );
@@ -264,11 +272,15 @@ class ProductModel {
       'brand_id': brandId,
       'description': description,
       'size_ml': sizeMl,
+      'size_text': sizeText,
       'items_per_carton': itemsPerCarton,
       'production_date': productionDate,
       'expiry_date': expiryDate,
       'cost_price': costPrice,
       'stock': stock,
+      'sales_count': salesCount,
+      'sort_order': sortOrder,
+      if (allBarcodes.isNotEmpty) 'all_barcodes': allBarcodes,
       if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       'units': units.map((unit) => unit.toMap()).toList(),
       'variants': variants.map((v) => v.toJson()).toList(),

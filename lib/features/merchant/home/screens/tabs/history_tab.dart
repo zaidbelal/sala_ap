@@ -24,6 +24,8 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
   Stream<List<OrderModel>>? _ordersStream;
   Stream<List<Map<String, dynamic>>>? _returnsStream;
   String? _cachedUid;
+  static const int _ordersStreamLimit = 200;
+  static const int _returnsStreamLimit = 100;
   static const int _historyPageSize = 50;
   DocumentSnapshot<Map<String, dynamic>>? _ordersCursor;
   DocumentSnapshot<Map<String, dynamic>>? _returnsCursor;
@@ -132,24 +134,26 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
         .where('status', whereIn: _historyStatuses)
         .orderBy('created_at', descending: true);
 
-    var cursor = _ordersCursor;
-    if (cursor == null) {
+    if (_ordersCursor == null) {
       final initialDocs = await query
           .limit(_historyPageSize)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (initialDocs.docs.isEmpty ||
-          initialDocs.docs.length < _historyPageSize) {
-        _hasMoreOrders = false;
-        return initialDocs.docs.isEmpty ? null : initialDocs;
+      if (initialDocs.docs.isNotEmpty) {
+        _ordersCursor = initialDocs.docs.last;
       }
-      cursor = initialDocs.docs.last;
-      _ordersCursor = cursor;
+      _hasMoreOrders = initialDocs.docs.length == _historyPageSize;
+      return initialDocs;
     }
 
-    return query
-        .startAfterDocument(cursor)
+    final nextDocs = await query
+        .startAfterDocument(_ordersCursor!)
         .limit(_historyPageSize)
         .get(const GetOptions(source: Source.serverAndCache));
+    if (nextDocs.docs.isNotEmpty) {
+      _ordersCursor = nextDocs.docs.last;
+    }
+    _hasMoreOrders = nextDocs.docs.length == _historyPageSize;
+    return nextDocs;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>?> _fetchNextReturnsPage(
@@ -160,24 +164,26 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
         .where('merchant_id', isEqualTo: merchantId)
         .orderBy('created_at', descending: true);
 
-    var cursor = _returnsCursor;
-    if (cursor == null) {
+    if (_returnsCursor == null) {
       final initialDocs = await query
           .limit(_historyPageSize)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (initialDocs.docs.isEmpty ||
-          initialDocs.docs.length < _historyPageSize) {
-        _hasMoreReturns = false;
-        return initialDocs.docs.isEmpty ? null : initialDocs;
+      if (initialDocs.docs.isNotEmpty) {
+        _returnsCursor = initialDocs.docs.last;
       }
-      cursor = initialDocs.docs.last;
-      _returnsCursor = cursor;
+      _hasMoreReturns = initialDocs.docs.length == _historyPageSize;
+      return initialDocs;
     }
 
-    return query
-        .startAfterDocument(cursor)
+    final nextDocs = await query
+        .startAfterDocument(_returnsCursor!)
         .limit(_historyPageSize)
         .get(const GetOptions(source: Source.serverAndCache));
+    if (nextDocs.docs.isNotEmpty) {
+      _returnsCursor = nextDocs.docs.last;
+    }
+    _hasMoreReturns = nextDocs.docs.length == _historyPageSize;
+    return nextDocs;
   }
 
   @override
@@ -281,9 +287,8 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
                 rawReturn['id'].toString():
                     ReturnInvoiceModel.fromMap(rawReturn),
             };
-            // 🔒 إظهار فواتير الإرجاع المقبولة والمعتمدة مالياً فقط في سجل الفواتير المكتملة
             final returnInvoices = returnsById.values
-                .where((r) => r.status == 'accepted')
+                .where((r) => r.status == 'accepted' || r.status == 'rejected')
                 .toList();
 
             // دمج الفواتير العادية مع فواتير الإرجاع وترتيبها تنازلياً حسب التاريخ
@@ -313,7 +318,10 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
                           onRefresh: () async => _refresh(),
                           child: _OrdersList(
                             items: combinedItems,
-                            hasMore: _hasMoreOrders || _hasMoreReturns,
+                            hasMore: (_hasMoreOrders &&
+                                    orderDocs.length >= _ordersStreamLimit) ||
+                                (_hasMoreReturns &&
+                                    rawReturns.length >= _returnsStreamLimit),
                             isLoadingMore: _isLoadingMore,
                             loadMoreError: _loadMoreError,
                             onLoadMore: () => _loadMore(uid),

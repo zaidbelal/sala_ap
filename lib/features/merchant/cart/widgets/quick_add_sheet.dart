@@ -49,74 +49,90 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
     super.dispose();
   }
 
+  List<ProductModel> _buildSortedModels(List<Map<String, dynamic>> raw) {
+    return raw
+        .where((p) => p['is_active'] != false && p['is_deleted'] != true)
+        .map((p) => ProductModel.fromMap(Map<String, dynamic>.from(p)))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
   Future<void> _fetchProducts() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      // 1. القراءة من كاش الهاتف أولاً
-      List<Map<String, dynamic>> productsData =
-          AppCache.instance.getProducts() ?? [];
-
-      // 2. محاولة القراءة من مزود الكتالوج
-      if (productsData.isEmpty) {
-        try {
-          final fetched = await ref.read(productsProvider(null).future);
-          productsData = List<Map<String, dynamic>>.from(fetched);
-        } catch (_) {}
-      }
-
-      // 3. آلية تراجع حتمية لجلب المنتجات مباشرة من السيرفر/الكاش الداخلي
-      if (productsData.isEmpty) {
-        final snap = await FirebaseFirestore.instance
-            .collection('products')
-            .limit(250)
-            .get(const GetOptions(source: Source.serverAndCache));
-
-        productsData = snap.docs
-            .where((d) =>
-                d.data()['is_deleted'] != true &&
-                d.data()['is_active'] != false)
-            .map((d) => {'id': d.id, ...d.data()})
-            .toList();
-
-        if (productsData.isNotEmpty) {
-          unawaited(AppCache.instance.setProducts(productsData));
+      final cachedData = AppCache.instance.getAllCachedProducts();
+      if (cachedData.isNotEmpty) {
+        final initialList = _buildSortedModels(cachedData);
+        if (mounted) {
+          setState(() {
+            _products = initialList;
+            _loading = false;
+          });
+          _filter();
         }
       }
 
-      if (!mounted) return;
+      if (cachedData.isEmpty || !AppCache.instance.isProductsFresh()) {
+        await ref.read(productsProvider(null).notifier).refresh();
+        var refreshedData = AppCache.instance.getProducts() ?? [];
 
-      final list = productsData
-          .where((p) => p['is_active'] != false && p['is_deleted'] != true)
-          .map((p) => ProductModel.fromMap(Map<String, dynamic>.from(p)))
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
+        if (refreshedData.isEmpty) {
+          final snap = await FirebaseFirestore.instance
+              .collection('products')
+              .where('is_deleted', isEqualTo: false)
+              .limit(500)
+              .get(const GetOptions(source: Source.serverAndCache));
 
-      setState(() {
-        _products = list;
-        _filtered = list;
-        _loading = false;
-      });
+          refreshedData = snap.docs
+              .where((d) => d.data()['is_active'] != false)
+              .map((d) => {'id': d.id, ...d.data()})
+              .toList();
+
+          if (refreshedData.isNotEmpty) {
+            unawaited(AppCache.instance.setProducts(refreshedData));
+          }
+        }
+
+        if (!mounted) return;
+        if (refreshedData.isNotEmpty || cachedData.isEmpty) {
+          final fullList = _buildSortedModels(refreshedData);
+          setState(() {
+            _products = fullList;
+            _loading = false;
+          });
+          _filter();
+        }
+      }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = 'تعذر تحميل المنتجات، تحقق من الاتصال بالإنترنت';
-        _loading = false;
-      });
+      if (_products.isEmpty) {
+        setState(() {
+          _error = 'تعذر تحميل المنتجات، تحقق من الاتصال بالإنترنت';
+          _loading = false;
+        });
+      }
     }
   }
 
   void _filter() {
     final q = ArabicNormalizer.normalize(_searchCtrl.text);
+    final rawQ = ArabicNormalizer.normalizeDigits(_searchCtrl.text).trim();
 
     setState(() {
       _filtered = q.isEmpty
           ? _products
           : _products.where((p) {
               final productName = ArabicNormalizer.normalize(p.name);
-              return productName.contains(q);
+              if (productName.contains(q)) return true;
+              if (rawQ.isNotEmpty && (p.barcode ?? '').contains(rawQ)) {
+                return true;
+              }
+              return p.variants.any((v) =>
+                  ArabicNormalizer.normalize(v.label).contains(q) ||
+                  (rawQ.isNotEmpty && (v.barcode ?? '').contains(rawQ)));
             }).toList();
     });
   }
@@ -315,10 +331,52 @@ class _ProductTileState extends State<_ProductTile> {
     }
   }
 
-  void _add() {
+  int _remainingMaxUnits() {
     final stock = _selectedVariant?.stock ?? widget.product.stock;
-    if (stock <= 0) return;
-    widget.onAdd(_qty, _selectedUnit, _selectedVariant);
+    if (stock <= 0) return 0;
+    final cartonCap =
+        (_selectedVariant?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1)
+            .clamp(1, 9999);
+    final unitQty = (_selectedUnit?.qty ?? cartonCap).clamp(1, 9999);
+
+    final container = ProviderScope.containerOf(context);
+    final cart = container.read(cartProvider);
+    final targetVarId = _selectedVariant?.id ?? '';
+    double usedCartons = 0.0;
+    for (final cItem in cart.values) {
+      if (cItem.product.id == widget.product.id &&
+          (cItem.selectedVariant?.id ?? '') == targetVarId) {
+        final cCap = (cItem.selectedVariant?.itemsPerCarton ??
+                cItem.product.itemsPerCarton ??
+                1)
+            .clamp(1, 9999);
+        final uQty = (cItem.selectedUnit?.qty ?? cCap).clamp(1, 9999);
+        usedCartons += (cItem.quantity * uQty) / cCap;
+      }
+    }
+    final remainingCartons = (stock - usedCartons).clamp(0.0, stock);
+    return ((remainingCartons * cartonCap) / unitQty).floor();
+  }
+
+  void _add() {
+    final maxUnits = _remainingMaxUnits();
+    if (maxUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'وصلت للحد الأقصى المتوفر في المستودع لهذا الصنف داخل سلتك',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final safeQty = _qty > maxUnits ? maxUnits : _qty;
+    if (safeQty != _qty) {
+      setState(() => _qty = safeQty);
+    }
+    widget.onAdd(safeQty, _selectedUnit, _selectedVariant);
     if (!mounted) return;
     setState(() => _added = true);
     _resetTimer?.cancel();
@@ -360,11 +418,7 @@ class _ProductTileState extends State<_ProductTile> {
                   : (_selectedVariant?.imageUrl != null &&
                           _selectedVariant!.imageUrl!.trim().isNotEmpty)
                       ? _selectedVariant!.imageUrl!.trim()
-                      : (_selectedUnit == null ||
-                              _selectedUnit!.label == 'كرتون'
-                          ? widget.product.imageUrl
-                          : null);
-
+                      : widget.product.imageUrl;
               return Container(
                 width: 50,
                 height: 50,
@@ -528,7 +582,12 @@ class _ProductTileState extends State<_ProductTile> {
               ),
               _QtyBtn(
                 icon: Icons.add_rounded,
-                onTap: () => setState(() => _qty++),
+                onTap: () {
+                  final maxUnits = _remainingMaxUnits();
+                  if (maxUnits > 0 && _qty < maxUnits) {
+                    setState(() => _qty++);
+                  }
+                },
               ),
             ],
           ),

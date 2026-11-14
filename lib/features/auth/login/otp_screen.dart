@@ -16,6 +16,7 @@ import '../signup/services/signup_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../merchant/cart/providers/cart_provider.dart';
 import 'package:wissal/app_router.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
@@ -791,31 +792,8 @@ class _OtpBoxState extends State<_OtpBox> {
               textDirection: TextDirection.ltr,
               inputFormatters: [
                 TextInputFormatter.withFunction((oldVal, newVal) {
-                  const arabic = {
-                    '٠': '0',
-                    '١': '1',
-                    '٢': '2',
-                    '٣': '3',
-                    '٤': '4',
-                    '٥': '5',
-                    '٦': '6',
-                    '٧': '7',
-                    '٨': '8',
-                    '٩': '9',
-                    '۰': '0',
-                    '۱': '1',
-                    '۲': '2',
-                    '۳': '3',
-                    '۴': '4',
-                    '۵': '5',
-                    '۶': '6',
-                    '۷': '7',
-                    '۸': '8',
-                    '۹': '9'
-                  };
-                  var t = newVal.text;
-                  arabic.forEach((k, v) => t = t.replaceAll(k, v));
-                  t = t.replaceAll(RegExp(r'[^0-9]'), '');
+                  final t = ArabicNormalizer.normalizeDigits(newVal.text)
+                      .replaceAll(RegExp(r'[^0-9]'), '');
                   return TextEditingValue(
                     text: t,
                     selection: TextSelection.collapsed(offset: t.length),
@@ -823,31 +801,8 @@ class _OtpBoxState extends State<_OtpBox> {
                 }),
               ],
               onChanged: (v) {
-                const arabic = {
-                  '٠': '0',
-                  '١': '1',
-                  '٢': '2',
-                  '٣': '3',
-                  '٤': '4',
-                  '٥': '5',
-                  '٦': '6',
-                  '٧': '7',
-                  '٨': '8',
-                  '٩': '9',
-                  '۰': '0',
-                  '۱': '1',
-                  '۲': '2',
-                  '۳': '3',
-                  '۴': '4',
-                  '۵': '5',
-                  '۶': '6',
-                  '۷': '7',
-                  '۸': '8',
-                  '۹': '9'
-                };
-                var clean = v;
-                arabic.forEach((k, val) => clean = clean.replaceAll(k, val));
-                widget.onChanged(clean);
+                widget.onChanged(ArabicNormalizer.normalizeDigits(v)
+                    .replaceAll(RegExp(r'[^0-9]'), ''));
               },
               style: const TextStyle(
                 color: Colors.transparent,

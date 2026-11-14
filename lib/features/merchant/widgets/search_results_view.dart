@@ -282,10 +282,16 @@ class _HighlightedText extends StatelessWidget {
   final String text;
   final String query;
   const _HighlightedText({required this.text, required this.query});
+  static String _foldChars(String s) => s
+      .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+      .replaceAll('ة', 'ه')
+      .replaceAll('ى', 'ي')
+      .toLowerCase();
 
   @override
   Widget build(BuildContext context) {
-    if (query.isEmpty) {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) {
       return Text(
         text,
         style: AppTextStyles.bodyMedium.copyWith(
@@ -295,13 +301,13 @@ class _HighlightedText extends StatelessWidget {
       );
     }
 
-    final lowerText = text.toLowerCase();
-    final lowerQuery = query.toLowerCase();
+    final foldedText = _foldChars(text);
+    final foldedQuery = _foldChars(trimmedQuery);
     final spans = <TextSpan>[];
     int start = 0;
 
-    while (true) {
-      final index = lowerText.indexOf(lowerQuery, start);
+    while (foldedQuery.isNotEmpty) {
+      final index = foldedText.indexOf(foldedQuery, start);
       if (index == -1) {
         spans.add(TextSpan(text: text.substring(start)));
         break;
@@ -310,13 +316,17 @@ class _HighlightedText extends StatelessWidget {
         spans.add(TextSpan(text: text.substring(start, index)));
       }
       spans.add(TextSpan(
-        text: text.substring(index, index + query.length),
+        text: text.substring(index, index + foldedQuery.length),
         style: const TextStyle(
           color: AppColors.primary,
           fontWeight: FontWeight.w900,
         ),
       ));
-      start = index + query.length;
+      start = index + foldedQuery.length;
+    }
+
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: text));
     }
 
     return RichText(

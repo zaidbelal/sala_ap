@@ -6,7 +6,7 @@ import '../../services/admin_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 final _notificationsProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   return ref.read(adminServiceProvider).getNotifications();
 });
 
@@ -31,9 +31,18 @@ class _AdminNotificationsTabState extends ConsumerState<AdminNotificationsTab> {
   }
 
   Future<void> _send() async {
-    if (_titleCtrl.text.trim().isEmpty || _bodyCtrl.text.trim().isEmpty) return;
+    if (_titleCtrl.text.trim().isEmpty || _bodyCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('يرجى إدخال عنوان ونص الإشعار أولاً',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _sending = true);
-
     try {
       await ref.read(adminServiceProvider).sendNotification(
             title: _titleCtrl.text.trim(),

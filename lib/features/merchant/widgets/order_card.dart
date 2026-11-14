@@ -89,7 +89,9 @@ class _OrderCardState extends State<OrderCard> {
     final status = order['status'] as String? ?? 'pending';
     final config = _statusConfig(status);
     final createdAt = _formatDate(order['created_at']);
-    final total = (order['total'] as num?)?.toStringAsFixed(0) ?? '0';
+    final total = (order['total_amount'] as num?)?.toStringAsFixed(0) ??
+        (order['total'] as num?)?.toStringAsFixed(0) ??
+        '0';
     final itemCount = _itemCount ?? 0;
     final isDelivered = status == 'delivered';
 
@@ -360,7 +362,15 @@ class _StatusStepper extends StatelessWidget {
       );
     }
 
-    if (status == 'returned' || status == 'return_requested') {
+    if (status == 'return_requested') {
+      return _buildSpecialStepper(
+        label: 'طلب إرجاع قيد المراجعة',
+        icon: Icons.assignment_return_outlined,
+        color: const Color(0xFFF59E0B),
+      );
+    }
+
+    if (status == 'returned') {
       return _buildSpecialStepper(
         label: 'تم إرجاع الطلب',
         icon: Icons.assignment_return_rounded,

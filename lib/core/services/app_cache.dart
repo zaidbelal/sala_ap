@@ -223,21 +223,24 @@ class AppCache {
       final merged = productMap.values.toList()
         ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
             .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
-      // الحفاظ على طابع الوقت السابق إذا لم يكتمل تحميل الكتالوج الشامل بعد
-      final existingSavedAt = _ram[_keyProducts]?.savedAt;
-      final preservedSavedAt =
-          (_isFullProductsSeeded && existingSavedAt != null)
-              ? existingSavedAt
-              : DateTime(2000);
-      _ram[_keyProducts] = _CacheEntry(
-        data: merged,
-        savedAt: preservedSavedAt,
-      );
-      _pruneRamIfNeeded(); // 👈 تفعيل سقف الذاكرة ومنع التضخم
-      await _saveToDisk(_keyProducts, merged);
-      if (!_isFullProductsSeeded) {
-        await _prefs?.setString(
-            '${_keyProducts}_ts', DateTime(2000).toIso8601String());
+
+      // حماية صارمة: لا يتم استبدال الكاش الشامل إذا كانت الذاكرة فارغة والوارد دفعة جزئية
+      if (currentList.isNotEmpty || liveBatch.length >= 100) {
+        final existingSavedAt = _ram[_keyProducts]?.savedAt;
+        final preservedSavedAt =
+            (_isFullProductsSeeded && existingSavedAt != null)
+                ? existingSavedAt
+                : DateTime(2000);
+        _ram[_keyProducts] = _CacheEntry(
+          data: merged,
+          savedAt: preservedSavedAt,
+        );
+        _pruneRamIfNeeded();
+        await _saveToDisk(_keyProducts, merged);
+        if (!_isFullProductsSeeded) {
+          await _prefs?.setString(
+              '${_keyProducts}_ts', DateTime(2000).toIso8601String());
+        }
       }
     } finally {
       completer.complete();

@@ -11,11 +11,11 @@ class LocationPickerScreen extends StatefulWidget {
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
-  // 🚀 يبدأ بموقع صنعاء مباشرة حتى يكون الزر مفعلاً وجاهزاً للضغط دائماً
-  LatLng _selectedLocation = const LatLng(15.3694, 44.1910);
+  LatLng? _selectedLocation;
 
   @override
   Widget build(BuildContext context) {
+    const fallbackCenter = LatLng(15.3694, 44.1910);
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -28,12 +28,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         centerTitle: true,
       ),
       body: AppMap(
-        initialLocation:
-            null, // 🚀 يسمح بالانتقال التلقائي الفوري لموقع التاجر بالـ GPS
-        defaultCenter: _selectedLocation,
-        initialZoom: 17.0,
+        initialLocation: null,
+        defaultCenter: fallbackCenter,
+        initialZoom: 16.5,
         title: 'موقع التوصيل',
-        markerLabel: 'موقعي الحالي',
+        markerLabel: 'موقع بقالتي',
         allowPick: true,
         showSearch: true,
         showCurrentLocation: true,
@@ -42,7 +41,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           setState(() => _selectedLocation = location);
         },
       ),
-      // 🚀 تم وضع الزر في شريط سفلي مستقل لمنع التداخل مع أزرار الخريطة وجعله قابلاً للضغط دائماً
       bottomNavigationBar: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         decoration: BoxDecoration(
@@ -58,22 +56,25 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         child: SizedBox(
           height: 52,
           child: ElevatedButton.icon(
-            onPressed: () {
-              Navigator.of(context).pop(_selectedLocation);
-            },
+            onPressed: _selectedLocation == null
+                ? null
+                : () => Navigator.of(context).pop(_selectedLocation),
             icon: const Icon(Icons.check_circle_rounded, color: Colors.white),
-            label: const Text(
-              'تأكيد موقع التوصيل',
-              style: TextStyle(
+            label: Text(
+              _selectedLocation == null
+                  ? 'انقر على موقع بقالتك في الخريطة لتحديده'
+                  : 'تأكيد موقع التوصيل ✅',
+              style: const TextStyle(
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.w800,
-                fontSize: 15,
+                fontSize: 14,
                 color: Colors.white,
               ),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
+              disabledBackgroundColor: Colors.grey.shade400,
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),

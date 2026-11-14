@@ -4903,12 +4903,9 @@ class PrefetchService {
 // FILE: lib\core\services\realtime_hub.dart
 // ==================================================
 
-// ==================================================
-// FILE: lib/core/services/realtime_hub.dart
-// ==================================================
-
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -5296,6 +5293,11 @@ class RealtimeHub {
         } on FirebaseAuthException catch (e) {
           if (e.code == 'user-token-revoked') {
             await resetOnSignOut();
+            try {
+              await FirebaseAuth.instance
+                  .signOut()
+                  .timeout(const Duration(seconds: 3));
+            } catch (_) {}
             await AppStorage.clearUserData();
             final navContext = NotificationService.navigatorKey.currentContext;
             if (navContext != null && navContext.mounted) {
@@ -5440,8 +5442,6 @@ class RealtimeHub {
   void _watchNotifications(String userId) {
     if (userId.isEmpty) return;
 
-    unawaited(_container?.read(realtimeNotifsProvider.notifier).reload(userId));
-
     bool isFirstLoad = true;
     final Set<String> knownNotifIds = {};
 
@@ -5512,15 +5512,25 @@ class RealtimeHub {
         final lastReadIso = AppStorage.getString('broadcast_read_at_$userId');
         final lastReadAt =
             lastReadIso != null ? DateTime.tryParse(lastReadIso) : null;
+        Set<String> readBroadcastIds = {};
+        try {
+          final rawIds = AppStorage.getString('broadcast_read_ids_$userId');
+          if (rawIds != null && rawIds.isNotEmpty) {
+            readBroadcastIds =
+                (jsonDecode(rawIds) as List).map((e) => e.toString()).toSet();
+          }
+        } catch (_) {}
+
         final broadcastData = snap.docs.map((d) {
           final data = d.data();
           final rawCreated = data['created_at'];
           final created = rawCreated is Timestamp
               ? rawCreated.toDate()
               : (rawCreated is DateTime ? rawCreated : null);
-          final isRead = lastReadAt != null &&
-              created != null &&
-              !created.isAfter(lastReadAt);
+          final isRead = readBroadcastIds.contains(d.id) ||
+              (lastReadAt != null &&
+                  created != null &&
+                  !created.isAfter(lastReadAt));
           return {
             'id': d.id,
             'is_read': isRead,
@@ -5927,9 +5937,28 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
   }
 
   Future<void> loadMore(String userId) async {
-    final cursor = _lastLoadedDoc;
-    if (userId.isEmpty || !_hasMore || _isLoadingMore || cursor == null) {
+    if (userId.isEmpty || !_hasMore || _isLoadingMore) {
       return;
+    }
+    var cursor = _lastLoadedDoc;
+    if (cursor == null) {
+      try {
+        final seed = await _db
+            .collection('user_notifications')
+            .where('user_id', isEqualTo: userId)
+            .orderBy('created_at', descending: true)
+            .limit(_pageSize)
+            .get(const GetOptions(source: Source.serverAndCache));
+        if (seed.docs.length < _pageSize) {
+          _hasMore = false;
+          if (mounted) state = List<Map<String, dynamic>>.from(state);
+          return;
+        }
+        cursor = seed.docs.last;
+        _lastLoadedDoc = cursor;
+      } catch (_) {
+        return;
+      }
     }
     _isLoadingMore = true;
     loadMoreError = null;
@@ -5981,8 +6010,19 @@ class _NotificationsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       () async {
         await AppStorage.setString(
           'broadcast_read_at_$userId',
-          DateTime.now().toIso8601String(),
+          DateTime.now().add(const Duration(minutes: 2)).toIso8601String(),
         );
+        try {
+          final currentIds = state
+              .map((n) => n['id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty)
+              .take(50)
+              .toList();
+          await AppStorage.setString(
+            'broadcast_read_ids_$userId',
+            jsonEncode(currentIds),
+          );
+        } catch (_) {}
         final query = _db
             .collection('user_notifications')
             .where('user_id', isEqualTo: userId)
@@ -7140,8 +7180,8 @@ class _AppMapState extends State<AppMap> {
     _SanaaPlacesEngine.init();
     if (widget.showCurrentLocation && widget.initialLocation == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // عند فتح الخريطة لتحديد الموقع (allowPick)، نطلب الإذن بنشاط ودون تجاهل صامت
-        _getCurrentLocation(silent: !widget.allowPick);
+        // عند فتح الخريطة نتحقق بصمت دون مقاطعة المستخدم بنافذة فورية؛ ويُطلب الإذن عند الضغط على زر موقعي
+        _getCurrentLocation(silent: true);
       });
     }
   }
@@ -24182,7 +24222,6 @@ class _OtpBoxState extends State<_OtpBox> {
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/services/app_cache.dart';
@@ -25147,6 +25186,16 @@ class _PhoneInputFieldState extends State<PhoneInputField>
                             '٧': '7',
                             '٨': '8',
                             '٩': '9',
+                            '۰': '0',
+                            '۱': '1',
+                            '۲': '2',
+                            '۳': '3',
+                            '۴': '4',
+                            '۵': '5',
+                            '۶': '6',
+                            '۷': '7',
+                            '۸': '8',
+                            '۹': '9',
                           };
                           var text = newValue.text;
                           arabicDigits.forEach((ar, en) {
@@ -25962,39 +26011,54 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
     final parts = text.isEmpty
         ? 0
         : text.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).length;
+    final isComplete = parts >= 4;
 
     return Padding(
       padding: const EdgeInsets.only(top: 8, right: 4, left: 4),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── الخطوط الأربعة التفاعلية ──
-          ...List.generate(4, (i) {
-            final filled = i < parts;
-            return Expanded(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                margin: const EdgeInsets.symmetric(horizontal: 3),
-                height: 5,
-                decoration: BoxDecoration(
-                  color: filled
-                      ? AppColors.primary
-                      : (context.isDark
-                          ? const Color(0xFF2C2C2C)
-                          : const Color(0xFFE0E0E0)),
-                  borderRadius: BorderRadius.circular(4),
-                  boxShadow: filled
-                      ? [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.4),
-                            blurRadius: 6,
-                            offset: const Offset(0, 1),
-                          )
-                        ]
-                      : [],
+          Row(
+            children: List.generate(4, (i) {
+              final filled = i < parts;
+              return Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: filled
+                        ? AppColors.primary
+                        : (context.isDark
+                            ? const Color(0xFF2C2C2C)
+                            : const Color(0xFFE0E0E0)),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: filled
+                        ? [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.4),
+                              blurRadius: 6,
+                              offset: const Offset(0, 1),
+                            )
+                          ]
+                        : [],
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            isComplete
+                ? 'تم إدخال الاسم الرباعي ✓'
+                : 'مطلوب الاسم الرباعي كاملاً (${parts.clamp(0, 4)}/4 كلمات)',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isComplete ? AppColors.primary : context.textSecondary,
+            ),
+          ),
         ],
       ),
     );
@@ -30247,7 +30311,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       CurvedAnimation(parent: _laserAnimCtrl, curve: Curves.easeInOut),
     );
 
-    BarcodeIndexManager.instance.ensureInitialized();
+    BarcodeIndexManager.instance.rebuildIndex();
     unawaited(_startCamera());
   }
 
@@ -30711,6 +30775,65 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
                     ),
             ),
           ),
+          if (_cameraError != null)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.92),
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.videocam_off_rounded,
+                        color: Colors.redAccent,
+                        size: 48,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      _cameraError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1.7,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() => _cameraError = null);
+                        unawaited(_startCamera());
+                      },
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text(
+                        'إعادة المحاولة',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // شريط التحكم العلوي المدمج
           SafeArea(
@@ -31884,11 +32007,12 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
   void _flushSaveToDisk() {
     final itemsSnapshot = Map<String, CartItem>.from(state);
+    final targetKey = _key;
 
     _cartSaveChain = _cartSaveChain.then((_) async {
       await _loadFuture;
       await _repository.saveCart(
-        key: _key,
+        key: targetKey,
         items: itemsSnapshot,
       );
     }).catchError((Object error, StackTrace stackTrace) {
@@ -31918,9 +32042,23 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
   void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
     final oldKey = oldItem.cartKey;
+    final availableStock =
+        oldItem.selectedVariant?.stock ?? oldItem.product.stock;
+    final cartonCapacity = oldItem.selectedVariant?.itemsPerCarton ??
+        oldItem.product.itemsPerCarton ??
+        1;
+    final safeCapacity = cartonCapacity > 0 ? cartonCapacity : 1;
+    final newUnitQty = newUnit.qty > 0 ? newUnit.qty : 1;
+    final maxAllowed = availableStock > 0
+        ? ((availableStock * safeCapacity) / newUnitQty)
+            .floor()
+            .clamp(1, _maxQuantity)
+        : _maxQuantity;
+
+    final clampedQty = oldItem.quantity.clamp(1, maxAllowed);
     final newItem = CartItem(
       product: oldItem.product,
-      quantity: oldItem.quantity.clamp(1, _maxQuantity),
+      quantity: clampedQty,
       selectedUnit: newUnit,
       selectedVariant: oldItem.selectedVariant,
     );
@@ -31934,7 +32072,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     if (newState.containsKey(newKey)) {
       final existing = newState[newKey]!;
       newState[newKey] = existing.copyWith(
-        quantity: (existing.quantity + oldItem.quantity).clamp(1, _maxQuantity),
+        quantity: (existing.quantity + clampedQty).clamp(1, maxAllowed),
       );
     } else {
       newState[newKey] = newItem;
@@ -32866,6 +33004,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       final cartChanged = await _validateCartBeforeCheckout();
       if (cartChanged) {
         if (mounted) {
+          if (ref.read(cartProvider).isEmpty) {
+            _notifyCartModified();
+            return;
+          }
           final proceedWithAvailable = await showDialog<bool>(
             context: context,
             barrierDismissible: false,
@@ -34089,8 +34231,8 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
   VoidCallback? get onDelete => widget.onDelete;
 
   ProductModel _resolveFullProduct() {
-    final cached = AppCache.instance.getProducts();
-    if (cached != null && cached.isNotEmpty) {
+    final cached = AppCache.instance.getAllCachedProducts();
+    if (cached.isNotEmpty) {
       final match = cached.firstWhere(
         (p) => p['id'] == item.product.id,
         orElse: () => <String, dynamic>{},
@@ -34766,74 +34908,90 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
     super.dispose();
   }
 
+  List<ProductModel> _buildSortedModels(List<Map<String, dynamic>> raw) {
+    return raw
+        .where((p) => p['is_active'] != false && p['is_deleted'] != true)
+        .map((p) => ProductModel.fromMap(Map<String, dynamic>.from(p)))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
   Future<void> _fetchProducts() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      // 1. القراءة من كاش الهاتف أولاً
-      List<Map<String, dynamic>> productsData =
-          AppCache.instance.getProducts() ?? [];
-
-      // 2. محاولة القراءة من مزود الكتالوج
-      if (productsData.isEmpty) {
-        try {
-          final fetched = await ref.read(productsProvider(null).future);
-          productsData = List<Map<String, dynamic>>.from(fetched);
-        } catch (_) {}
-      }
-
-      // 3. آلية تراجع حتمية لجلب المنتجات مباشرة من السيرفر/الكاش الداخلي
-      if (productsData.isEmpty) {
-        final snap = await FirebaseFirestore.instance
-            .collection('products')
-            .limit(250)
-            .get(const GetOptions(source: Source.serverAndCache));
-
-        productsData = snap.docs
-            .where((d) =>
-                d.data()['is_deleted'] != true &&
-                d.data()['is_active'] != false)
-            .map((d) => {'id': d.id, ...d.data()})
-            .toList();
-
-        if (productsData.isNotEmpty) {
-          unawaited(AppCache.instance.setProducts(productsData));
+      final cachedData = AppCache.instance.getAllCachedProducts();
+      if (cachedData.isNotEmpty) {
+        final initialList = _buildSortedModels(cachedData);
+        if (mounted) {
+          setState(() {
+            _products = initialList;
+            _loading = false;
+          });
+          _filter();
         }
       }
 
-      if (!mounted) return;
+      if (cachedData.isEmpty || !AppCache.instance.isProductsFresh()) {
+        await ref.read(productsProvider(null).notifier).refresh();
+        var refreshedData = AppCache.instance.getProducts() ?? [];
 
-      final list = productsData
-          .where((p) => p['is_active'] != false && p['is_deleted'] != true)
-          .map((p) => ProductModel.fromMap(Map<String, dynamic>.from(p)))
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
+        if (refreshedData.isEmpty) {
+          final snap = await FirebaseFirestore.instance
+              .collection('products')
+              .where('is_deleted', isEqualTo: false)
+              .limit(500)
+              .get(const GetOptions(source: Source.serverAndCache));
 
-      setState(() {
-        _products = list;
-        _filtered = list;
-        _loading = false;
-      });
+          refreshedData = snap.docs
+              .where((d) => d.data()['is_active'] != false)
+              .map((d) => {'id': d.id, ...d.data()})
+              .toList();
+
+          if (refreshedData.isNotEmpty) {
+            unawaited(AppCache.instance.setProducts(refreshedData));
+          }
+        }
+
+        if (!mounted) return;
+        if (refreshedData.isNotEmpty || cachedData.isEmpty) {
+          final fullList = _buildSortedModels(refreshedData);
+          setState(() {
+            _products = fullList;
+            _loading = false;
+          });
+          _filter();
+        }
+      }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = 'تعذر تحميل المنتجات، تحقق من الاتصال بالإنترنت';
-        _loading = false;
-      });
+      if (_products.isEmpty) {
+        setState(() {
+          _error = 'تعذر تحميل المنتجات، تحقق من الاتصال بالإنترنت';
+          _loading = false;
+        });
+      }
     }
   }
 
   void _filter() {
     final q = ArabicNormalizer.normalize(_searchCtrl.text);
+    final rawQ = ArabicNormalizer.normalizeDigits(_searchCtrl.text).trim();
 
     setState(() {
       _filtered = q.isEmpty
           ? _products
           : _products.where((p) {
               final productName = ArabicNormalizer.normalize(p.name);
-              return productName.contains(q);
+              if (productName.contains(q)) return true;
+              if (rawQ.isNotEmpty && (p.barcode ?? '').contains(rawQ)) {
+                return true;
+              }
+              return p.variants.any((v) =>
+                  ArabicNormalizer.normalize(v.label).contains(q) ||
+                  (rawQ.isNotEmpty && (v.barcode ?? '').contains(rawQ)));
             }).toList();
     });
   }
@@ -35034,8 +35192,28 @@ class _ProductTileState extends State<_ProductTile> {
 
   void _add() {
     final stock = _selectedVariant?.stock ?? widget.product.stock;
-    if (stock <= 0) return;
-    widget.onAdd(_qty, _selectedUnit, _selectedVariant);
+    final cartonCap =
+        _selectedVariant?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1;
+    final unitQty = _selectedUnit?.qty ?? cartonCap;
+    final maxUnits = ((stock * (cartonCap > 0 ? cartonCap : 1)) /
+            (unitQty > 0 ? unitQty : 1))
+        .floor();
+    if (maxUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('المخزون المتبقي لا يكفي لهذه الوحدة',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final safeQty = _qty > maxUnits ? maxUnits : _qty;
+    if (safeQty != _qty) {
+      setState(() => _qty = safeQty);
+    }
+    widget.onAdd(safeQty, _selectedUnit, _selectedVariant);
     if (!mounted) return;
     setState(() => _added = true);
     _resetTimer?.cancel();
@@ -36706,7 +36884,10 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
                           onRefresh: () async => _refresh(),
                           child: _OrdersList(
                             items: combinedItems,
-                            hasMore: _hasMoreOrders || _hasMoreReturns,
+                            hasMore: (_hasMoreOrders &&
+                                    orderDocs.length >= _historyPageSize) ||
+                                (_hasMoreReturns &&
+                                    rawReturns.length >= _historyPageSize),
                             isLoadingMore: _isLoadingMore,
                             loadMoreError: _loadMoreError,
                             onLoadMore: () => _loadMore(uid),
@@ -37406,11 +37587,10 @@ class HomeTab extends ConsumerStatefulWidget {
 class _HomeTabState extends ConsumerState<HomeTab> {
   final _searchController = TextEditingController();
   bool _isSearching = false;
-  Timer? _searchDebounce;
+
   @override
   void dispose() {
     _searchController.dispose();
-    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -37455,516 +37635,439 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     final categoriesAsync = categoriesAsyncRaw.whenData((list) =>
         list.map((m) => CategoryModel.fromMap(m)).toList()
           ..sort((a, b) => (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999)));
-    // 🚀 select() يُعيد البناء فقط عند تغيّر هذه القيمة تحديداً — لا كامل الـ state
-    final cartCount = ref.watch(cartCountProvider);
-    final cartTotal = ref.watch(cartTotalProvider);
     final unreadCount = ref.watch(unreadCountProvider);
 
-    return Scaffold(
-      backgroundColor: context.bgPage,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            RefreshIndicator(
-              onRefresh: _handleRefresh,
-              color: const Color(0xFF2ECC71),
-              backgroundColor: context.bgHeader,
-              strokeWidth: 2.5,
-              displacement: 60,
-              child: CustomScrollView(
-                slivers: [
-                  // ══ Header ══
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                        child: Row(
-                          children: [
-                            // ── الترحيب ──
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'مرحباً 👋',
-                                    style:
-                                        AppTextStyles.headlineMedium.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: context.textPrimary,
-                                    ),
-                                  ),
-                                  Text(
-                                    'ماذا تريد اليوم؟',
-                                    style: AppTextStyles.bodyMedium.copyWith(
-                                      color: Colors.grey[500],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            // ── زر الإشعارات ──
-                            GestureDetector(
-                              onTap: _openNotifications,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: context.bgCard,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black
-                                              .withValues(alpha: 0.07),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 3),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                      unreadCount > 0
-                                          ? Icons.notifications_rounded
-                                          : Icons.notifications_outlined,
-                                      color: unreadCount > 0
-                                          ? AppColors.primary
-                                          : Colors.grey[400],
-                                      size: 22,
-                                    ),
-                                  ),
-                                  if (unreadCount > 0)
-                                    Positioned(
-                                      top: -3,
-                                      left: -3,
-                                      child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 300),
-                                        transitionBuilder: (child, anim) =>
-                                            ScaleTransition(
-                                                scale: anim, child: child),
-                                        child: Container(
-                                          key: ValueKey(unreadCount),
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          constraints: const BoxConstraints(
-                                              minWidth: 18, minHeight: 18),
-                                          child: Text(
-                                            unreadCount > 99
-                                                ? '99+'
-                                                : '$unreadCount',
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w800,
-                                              fontFamily: 'Cairo',
-                                            ),
-                                          ),
-                                        ),
+    return PopScope(
+      canPop: !_isSearching,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isSearching) {
+          _clearAndExit();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: context.bgPage,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              RefreshIndicator(
+                onRefresh: _handleRefresh,
+                color: const Color(0xFF2ECC71),
+                backgroundColor: context.bgHeader,
+                strokeWidth: 2.5,
+                displacement: 60,
+                child: CustomScrollView(
+                  slivers: [
+                    // ══ Header ══
+                    SliverToBoxAdapter(
+                      child: RepaintBoundary(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                          child: Row(
+                            children: [
+                              // ── الترحيب ──
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'مرحباً 👋',
+                                      style:
+                                          AppTextStyles.headlineMedium.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: context.textPrimary,
                                       ),
                                     ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(width: 10),
-
-                            // ── زر السلة ──
-                            // 🚀 Consumer معزول للسلة فقط
-                            Consumer(
-                              builder: (_, ref, __) {
-                                final cartCount = ref.watch(cartCountProvider);
-                                return GestureDetector(
-                                  onTap: _openCart,
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      Container(
-                                        width: 44,
-                                        height: 44,
-                                        decoration: BoxDecoration(
-                                          color: context.bgCard,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.07),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 3),
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.shopping_cart_rounded,
-                                          color: AppColors.primary,
-                                          size: 22,
-                                        ),
+                                    Text(
+                                      'ماذا تريد اليوم؟',
+                                      style: AppTextStyles.bodyMedium.copyWith(
+                                        color: Colors.grey[500],
                                       ),
-                                      if (cartCount > 0)
-                                        Positioned(
-                                          top: -3,
-                                          left: -3,
-                                          child: AnimatedSwitcher(
-                                            duration: const Duration(
-                                                milliseconds: 300),
-                                            transitionBuilder: (child, anim) =>
-                                                ScaleTransition(
-                                                    scale: anim, child: child),
-                                            child: Container(
-                                              key: ValueKey(cartCount),
-                                              padding: const EdgeInsets.all(4),
-                                              decoration: const BoxDecoration(
-                                                color: Colors.red,
-                                                shape: BoxShape.circle,
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // ── زر الإشعارات ──
+                              GestureDetector(
+                                onTap: _openNotifications,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Container(
+                                      width: 44,
+                                      height: 44,
+                                      decoration: BoxDecoration(
+                                        color: context.bgCard,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.07),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Icon(
+                                        unreadCount > 0
+                                            ? Icons.notifications_rounded
+                                            : Icons.notifications_outlined,
+                                        color: unreadCount > 0
+                                            ? AppColors.primary
+                                            : Colors.grey[400],
+                                        size: 22,
+                                      ),
+                                    ),
+                                    if (unreadCount > 0)
+                                      Positioned(
+                                        top: -3,
+                                        left: -3,
+                                        child: AnimatedSwitcher(
+                                          duration:
+                                              const Duration(milliseconds: 300),
+                                          transitionBuilder: (child, anim) =>
+                                              ScaleTransition(
+                                                  scale: anim, child: child),
+                                          child: Container(
+                                            key: ValueKey(unreadCount),
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.red,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            constraints: const BoxConstraints(
+                                                minWidth: 18, minHeight: 18),
+                                            child: Text(
+                                              unreadCount > 99
+                                                  ? '99+'
+                                                  : '$unreadCount',
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w800,
+                                                fontFamily: 'Cairo',
                                               ),
-                                              constraints: const BoxConstraints(
-                                                  minWidth: 18, minHeight: 18),
-                                              child: Text(
-                                                '$cartCount',
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.w800,
-                                                  fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(width: 10),
+
+                              // ── زر السلة ──
+                              // 🚀 Consumer معزول للسلة فقط
+                              Consumer(
+                                builder: (_, ref, __) {
+                                  final cartCount =
+                                      ref.watch(cartCountProvider);
+                                  return GestureDetector(
+                                    onTap: _openCart,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        Container(
+                                          width: 44,
+                                          height: 44,
+                                          decoration: BoxDecoration(
+                                            color: context.bgCard,
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black
+                                                    .withValues(alpha: 0.07),
+                                                blurRadius: 10,
+                                                offset: const Offset(0, 3),
+                                              ),
+                                            ],
+                                          ),
+                                          child: const Icon(
+                                            Icons.shopping_cart_rounded,
+                                            color: AppColors.primary,
+                                            size: 22,
+                                          ),
+                                        ),
+                                        if (cartCount > 0)
+                                          Positioned(
+                                            top: -3,
+                                            left: -3,
+                                            child: AnimatedSwitcher(
+                                              duration: const Duration(
+                                                  milliseconds: 300),
+                                              transitionBuilder:
+                                                  (child, anim) =>
+                                                      ScaleTransition(
+                                                          scale: anim,
+                                                          child: child),
+                                              child: Container(
+                                                key: ValueKey(cartCount),
+                                                padding:
+                                                    const EdgeInsets.all(4),
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.red,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        minWidth: 18,
+                                                        minHeight: 18),
+                                                child: Text(
+                                                  '$cartCount',
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w800,
+                                                    fontFamily: 'Cairo',
+                                                  ),
                                                 ),
                                               ),
                                             ),
                                           ),
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-
-                  // ══ بطاقة السلة (تظهر عند وجود منتجات) ══
-                  SliverToBoxAdapter(
-                    child: AnimatedSize(
-                      duration: const Duration(milliseconds: 350),
-                      curve: Curves.easeOutCubic,
-                      child: cartCount > 0
-                          ? GestureDetector(
-                              onTap: _openCart,
-                              child: Container(
-                                margin:
-                                    const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  gradient: AppColors.primaryGradient,
-                                  borderRadius: AppRadius.lgAll,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.primary
-                                          .withValues(alpha: 0.3),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 6),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                        Icons.shopping_cart_checkout_rounded,
-                                        color: Colors.white,
-                                        size: 22),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          AnimatedSwitcher(
-                                            duration: const Duration(
-                                                milliseconds: 250),
-                                            child: Text(
-                                              key: ValueKey(cartCount),
-                                              '$cartCount كرتون في السلة',
-                                              style: AppTextStyles.labelMedium
-                                                  .copyWith(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
-                                          AnimatedSwitcher(
-                                            duration: const Duration(
-                                                milliseconds: 250),
-                                            child: Text(
-                                              key: ValueKey(cartTotal),
-                                              'الإجمالي: ${cartTotal.toStringAsFixed(0)} ر.ي',
-                                              style: AppTextStyles.bodySmall
-                                                  .copyWith(
-                                                color: Colors.white
-                                                    .withValues(alpha: 0.8),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 14, vertical: 8),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: AppRadius.circleAll,
-                                      ),
-                                      child: Text(
-                                        'إتمام الطلب',
-                                        style: AppTextStyles.bodySmall.copyWith(
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ),
-
-                  // ══ خانة البحث مع زر مسح الباركود ══
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                      child: MerchantSearchBar(
-                        controller: _searchController,
-                        onChanged: _onSearchChanged,
-                        onClearAndExit: _clearAndExit,
-                        onScanBarcode: () async {
-                          HapticFeedback.mediumImpact();
-                          final matchedProductMap =
-                              await Navigator.push<Map<String, dynamic>>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const BarcodeScannerScreen(
-                                  findProductMode: true),
-                            ),
-                          );
-
-                          if (matchedProductMap != null && context.mounted) {
-                            final productModel =
-                                ProductModel.fromMap(matchedProductMap);
-                            final matchedVariantId =
-                                matchedProductMap['_matched_variant_id']
-                                    ?.toString();
-                            final matchedUnitLabel =
-                                matchedProductMap['_matched_unit_label']
-                                    ?.toString();
-                            final initialVariant = matchedVariantId != null
-                                ? productModel.variants
-                                    .where((v) =>
-                                        v.id == matchedVariantId ||
-                                        v.label == matchedVariantId)
-                                    .firstOrNull
-                                : null;
-                            final unitPool = initialVariant != null
-                                ? initialVariant.units
-                                : productModel.units;
-                            final initialUnit = matchedUnitLabel != null
-                                ? unitPool
-                                    .where((u) => u.label == matchedUnitLabel)
-                                    .firstOrNull
-                                : null;
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) => ProductDetailsSheet(
-                                product: productModel,
-                                initialVariant: initialVariant,
-                                initialUnit: initialUnit,
+                    const SliverToBoxAdapter(child: SizedBox.shrink()),
+                    // ══ خانة البحث مع زر مسح الباركود ══
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                        child: MerchantSearchBar(
+                          controller: _searchController,
+                          onChanged: _onSearchChanged,
+                          onClearAndExit: _clearAndExit,
+                          onScanBarcode: () async {
+                            HapticFeedback.mediumImpact();
+                            final matchedProductMap =
+                                await Navigator.push<Map<String, dynamic>>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const BarcodeScannerScreen(
+                                    findProductMode: true),
                               ),
                             );
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  // ══ بانر الإشعارات إذا وُجدت ══
-                  if (unreadCount > 0 && !_isSearching)
-                    SliverToBoxAdapter(
-                      child: GestureDetector(
-                        onTap: _openNotifications,
-                        child: Container(
-                          margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color:
-                                    AppColors.primary.withValues(alpha: 0.2)),
-                          ),
-                          child: Row(children: [
-                            const Icon(Icons.notifications_active_rounded,
-                                size: 18, color: AppColors.primary),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'لديك $unreadCount إشعار جديد',
-                                style: const TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.primary),
-                              ),
-                            ),
-                            const Icon(Icons.arrow_back_ios_rounded,
-                                size: 13, color: AppColors.primary),
-                          ]),
+
+                            if (matchedProductMap != null && context.mounted) {
+                              final productModel =
+                                  ProductModel.fromMap(matchedProductMap);
+                              final matchedVariantId =
+                                  matchedProductMap['_matched_variant_id']
+                                      ?.toString();
+                              final matchedUnitLabel =
+                                  matchedProductMap['_matched_unit_label']
+                                      ?.toString();
+                              final initialVariant = matchedVariantId != null
+                                  ? productModel.variants
+                                      .where((v) =>
+                                          v.id == matchedVariantId ||
+                                          v.label == matchedVariantId)
+                                      .firstOrNull
+                                  : null;
+                              final unitPool = initialVariant != null
+                                  ? initialVariant.units
+                                  : productModel.units;
+                              final initialUnit = matchedUnitLabel != null
+                                  ? unitPool
+                                      .where((u) => u.label == matchedUnitLabel)
+                                      .firstOrNull
+                                  : null;
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (_) => ProductDetailsSheet(
+                                  product: productModel,
+                                  initialVariant: initialVariant,
+                                  initialUnit: initialUnit,
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ),
                     ),
-// ══ نتائج البحث أو الأصناف ══
-                  if (_isSearching)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                        child: SearchResultsView(query: searchQuery),
-                      ),
-                    )
-                  else ...[
-                    // عنوان الأصناف
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 4,
-                              height: 20,
-                              decoration: const BoxDecoration(
-                                gradient: AppColors.primaryGradient,
-                                borderRadius: AppRadius.circleAll,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'الأصناف',
-                              style: AppTextStyles.titleLarge.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: context.textPrimary,
-                              ),
-                            ),
-                            const Spacer(),
-                            categoriesAsync.when(
-                              data: (cats) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 4),
-                                decoration: BoxDecoration(
+                    // ══ بانر الإشعارات إذا وُجدت ══
+                    if (unreadCount > 0 && !_isSearching)
+                      SliverToBoxAdapter(
+                        child: GestureDetector(
+                          onTap: _openNotifications,
+                          child: Container(
+                            margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
                                   color:
-                                      AppColors.primary.withValues(alpha: 0.1),
+                                      AppColors.primary.withValues(alpha: 0.2)),
+                            ),
+                            child: Row(children: [
+                              const Icon(Icons.notifications_active_rounded,
+                                  size: 18, color: AppColors.primary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'لديك $unreadCount إشعار جديد',
+                                  style: const TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary),
+                                ),
+                              ),
+                              const Icon(Icons.arrow_back_ios_rounded,
+                                  size: 13, color: AppColors.primary),
+                            ]),
+                          ),
+                        ),
+                      ),
+// ══ نتائج البحث أو الأصناف ══
+                    if (_isSearching)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                          child: SearchResultsView(query: searchQuery),
+                        ),
+                      )
+                    else ...[
+                      // عنوان الأصناف
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 4,
+                                height: 20,
+                                decoration: const BoxDecoration(
+                                  gradient: AppColors.primaryGradient,
                                   borderRadius: AppRadius.circleAll,
                                 ),
-                                child: Text(
-                                  '${cats.length} صنف',
-                                  style: AppTextStyles.bodySmall.copyWith(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'الأصناف',
+                                style: AppTextStyles.titleLarge.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: context.textPrimary,
                                 ),
                               ),
-                              loading: () => const SizedBox.shrink(),
-                              error: (_, __) => const SizedBox.shrink(),
-                            ),
-                          ],
+                              const Spacer(),
+                              categoriesAsync.when(
+                                data: (cats) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.1),
+                                    borderRadius: AppRadius.circleAll,
+                                  ),
+                                  child: Text(
+                                    '${cats.length} صنف',
+                                    style: AppTextStyles.bodySmall.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                loading: () => const SizedBox.shrink(),
+                                error: (_, __) => const SizedBox.shrink(),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
 
-                    // شبكة الأصناف
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      sliver: categoriesAsync.when(
-                        loading: () => const SliverToBoxAdapter(
-                          child: _CategoriesSkeleton(),
-                        ),
-                        error: (_, __) => SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 40),
-                            child: Center(
-                              child: Text(
-                                'تعذّر تحميل الأصناف',
-                                style: AppTextStyles.bodyMedium
-                                    .copyWith(color: Colors.grey[500]),
+                      // شبكة الأصناف
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        sliver: categoriesAsync.when(
+                          loading: () => const SliverToBoxAdapter(
+                            child: _CategoriesSkeleton(),
+                          ),
+                          error: (_, __) => SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 40),
+                              child: Center(
+                                child: Text(
+                                  'تعذّر تحميل الأصناف',
+                                  style: AppTextStyles.bodyMedium
+                                      .copyWith(color: Colors.grey[500]),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        data: (categories) {
-                          if (categories.isEmpty) {
-                            return SliverToBoxAdapter(
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 60),
-                                child: Column(
-                                  children: [
-                                    Icon(Icons.category_outlined,
-                                        size: 64, color: Colors.grey[300]),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'لا توجد أصناف بعد',
-                                      style: AppTextStyles.bodyMedium
-                                          .copyWith(color: Colors.grey[400]),
-                                    ),
-                                  ],
+                          data: (categories) {
+                            if (categories.isEmpty) {
+                              return SliverToBoxAdapter(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 60),
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.category_outlined,
+                                          size: 64, color: Colors.grey[300]),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'لا توجد أصناف بعد',
+                                        style: AppTextStyles.bodyMedium
+                                            .copyWith(color: Colors.grey[400]),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                              );
+                            }
+                            return SliverGrid(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  final cat = categories[index];
+                                  return CategoryCard(
+                                    category: cat,
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => ProductsScreen(
+                                            categoryId: cat.id,
+                                            categoryName: cat.name,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                                childCount: categories.length,
+                              ),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 12,
+                                childAspectRatio: 0.85,
                               ),
                             );
-                          }
-                          return SliverGrid(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final cat = categories[index];
-                                return CategoryCard(
-                                  category: cat,
-                                  onTap: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => ProductsScreen(
-                                          categoryId: cat.id,
-                                          categoryName: cat.name,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
-                              },
-                              childCount: categories.length,
-                            ),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 0.85,
-                            ),
-                          );
-                        },
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
 
-                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
-                ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -38267,6 +38370,8 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         .toList();
                   }
 
+                  final canLoadOlder = _hasMoreOrders && allOrders.length >= 50;
+
                   return TabBarView(
                     controller: _tabController,
                     physics: const BouncingScrollPhysics(),
@@ -38274,12 +38379,11 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: allOrders,
                         emptyType: _EmptyType.all,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
-                        onRefresh: () => _refreshOrders(
-                            merchantId), // 👈 تحديث صحيح لأعلى القائمة
+                        onRefresh: () => _refreshOrders(merchantId),
                       ),
                       _OrdersList(
                         orders: filterBy(const [
@@ -38291,7 +38395,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                           'on_the_way',
                         ]),
                         emptyType: _EmptyType.pending,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -38300,7 +38404,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: filterBy(const ['delivered']),
                         emptyType: _EmptyType.delivered,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -38309,7 +38413,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                       _OrdersList(
                         orders: filterBy(const ['cancelled', 'rejected']),
                         emptyType: _EmptyType.rejected,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -38319,7 +38423,7 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
                         orders:
                             filterBy(const ['returned', 'return_requested']),
                         emptyType: _EmptyType.returned,
-                        hasMore: _hasMoreOrders,
+                        hasMore: canLoadOlder,
                         isLoadingMore: _isLoadingMoreOrders,
                         loadMoreError: _orderLoadError,
                         onLoadMore: () => _loadMoreOrders(merchantId),
@@ -38717,6 +38821,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
   @override
   Widget build(BuildContext context) {
     final name = AppStorage.userName ?? '';
+    final storeName = AppStorage.storeName ?? '';
     final rawPhone = AppStorage.userPhone ?? '';
     final phone = _cleanPhone(rawPhone);
     final role = AppStorage.userRole ?? 'merchant';
@@ -38726,7 +38831,7 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
       body: SafeArea(
         child: ListView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
           children: [
             // ── ترويسة الشاشة ──
             Row(
@@ -38855,6 +38960,13 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
             ),
             const SizedBox(height: 10),
 
+            if (storeName.isNotEmpty)
+              _buildTile(
+                context: context,
+                icon: Icons.storefront_rounded,
+                title: 'اسم البقالة / المتجر',
+                value: storeName,
+              ),
             _buildTile(
               context: context,
               icon: Icons.person_outline_rounded,
@@ -41433,7 +41545,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                         itemCount: notifs.length +
-                            (notificationsNotifier.hasMore ? 1 : 0),
+                            (notificationsNotifier.hasMore &&
+                                    notifs.length >= 50
+                                ? 1
+                                : 0),
                         itemBuilder: (context, i) {
                           if (i < notifs.length) {
                             return _NotifCard(data: notifs[i]);
@@ -42773,7 +42888,10 @@ class _ReturnSheetState extends State<_ReturnSheet> {
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _inlineError = null;
+    });
     HapticFeedback.mediumImpact();
 
     try {
@@ -43670,6 +43788,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_radius.dart';
 import '../models/order_model.dart';
 import '../services/orders_service.dart';
+import 'order_detail_screen.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 class OrderStatusScreen extends StatefulWidget {
@@ -43715,8 +43834,45 @@ class _OrderStatusScreenState extends State<OrderStatusScreen> {
                         _InfoGrid(order: current),
                         const SizedBox(height: 16),
                         _OrderSummaryCard(order: current),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      OrderDetailScreen(order: current),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.inventory_2_outlined,
+                                size: 18),
+                            label: Text(
+                              current.status == OrderStatus.delivered
+                                  ? 'عرض الأصناف / طلب إرجاع'
+                                  : 'عرض أصناف الطلب',
+                              style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: BorderSide(
+                                color: AppColors.primary.withValues(alpha: 0.4),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
                         if (current.status == OrderStatus.pending) ...[
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           _CancelButton(order: current),
                         ],
                         const SizedBox(height: 8),
@@ -43743,7 +43899,8 @@ class _Header extends StatelessWidget {
 
   static _StatusMeta _meta(OrderStatus s) => switch (s) {
         OrderStatus.pending => const _StatusMeta(Colors.orange, 'قيد الانتظار'),
-        OrderStatus.accepted => const _StatusMeta(AppColors.primary, 'مقبول'),
+        OrderStatus.accepted =>
+          const _StatusMeta(AppColors.primary, 'تم القبول'),
         OrderStatus.preparing => const _StatusMeta(Colors.blue, 'جاري التحضير'),
         OrderStatus.onTheWay => const _StatusMeta(Colors.indigo, 'في الطريق'),
         OrderStatus.delivered =>
@@ -45150,6 +45307,7 @@ import '../../cart/providers/cart_provider.dart';
 import '../../cart/screens/cart_screen.dart';
 import '../widgets/product_card.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'package:wissal/features/merchant/products/services/products_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -45181,7 +45339,6 @@ class ProductsScreen extends ConsumerStatefulWidget {
 
 class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   String? _selectedBrandId;
-  ProductSizeTier _selectedSizeTier = ProductSizeTier.all;
   ProductSortCriteria _selectedSort = ProductSortCriteria.defaultSort;
   String _searchQuery = '';
   final TextEditingController _searchCtrl = TextEditingController();
@@ -45298,8 +45455,15 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveCategoryId = widget.categoryId;
-    final productsAsync = ref.watch(productsProvider(effectiveCategoryId));
+    final isBrandOnly = widget.categoryId == null && widget.brandId != null;
+    final brandPageAsync =
+        isBrandOnly ? ref.watch(productsStreamProvider(widget.brandId!)) : null;
+    final productsAsync = isBrandOnly
+        ? brandPageAsync!.whenData(
+            (page) =>
+                page.products.map((p) => {'id': p.id, ...p.toJson()}).toList(),
+          )
+        : ref.watch(productsProvider(widget.categoryId));
     final displayName = widget.categoryName ?? widget.brandName ?? 'المنتجات';
 
     final cart = ref.watch(cartProvider);
@@ -45312,9 +45476,13 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
         child: RefreshIndicator(
           color: AppColors.primary,
           onRefresh: () async {
-            await ref
-                .read(productsProvider(effectiveCategoryId).notifier)
-                .refresh();
+            if (isBrandOnly) {
+              ref.invalidate(productsStreamProvider(widget.brandId!));
+            } else {
+              await ref
+                  .read(productsProvider(widget.categoryId).notifier)
+                  .refresh();
+            }
           },
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(
@@ -45771,6 +45939,31 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                   },
                 ),
               ),
+              if (isBrandOnly &&
+                  brandPageAsync != null &&
+                  (brandPageAsync.valueOrNull?.hasMore ?? false))
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 12),
+                      child: (brandPageAsync.valueOrNull?.isLoadingMore ??
+                              false)
+                          ? const CircularProgressIndicator(
+                              color: AppColors.primary, strokeWidth: 2)
+                          : TextButton.icon(
+                              onPressed: () => ref
+                                  .read(productsStreamProvider(widget.brandId!)
+                                      .notifier)
+                                  .loadMore(),
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: const Text('تحميل المزيد من المنتجات',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                    ),
+                  ),
+                ),
 
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
@@ -45780,29 +45973,56 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     );
   }
 
-  // ── محرك المعالجة المتكامل: فلترة الماركة + فلترة الحجم + الترتيب الذكي ──
+  // ── محرك المعالجة المتكامل: فلترة الماركة + البحث المطبّع + الترتيب الذكي ──
   List<Map<String, dynamic>> _processProducts(List<Map<String, dynamic>> list) {
+    final normQuery = ArabicNormalizer.normalize(_searchQuery);
+    final queryTokens =
+        normQuery.split(' ').where((t) => t.isNotEmpty).toList();
+    final rawBarcodeQuery =
+        ArabicNormalizer.normalizeDigits(_searchQuery).trim();
+
     // 1. التصفية
     final filtered = list.where((p) {
       if (p['is_deleted'] == true || p['is_active'] == false) return false;
-// فلترة الشركة
+      // فلترة الشركة
       if (_selectedBrandId != null &&
           p['brand_id']?.toString() != _selectedBrandId) {
         return false;
       }
 
-      // فلترة البحث
-      if (_searchQuery.isNotEmpty) {
-        final name = (p['name'] ?? '').toString().toLowerCase();
-        final barcode = (p['barcode'] ?? '').toString().toLowerCase();
-        if (!name.contains(_searchQuery) && !barcode.contains(_searchQuery)) {
+      // فلترة البحث المطبّع والباركودات الشاملة
+      if (normQuery.isNotEmpty) {
+        final normName =
+            ArabicNormalizer.normalize(p['name']?.toString() ?? '');
+        final nameMatch = queryTokens.isNotEmpty &&
+            queryTokens.every((t) => normName.contains(t));
+        final barcodeMatch = rawBarcodeQuery.isNotEmpty &&
+            ((p['barcode']?.toString() ?? '').contains(rawBarcodeQuery) ||
+                (p['all_barcodes'] is List &&
+                    (p['all_barcodes'] as List)
+                        .any((b) => b.toString().contains(rawBarcodeQuery))) ||
+                (p['units'] is List &&
+                    (p['units'] as List).any((u) =>
+                        u is Map &&
+                        (u['barcode']?.toString() ?? '')
+                            .contains(rawBarcodeQuery))) ||
+                (p['variants'] is List &&
+                    (p['variants'] as List).any((v) =>
+                        v is Map &&
+                        ((v['barcode']?.toString() ?? '')
+                                .contains(rawBarcodeQuery) ||
+                            (v['units'] is List &&
+                                (v['units'] as List).any((vu) =>
+                                    vu is Map &&
+                                    (vu['barcode']?.toString() ?? '')
+                                        .contains(rawBarcodeQuery)))))));
+        if (!nameMatch && !barcodeMatch) {
           return false;
         }
       }
 
       return true;
     }).toList();
-
     // 2. الترتيب والفرز المتقدم
     switch (_selectedSort) {
       case ProductSortCriteria.cheapest:
@@ -45959,40 +46179,6 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSizeTierChip(String label, ProductSizeTier tier) {
-    final isSelected = _selectedSizeTier == tier;
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        setState(() => _selectedSizeTier = tier);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(left: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.primary.withValues(alpha: 0.15)
-              : context.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : context.borderColor,
-            width: isSelected ? 1.4 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Cairo',
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-            color: isSelected ? AppColors.primary : context.textSecondary,
-          ),
         ),
       ),
     );
@@ -46316,11 +46502,13 @@ class ProductModel {
       'brand_id': brandId,
       'description': description,
       'size_ml': sizeMl,
+      'size_text': sizeText,
       'items_per_carton': itemsPerCarton,
       'production_date': productionDate,
       'expiry_date': expiryDate,
       'cost_price': costPrice,
       'stock': stock,
+      'sales_count': salesCount,
       if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       'units': units.map((unit) => unit.toMap()).toList(),
       'variants': variants.map((v) => v.toJson()).toList(),
@@ -46556,21 +46744,50 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       _openSheet();
       return;
     }
-    if (_qty > widget.product.stock) {
-      setState(() => _qty = widget.product.stock.floor().clamp(1, 999));
+    final cartonCap = (widget.product.itemsPerCarton ?? 1) > 0
+        ? widget.product.itemsPerCarton!
+        : 1;
+    double usedCartons = 0.0;
+    for (final item in ref.read(cartProvider).values) {
+      if (item.product.id == widget.product.id) {
+        final uQty = item.selectedUnit?.qty ?? cartonCap;
+        usedCartons += (item.quantity * uQty) / cartonCap;
+      }
+    }
+    final remainingCartons = (widget.product.stock - usedCartons).floor();
+    if (remainingCartons <= 0) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'وصلت للحد الأقصى المتوفر في المستودع لهذا الصنف داخل سلتك',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final qtyToAdd = _qty > remainingCartons ? remainingCartons : _qty;
+    if (qtyToAdd != _qty) {
+      setState(() => _qty = qtyToAdd);
     }
     HapticFeedback.mediumImpact();
 
     ref.read(cartProvider.notifier).addItem(
           widget.product,
-          _qty,
+          qtyToAdd,
         );
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '✅ تمت إضافة $_qty من (${widget.product.name}) إلى السلة',
+          qtyToAdd < _qty
+              ? '⚠️ تم إضافة المتبقي فقط ($qtyToAdd كرتون) من (${widget.product.name})'
+              : '✅ تمت إضافة $qtyToAdd من (${widget.product.name}) إلى السلة',
           style: const TextStyle(fontFamily: 'Cairo'),
           textAlign: TextAlign.right,
         ),
@@ -46846,8 +47063,12 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                     ),
                     GestureDetector(
                       onTap: () {
-                        HapticFeedback.lightImpact();
-                        setState(() => _qty++);
+                        final maxWholeCartons =
+                            widget.product.stock.floor().clamp(1, 999);
+                        if (_qty < maxWholeCartons) {
+                          HapticFeedback.lightImpact();
+                          setState(() => _qty++);
+                        }
                       },
                       child: Container(
                         width: 38,
@@ -47175,6 +47396,12 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   }
 
   String _sizeDisplayFor(ProductVariant? v) {
+    if (_selectedUnit != null &&
+        _selectedUnit!.label.trim() != 'كرتون' &&
+        _selectedUnit!.sizeMl != null) {
+      final us = _selectedUnit!.sizeMl!;
+      return us % 1 == 0 ? '${us.toInt()} مل' : '$us مل';
+    }
     if (v?.sizeText != null && v!.sizeText!.trim().isNotEmpty) {
       return v.sizeText!.trim();
     }
@@ -47231,14 +47458,50 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final availableStock = v?.stock ?? widget.product.stock;
     if (availableStock <= 0) return;
 
+    final cartonCap = v?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1;
+    final safeCap = cartonCap > 0 ? cartonCap : 1;
+    final unitQty = (_selectedUnit?.qty ?? safeCap) > 0
+        ? (_selectedUnit?.qty ?? safeCap)
+        : 1;
+
+    double usedCartons = 0.0;
+    for (final cItem in ref.read(cartProvider).values) {
+      if (cItem.product.id == widget.product.id &&
+          (cItem.selectedVariant?.id ?? '') == (v?.id ?? '')) {
+        final cCap = cItem.selectedVariant?.itemsPerCarton ??
+            cItem.product.itemsPerCarton ??
+            1;
+        final uQty = cItem.selectedUnit?.qty ?? cCap;
+        usedCartons += (cItem.quantity * uQty) / (cCap > 0 ? cCap : 1);
+      }
+    }
+
+    final remainingCartons =
+        (availableStock - usedCartons).clamp(0.0, availableStock);
+    final maxAddableUnits = ((remainingCartons * safeCap) / unitQty).floor();
+
+    if (maxAddableUnits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'وصلت للحد الأقصى المتوفر في المستودع لهذا الصنف داخل سلتك',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final qtyToAdd = _qty > maxAddableUnits ? maxAddableUnits : _qty;
     HapticFeedback.mediumImpact();
     ref.read(cartProvider.notifier).addItem(
           widget.product,
-          _qty,
+          qtyToAdd,
           unit: _selectedUnit,
           variant: v,
         );
-
     final title = v != null
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
@@ -47989,10 +48252,9 @@ class SearchService {
 
   static bool _matchesTokens(String target, List<String> tokens) =>
       ArabicNormalizer.matches(target, tokens);
-
   SearchResult? _searchLocally(String q) {
     final cache = AppCache.instance;
-    final allProducts = cache.getProducts() ?? [];
+    final allProducts = cache.getAllCachedProducts();
     final allCategories = cache.getCategories() ?? [];
     final allBrands = cache.getBrands() ?? [];
 
@@ -48009,24 +48271,10 @@ class SearchService {
           if (p['is_deleted'] == true || p['is_active'] == false) return false;
           final name = p['name']?.toString() ?? '';
           if (_matchesTokens(name, tokens)) return true;
-
-          final barcode = p['barcode']?.toString().trim() ?? '';
-          if (barcode.isNotEmpty && barcode.contains(q)) return true;
-
-          final units = p['units'];
-          if (units is List) {
-            for (final u in units) {
-              if (u is Map &&
-                  (u['barcode']?.toString().trim() ?? '').contains(q)) {
-                return true;
-              }
-            }
-          }
-          return false;
+          return _matchesBarcode(p, q);
         })
         .take(30)
         .toList();
-
     final brands = allBrands
         .where((b) {
           if (b['is_deleted'] == true || b['is_active'] == false) return false;
@@ -48055,35 +48303,43 @@ class SearchService {
         normalizeArabic(q).split(' ').where((t) => t.isNotEmpty).toList();
     // Firestore stores the original product names; normalize only after retrieval.
     final firstToken = q.split(RegExp(r'\s+')).first;
+    final prefixesToQuery = <String>{firstToken};
+    if (firstToken.isNotEmpty) {
+      prefixesToQuery
+          .add(firstToken[0].toUpperCase() + firstToken.substring(1));
+    }
+    if (firstToken.startsWith('ا') ||
+        firstToken.startsWith('أ') ||
+        firstToken.startsWith('إ') ||
+        firstToken.startsWith('آ')) {
+      final rest = firstToken.substring(1);
+      prefixesToQuery.addAll(['ا$rest', 'أ$rest', 'إ$rest', 'آ$rest']);
+    }
+
+    final cleanBarcode = ArabicNormalizer.normalizeDigits(q)
+        .replaceAll(RegExp(r'[^0-9a-zA-Z]'), '')
+        .trim();
 
     final results = await Future.wait([
       _safeQuery('products', () async {
-        final normalizedQ = normalizeArabic(q);
-        final barcodeQuery = await _db
-            .collection('products')
-            .where('all_barcodes', arrayContains: normalizedQ)
-            .limit(15)
-            .get(const GetOptions(source: Source.serverAndCache));
         final combinedDocs = <String, Map<String, dynamic>>{};
-        for (final d in barcodeQuery.docs) {
-          if (d.data()['is_deleted'] != true &&
-              d.data()['is_active'] != false) {
-            combinedDocs[d.id] = {'id': d.id, ...d.data()};
+        if (cleanBarcode.isNotEmpty) {
+          final barcodeVariants = <String>{
+            cleanBarcode,
+            cleanBarcode.toLowerCase(),
+            cleanBarcode.toUpperCase(),
+          }.toList();
+          final barcodeQuery = await _db
+              .collection('products')
+              .where('all_barcodes', arrayContainsAny: barcodeVariants)
+              .limit(15)
+              .get(const GetOptions(source: Source.serverAndCache));
+          for (final d in barcodeQuery.docs) {
+            if (d.data()['is_deleted'] != true &&
+                d.data()['is_active'] != false) {
+              combinedDocs[d.id] = {'id': d.id, ...d.data()};
+            }
           }
-        }
-
-        final prefixesToQuery = <String>{firstToken};
-        if (firstToken.isNotEmpty) {
-          final capitalized =
-              firstToken[0].toUpperCase() + firstToken.substring(1);
-          prefixesToQuery.add(capitalized);
-        }
-        if (firstToken.startsWith('ا') ||
-            firstToken.startsWith('أ') ||
-            firstToken.startsWith('إ') ||
-            firstToken.startsWith('آ')) {
-          final rest = firstToken.substring(1);
-          prefixesToQuery.addAll(['ا$rest', 'أ$rest', 'إ$rest', 'آ$rest']);
         }
 
         await Future.wait(prefixesToQuery.map((pfx) async {
@@ -48098,7 +48354,6 @@ class SearchService {
           }
         }));
 
-        // تصفية متعددة الكلمات في الذاكرة مع إبقاء نتائج الباركود المطابقة.
         final filteredList = combinedDocs.values.where((p) {
           final name = p['name']?.toString() ?? '';
           return _matchesTokens(name, tokens) || _matchesBarcode(p, q);
@@ -48108,27 +48363,40 @@ class SearchService {
         return filteredList.take(30).toList();
       }),
       _safeQuery('brands', () async {
-        final list = await _fetchNameMatches(
-          collectionName: 'brands',
-          prefix: firstToken,
-          tokens: tokens,
-          resultLimit: 15,
-        );
+        final combined = <String, Map<String, dynamic>>{};
+        await Future.wait(prefixesToQuery.map((pfx) async {
+          final items = await _fetchNameMatches(
+            collectionName: 'brands',
+            prefix: pfx,
+            tokens: tokens,
+            resultLimit: 15,
+          );
+          for (final item in items) {
+            combined[item['id'].toString()] = item;
+          }
+        }));
+        final list = combined.values.take(15).toList();
         ImagePrecacheService.instance.prewarmBrands(list);
         return list;
       }),
       _safeQuery('categories', () async {
-        final list = await _fetchNameMatches(
-          collectionName: 'categories',
-          prefix: firstToken,
-          tokens: tokens,
-          resultLimit: 10,
-        );
+        final combined = <String, Map<String, dynamic>>{};
+        await Future.wait(prefixesToQuery.map((pfx) async {
+          final items = await _fetchNameMatches(
+            collectionName: 'categories',
+            prefix: pfx,
+            tokens: tokens,
+            resultLimit: 10,
+          );
+          for (final item in items) {
+            combined[item['id'].toString()] = item;
+          }
+        }));
+        final list = combined.values.take(10).toList();
         ImagePrecacheService.instance.prewarmCategories(list);
         return list;
       }),
     ]);
-
     final result = SearchResult(
       products: results[0],
       brands: results[1],
@@ -48211,15 +48479,28 @@ class SearchService {
   }
 
   bool _matchesBarcode(Map<String, dynamic> product, String query) {
+    final cleanQ = ArabicNormalizer.normalizeDigits(query).trim().toLowerCase();
+    if (cleanQ.isEmpty) return false;
+
     bool matches(Object? value) =>
-        value?.toString().trim().toLowerCase().contains(query) ?? false;
+        value?.toString().trim().toLowerCase().contains(cleanQ) ?? false;
 
     if (matches(product['barcode'])) return true;
     final barcodes = product['all_barcodes'];
     if (barcodes is List && barcodes.any(matches)) return true;
     final units = product['units'];
-    return units is List &&
-        units.any((unit) => unit is Map && matches(unit['barcode']));
+    if (units is List &&
+        units.any((unit) => unit is Map && matches(unit['barcode']))) {
+      return true;
+    }
+    final variants = product['variants'];
+    return variants is List &&
+        variants.any((v) =>
+            v is Map &&
+            (matches(v['barcode']) ||
+                (v['units'] is List &&
+                    (v['units'] as List)
+                        .any((vu) => vu is Map && matches(vu['barcode'])))));
   }
 
   Future<List<Map<String, dynamic>>> _safeQuery(
@@ -48479,7 +48760,9 @@ class _OrderCardState extends State<OrderCard> {
     final status = order['status'] as String? ?? 'pending';
     final config = _statusConfig(status);
     final createdAt = _formatDate(order['created_at']);
-    final total = (order['total'] as num?)?.toStringAsFixed(0) ?? '0';
+    final total = (order['total_amount'] as num?)?.toStringAsFixed(0) ??
+        (order['total'] as num?)?.toStringAsFixed(0) ??
+        '0';
     final itemCount = _itemCount ?? 0;
     final isDelivered = status == 'delivered';
 
@@ -48750,7 +49033,15 @@ class _StatusStepper extends StatelessWidget {
       );
     }
 
-    if (status == 'returned' || status == 'return_requested') {
+    if (status == 'return_requested') {
+      return _buildSpecialStepper(
+        label: 'طلب إرجاع قيد المراجعة',
+        icon: Icons.assignment_return_outlined,
+        color: const Color(0xFFF59E0B),
+      );
+    }
+
+    if (status == 'returned') {
       return _buildSpecialStepper(
         label: 'تم إرجاع الطلب',
         icon: Icons.assignment_return_rounded,
@@ -49191,10 +49482,16 @@ class _HighlightedText extends StatelessWidget {
   final String text;
   final String query;
   const _HighlightedText({required this.text, required this.query});
+  static String _foldChars(String s) => s
+      .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+      .replaceAll('ة', 'ه')
+      .replaceAll('ى', 'ي')
+      .toLowerCase();
 
   @override
   Widget build(BuildContext context) {
-    if (query.isEmpty) {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) {
       return Text(
         text,
         style: AppTextStyles.bodyMedium.copyWith(
@@ -49204,13 +49501,13 @@ class _HighlightedText extends StatelessWidget {
       );
     }
 
-    final lowerText = text.toLowerCase();
-    final lowerQuery = query.toLowerCase();
+    final foldedText = _foldChars(text);
+    final foldedQuery = _foldChars(trimmedQuery);
     final spans = <TextSpan>[];
     int start = 0;
 
-    while (true) {
-      final index = lowerText.indexOf(lowerQuery, start);
+    while (foldedQuery.isNotEmpty) {
+      final index = foldedText.indexOf(foldedQuery, start);
       if (index == -1) {
         spans.add(TextSpan(text: text.substring(start)));
         break;
@@ -49219,13 +49516,17 @@ class _HighlightedText extends StatelessWidget {
         spans.add(TextSpan(text: text.substring(start, index)));
       }
       spans.add(TextSpan(
-        text: text.substring(index, index + query.length),
+        text: text.substring(index, index + foldedQuery.length),
         style: const TextStyle(
           color: AppColors.primary,
           fontWeight: FontWeight.w900,
         ),
       ));
-      start = index + query.length;
+      start = index + foldedQuery.length;
+    }
+
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: text));
     }
 
     return RichText(
@@ -49444,7 +49745,6 @@ class _CircleDecor extends StatelessWidget {
 // FILE: lib\features\splash\animations\splash_animator.dart
 // ==================================================
 
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../controllers/session_checker.dart';
 
