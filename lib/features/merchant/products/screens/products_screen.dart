@@ -825,7 +825,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     );
   }
 
-  Widget _buildSizeTierChip(String label, ProductSizeTier tier) {
+  Widget buildSizeTierChip(String label, ProductSizeTier tier) {
     final isSelected = _selectedSizeTier == tier;
     return GestureDetector(
       onTap: () {
