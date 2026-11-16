@@ -153,48 +153,52 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
   void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
     final oldKey = oldItem.cartKey;
-    final availableStock =
-        oldItem.selectedVariant?.stock ?? oldItem.product.stock;
-    final cartonCapacity = oldItem.selectedVariant?.itemsPerCarton ??
-        oldItem.product.itemsPerCarton ??
-        1;
-    final safeCapacity = cartonCapacity > 0 ? cartonCapacity : 1;
-    final newUnitQty = newUnit.qty > 0 ? newUnit.qty : 1;
-    final maxAllowed = availableStock > 0
-        ? ((availableStock * safeCapacity) / newUnitQty)
-            .floor()
-            .clamp(1, _maxQuantity)
-        : _maxQuantity;
-
-    final clampedQty = oldItem.quantity.clamp(1, maxAllowed);
-    final newItem = CartItem(
+    final probeItem = CartItem(
       product: oldItem.product,
-      quantity: clampedQty,
+      quantity: oldItem.quantity,
       selectedUnit: newUnit,
       selectedVariant: oldItem.selectedVariant,
     );
-    final newKey = newItem.cartKey;
-
+    final newKey = probeItem.cartKey;
     if (oldKey == newKey) return;
 
+    final maxTotalForTarget = _maxUnitsAllowedFor(
+      probeItem,
+      ignoreKeys: {oldKey, newKey},
+    );
     final newState = Map<String, CartItem>.from(state);
     newState.remove(oldKey);
+
+    if (maxTotalForTarget <= 0) {
+      if (!newState.containsKey(newKey)) {
+        state = newState;
+        _save();
+      }
+      return;
+    }
 
     if (newState.containsKey(newKey)) {
       final existing = newState[newKey]!;
       newState[newKey] = existing.copyWith(
-        quantity: (existing.quantity + clampedQty).clamp(1, maxAllowed),
+        quantity:
+            (existing.quantity + oldItem.quantity).clamp(1, maxTotalForTarget),
       );
     } else {
-      newState[newKey] = newItem;
+      newState[newKey] = probeItem.copyWith(
+        quantity: oldItem.quantity.clamp(1, maxTotalForTarget),
+      );
     }
     state = newState;
     _save();
   }
 
-  int _maxUnitsAllowedFor(CartItem targetItem, {String? ignoreKey}) {
+  int _maxUnitsAllowedFor(
+    CartItem targetItem, {
+    String? ignoreKey,
+    Set<String> ignoreKeys = const {},
+  }) {
     final double availableStock =
-        targetItem.selectedVariant?.stock ?? targetItem.product.stock;
+        targetItem.selectedVariant?.stock ?? targetItem.product.baseStock;
     if (availableStock <= 0) return 0;
 
     final int cartonCap = (targetItem.selectedVariant?.itemsPerCarton ??
@@ -208,7 +212,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     final String targetVarId = targetItem.selectedVariant?.id ?? '';
 
     for (final entry in state.entries) {
-      if (entry.key == ignoreKey) continue;
+      if (entry.key == ignoreKey || ignoreKeys.contains(entry.key)) continue;
       final other = entry.value;
       if (other.product.id == targetItem.product.id &&
           (other.selectedVariant?.id ?? '') == targetVarId) {
@@ -341,6 +345,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     if (state.isEmpty) return false;
     bool hasChanges = false;
     final Map<String, CartItem> resolvedMap = {};
+    final Map<String, double> usedCartonsByPool = {};
     final returnedProductsMap = {
       for (final p in latestProducts) p['id']?.toString(): p
     };
@@ -351,6 +356,14 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
 
       if (queriedBatchIds != null && !queriedBatchIds.contains(productId)) {
         resolvedMap[entry.key] = item;
+        final safeCap = (item.selectedVariant?.itemsPerCarton ??
+                item.product.itemsPerCarton ??
+                1)
+            .clamp(1, 9999);
+        final uQty = (item.selectedUnit?.qty ?? safeCap).clamp(1, 9999);
+        final poolKey = '${productId}__v_${item.selectedVariant?.id ?? ''}';
+        usedCartonsByPool[poolKey] = (usedCartonsByPool[poolKey] ?? 0.0) +
+            (item.quantity * uQty) / safeCap;
         continue;
       }
 
@@ -401,14 +414,17 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
         continue;
       }
 
-      final availableStock = matchingVariant?.stock ?? liveProduct.stock;
+      final availableStock = matchingVariant?.stock ?? liveProduct.baseStock;
+      final poolKey = '${productId}__v_${matchingVariant?.id ?? ''}';
+      final remainingCartons =
+          (availableStock - (usedCartonsByPool[poolKey] ?? 0.0))
+              .clamp(0.0, availableStock > 0 ? availableStock : 0.0);
       final cartonCapacity =
-          matchingVariant?.itemsPerCarton ?? liveProduct.itemsPerCarton ?? 1;
+          (matchingVariant?.itemsPerCarton ?? liveProduct.itemsPerCarton ?? 1)
+              .clamp(1, 9999);
       final unitQty = matchingUnit.qty > 0 ? matchingUnit.qty : 1;
       final maxUnitsAllowed =
-          ((availableStock * (cartonCapacity > 0 ? cartonCapacity : 1)) /
-                  unitQty)
-              .floor();
+          ((remainingCartons * cartonCapacity) / unitQty).floor();
 
       if (maxUnitsAllowed <= 0) {
         hasChanges = true;
@@ -421,6 +437,9 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
           liveProduct.price != item.product.price) {
         hasChanges = true;
       }
+
+      usedCartonsByPool[poolKey] = (usedCartonsByPool[poolKey] ?? 0.0) +
+          (safeQty * unitQty) / cartonCapacity;
 
       final updatedItem = CartItem(
         product: liveProduct,
@@ -440,7 +459,6 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
         resolvedMap[targetKey] = updatedItem;
       }
     }
-
     if (hasChanges || resolvedMap.length != state.length) {
       state = resolvedMap;
       _save();

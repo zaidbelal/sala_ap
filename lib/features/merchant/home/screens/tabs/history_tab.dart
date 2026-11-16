@@ -135,14 +135,14 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
         .orderBy('created_at', descending: true);
 
     if (_ordersCursor == null) {
-      final initialDocs = await query
-          .limit(_historyPageSize)
+      final seedDocs = await query
+          .limit(_ordersStreamLimit)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (initialDocs.docs.isNotEmpty) {
-        _ordersCursor = initialDocs.docs.last;
+      if (seedDocs.docs.length < _ordersStreamLimit) {
+        _hasMoreOrders = false;
+        return seedDocs;
       }
-      _hasMoreOrders = initialDocs.docs.length == _historyPageSize;
-      return initialDocs;
+      _ordersCursor = seedDocs.docs.last;
     }
 
     final nextDocs = await query
@@ -165,14 +165,14 @@ class _HistoryTabState extends ConsumerState<HistoryTab> {
         .orderBy('created_at', descending: true);
 
     if (_returnsCursor == null) {
-      final initialDocs = await query
-          .limit(_historyPageSize)
+      final seedDocs = await query
+          .limit(_returnsStreamLimit)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (initialDocs.docs.isNotEmpty) {
-        _returnsCursor = initialDocs.docs.last;
+      if (seedDocs.docs.length < _returnsStreamLimit) {
+        _hasMoreReturns = false;
+        return seedDocs;
       }
-      _hasMoreReturns = initialDocs.docs.length == _historyPageSize;
-      return initialDocs;
+      _returnsCursor = seedDocs.docs.last;
     }
 
     final nextDocs = await query

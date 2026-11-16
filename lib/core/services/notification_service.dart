@@ -20,7 +20,7 @@ class NotificationService {
     _onMessageOpenedSub = null;
     final navContext = navigatorKey.currentContext;
     if (navContext != null && navContext.mounted) {
-      ScaffoldMessenger.of(navContext).clearSnackBars();
+      ScaffoldMessenger.maybeOf(navContext)?.clearSnackBars();
     }
     // 🚀 فك الاشتراك من قنوات البث الجماعي عند تسجيل الخروج مع حماية المهلة
     try {

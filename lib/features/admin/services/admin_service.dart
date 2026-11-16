@@ -25,6 +25,7 @@ class AdminStats {
   final int cancelledOrders;
   final int totalMerchants;
   final double totalRevenue;
+  final double netRevenue;
   final double totalProfit;
   final double returnedAmount;
   final bool hasCostData;
@@ -37,6 +38,7 @@ class AdminStats {
     this.cancelledOrders = 0,
     required this.totalMerchants,
     required this.totalRevenue,
+    this.netRevenue = 0,
     required this.totalProfit,
     this.returnedAmount = 0,
     this.hasCostData = false,
@@ -536,6 +538,7 @@ class AdminService {
       cancelledOrders: cancelledOrders,
       totalMerchants: totalMerchants,
       totalRevenue: grossRevenue,
+      netRevenue: netRevenue,
       totalProfit: totalProfit,
       returnedAmount: returnedRevenue,
       hasCostData: hasValidCostData,
@@ -1083,6 +1086,7 @@ class AdminService {
     double? sizeMl,
     String? sizeText,
     double stock = 0.0,
+    bool hasBaseStock = false,
     String? imageUrl,
     String? productionDate,
     String? expiryDate,
@@ -1106,6 +1110,7 @@ class AdminService {
         'price': price,
         'costPrice': costPrice,
         'stock': stock,
+        'hasBaseStock': hasBaseStock,
         'itemsPerCarton': itemsPerCarton,
         'sizeMl': sizeMl,
         'sizeText': sizeText,

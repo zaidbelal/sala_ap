@@ -413,7 +413,13 @@ const stockDeductCartons = Number(((qty * unitQty) / cartonItems).toFixed(4));
       const currentDeduction = Number(existingEntry?.delta ?? 0);
       const totalDeduction = Number((currentDeduction + stockDeductCartons).toFixed(4));
 
-      const availableStock = Math.max(0, Number(selectedVariant?.stock ?? product.stock) || 0);
+    const hasVariants = variants.length > 0;
+      const availableStock = selectedVariant
+        ? Math.max(0, Number(selectedVariant.stock) || 0)
+        : Math.max(
+            0,
+            Number(hasVariants ? (product.base_stock ?? 0) : (product.base_stock ?? product.stock)) || 0
+          );
       if (availableStock < totalDeduction) {
         const token = selectedVariant ? `${selectedVariant.id}:${unitLabel}` : unitLabel;
         const displayName = selectedVariant ? `${product.name} (${selectedVariant.label})` : product.name;
@@ -425,7 +431,7 @@ const stockDeductCartons = Number(((qty * unitQty) / cartonItems).toFixed(4));
         variantId: selectedVariant ? selectedVariant.id : null,
         delta: totalDeduction,
       });
-      const subtotal = unitPrice * qty;
+    const subtotal = Number((unitPrice * qty).toFixed(2));
       let unitCost = 0;
       const selectedUnitFinancials = selectedUnit ? financialUnits.get(unitLabel) : null;
       const explicitCost = Number(selectedUnitFinancials?.cost_price ?? selectedUnit?.cost_price);
@@ -437,8 +443,8 @@ const stockDeductCartons = Number(((qty * unitQty) / cartonItems).toFixed(4));
       }
 
       const itemProfit = Number(((unitPrice - unitCost) * qty).toFixed(2));
-      serverTotal += subtotal;
-      serverProfit += itemProfit;
+      serverTotal = Number((serverTotal + subtotal).toFixed(2));
+      serverProfit = Number((serverProfit + itemProfit).toFixed(2));
 
       const itemDisplayName = selectedVariant
         ? `${product.name} - ${selectedVariant.label}`
@@ -505,27 +511,43 @@ return {
         ? -Math.min(currentSales, bucket.totalDelta)
         : bucket.totalDelta;
       updatePayload.sales_count = FieldValue.increment(salesDelta);
+const hasVariants = Array.isArray(pDoc.variants) && pDoc.variants.length > 0;
+      const effectiveRootDelta = hasVariants ? bucket.rootDelta : bucket.totalDelta;
+      let nextBaseStock = Math.max(
+        0,
+        Number(hasVariants ? (pDoc.base_stock ?? 0) : (pDoc.base_stock ?? pDoc.stock)) || 0
+      );
 
-if (bucket.variantDeltas.size > 0 && Array.isArray(pDoc.variants)) {
+      if (effectiveRootDelta > 0) {
+        nextBaseStock = Number(
+          (isRestore
+            ? nextBaseStock + effectiveRootDelta
+            : Math.max(0, nextBaseStock - effectiveRootDelta)
+          ).toFixed(4)
+        );
+        updatePayload.base_stock = nextBaseStock;
+      }
+
+      if (hasVariants) {
         let totalVariantStock = 0;
         const updatedVariants = pDoc.variants.map((v) => {
           const key = String(v.id || v.label).trim();
-          const vDelta = bucket.variantDeltas.get(key);
+          const vDelta = bucket.variantDeltas.get(key) || 0;
           const currentVStock = Math.max(0, Number(v.stock) || 0);
-          const nextVStock = vDelta
+          const nextVStock = vDelta > 0
             ? (isRestore ? currentVStock + vDelta : Math.max(0, currentVStock - vDelta))
             : currentVStock;
           const rounded = Number(nextVStock.toFixed(4));
           totalVariantStock += rounded;
           return { ...v, stock: rounded };
         });
-        updatePayload.variants = updatedVariants;
-        // مزامنة المخزون الكلي للمنتج ليطابق مجموع الأحجام بدقة تامة
-        updatePayload.stock = Number((totalVariantStock + (isRestore ? bucket.rootDelta : -bucket.rootDelta)).toFixed(4));
-      } else if (bucket.totalDelta > 0) {
-        updatePayload.stock = FieldValue.increment(isRestore ? bucket.totalDelta : -bucket.totalDelta);
+        if (bucket.variantDeltas.size > 0) {
+          updatePayload.variants = updatedVariants;
+        }
+        updatePayload.stock = Number((nextBaseStock + totalVariantStock).toFixed(4));
+      } else if (effectiveRootDelta > 0) {
+        updatePayload.stock = nextBaseStock;
       }
-
       tx.update(productRef, updatePayload);
 
       const auditRef = db.collection("inventory_audit_log").doc();
@@ -760,8 +782,12 @@ if (Date.now() > data.expiresAt.toMillis()) {
           return "attempts_exhausted";
         }
 
-        if (hashCode(code) !== data.codeHash) {
-          const nextAttempts = (data.attempts || 0) + 1;
+const candidateBuf = Buffer.from(hashCode(code), "hex");
+        const storedBuf = Buffer.from(String(data.codeHash || ""), "hex");
+        const isHashMatch =
+          candidateBuf.length === storedBuf.length &&
+          crypto.timingSafeEqual(candidateBuf, storedBuf);
+        if (!isHashMatch) {          const nextAttempts = (data.attempts || 0) + 1;
           if (nextAttempts >= MAX_ATTEMPTS) {
             tx.update(otpRef, {
               attempts: nextAttempts,
@@ -859,6 +885,24 @@ if (Date.now() > data.expiresAt.toMillis()) {
         });
       }
     }
+  if (purpose === "login") {
+      try {
+        const authUser = await auth.getUser(uid);
+        const existingClaims = authUser.customClaims || {};
+        if (
+          existingClaims.role !== role ||
+          existingClaims.verified_phone !== phone ||
+          existingClaims.is_banned === true
+        ) {
+          const cleanClaims = { ...existingClaims, role, verified_phone: phone };
+          delete cleanClaims.is_banned;
+          await auth.setCustomUserClaims(uid, cleanClaims);
+        }
+      } catch (_) {
+        // إذا كان أول دخول للمستخدم سيتم إنشاء سجل Auth تلقائياً عند signInWithCustomToken
+      }
+    }
+
     const tokenClaims = { role, purpose, verified_phone: phone };
     const customToken = await auth.createCustomToken(uid, tokenClaims);
     return { verified: true, message: "تم التحقق بنجاح", customToken };
@@ -1194,7 +1238,111 @@ exports.migrateFinancialFields = onCall(
     return { done: false, stage, cursor: nextCursor };
   },
 );
+// ─── مزامنة وتوحيد ملف المصادقة الهاتفية مع Custom Claims على السيرفر حصراً ───
+exports.syncPhoneAuthProfile = onCall(
+  { region: "us-central1", cors: true },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "يجب تسجيل الدخول أولاً");
+    }
 
+    const uid = request.auth.uid;
+    const verifiedPhone =
+      request.auth.token.phone_number || request.auth.token.verified_phone;
+
+    if (!verifiedPhone || !/^\+\d{9,15}$/.test(verifiedPhone)) {
+      throw new HttpsError(
+        "permission-denied",
+        "التوكن لا يحتوي على رقم هاتف موثق أمنياً"
+      );
+    }
+
+    const txResult = await db.runTransaction(async (tx) => {
+      const targetRef = db.collection("profiles").doc(uid);
+      const [targetSnap, phoneSnaps] = await Promise.all([
+        tx.get(targetRef),
+        tx.get(
+          db
+            .collection("profiles")
+            .where("phone_number", "==", verifiedPhone)
+            .limit(5)
+        ),
+      ]);
+
+      if (targetSnap.exists) {
+        const data = targetSnap.data() || {};
+        if (data.is_deleted === true) {
+          throw new HttpsError("not-found", "الحساب غير موجود");
+        }
+        if (data.is_banned === true) {
+          throw new HttpsError("permission-denied", "تم حظر هذا الحساب");
+        }
+        if (data.phone_number && data.phone_number !== verifiedPhone) {
+          throw new HttpsError(
+            "permission-denied",
+            "تعارض في ملكية رقم الهاتف للحساب"
+          );
+        }
+        return {
+          role: String(data.role || "merchant").trim().toLowerCase(),
+          migrated: false,
+        };
+      }
+
+      const sourceDoc = phoneSnaps.docs.find(
+        (d) => d.data()?.is_deleted !== true
+      );
+      if (!sourceDoc) {
+        throw new HttpsError("not-found", "لم يتم العثور على ملف حساب مسجل");
+      }
+
+      const sourceData = sourceDoc.data() || {};
+      if (sourceData.is_banned === true) {
+        throw new HttpsError("permission-denied", "تم حظر هذا الحساب");
+      }
+
+      const resolvedRole = String(sourceData.role || "merchant")
+        .trim()
+        .toLowerCase();
+
+      tx.set(targetRef, {
+        ...sourceData,
+        phone_number: verifiedPhone,
+        role: resolvedRole,
+        migrated_from: sourceDoc.id,
+        updated_at: FieldValue.serverTimestamp(),
+      });
+
+      tx.update(sourceDoc.ref, {
+        is_deleted: true,
+        is_active: false,
+        migrated_to: uid,
+        updated_at: FieldValue.serverTimestamp(),
+      });
+
+      return { role: resolvedRole, migrated: true };
+    });
+
+    const userRecord = await auth.getUser(uid);
+    const currentClaims = { ...(userRecord.customClaims || {}) };
+    delete currentClaims.is_banned;
+    await auth.setCustomUserClaims(uid, {
+      ...currentClaims,
+      role: txResult.role,
+      purpose: "registered",
+      verified_phone: verifiedPhone,
+    });
+
+    return {
+      success: true,
+      uid,
+      role: txResult.role,
+      migrated: txResult.migrated,
+    };
+  }
+);
+
+// ─── إنشاء ملف التاجر الجديد عند إكمال التسجيل (معالجة سحابية آمنة 100%) ───
 exports.createUserProfile = onCall(
   { region: "us-central1", cors: true },
   async (request) => {
@@ -1202,7 +1350,7 @@ exports.createUserProfile = onCall(
       throw new HttpsError("unauthenticated", "يجب تسجيل الدخول وتأكيد رمز التحقق أولاً");
     }
 
- const uid = request.auth.uid;
+    const uid = request.auth.uid;
     const tokenPhone = request.auth.token.verified_phone || request.auth.token.phone_number;
     const { fullName, storeName, latitude, longitude, phone } = request.data || {};
     const cleanFullName = String(fullName || "").trim();
@@ -1558,10 +1706,7 @@ exports.placeOrder = onCall(
       return { alreadyCreated: false, orderData: orderDataWithNumber };
     });
 
-    // 🚀 تفويض الإشعار لخدمة الإشعارات المعزولة تماماً
-    if (!phaseOneResult.alreadyCreated) {
-      await NotificationService.notifyDriversNewOrder(orderRef.id, phaseOneResult.orderData.total);
-    }
+ // لا يُشعر السائقون عند الإنشاء لأن الطلب ما زال pending بانتظار اعتماد الإدارة
 
   if (phaseOneResult.alreadyCreated) {
       return { success: true, order: phaseOneResult.order };
@@ -1595,8 +1740,7 @@ exports.cancelOrder = onCall(
 const cleanOrderId = String(orderId).trim();
     const orderRef = db.collection("orders").doc(cleanOrderId);
 
-    return await db.runTransaction(async (tx) => {
-      // 🔒 قراءة متزامنة وذرية 100% داخل المعاملة (Strict Snapshot Isolation)
+const txResult = await db.runTransaction(async (tx) => {      // 🔒 قراءة متزامنة وذرية 100% داخل المعاملة (Strict Snapshot Isolation)
       const [orderSnap, itemsSnap] = await Promise.all([
         tx.get(orderRef),
         tx.get(db.collection("order_items").where("order_id", "==", cleanOrderId)),
@@ -1668,7 +1812,7 @@ const stockRestores = new Map();
           performed_by: uid,
         },
       });
-      tx.update(orderRef, {
+     tx.update(orderRef, {
         status: "cancelled",
         cancelled_at: FieldValue.serverTimestamp(),
         updated_at: FieldValue.serverTimestamp(),
@@ -1676,6 +1820,8 @@ const stockRestores = new Map();
 
       return { success: true };
     });
+
+    return txResult;
   }
 );
 
@@ -1788,13 +1934,13 @@ const returnQty = Number(returnData.quantity) || 0;
       const capacity = Number(itemData.carton_capacity) || 1;
       const unitQty = Number(itemData.unit_qty) || capacity;
       const cartonsToRestore = Number(((returnQty * unitQty) / capacity).toFixed(4));
-      const price = Number(itemData.price) || 0;
-      const refundAmount = price * returnQty;
+const price = Number(itemData.price) || 0;
+      const refundAmount = Number((price * returnQty).toFixed(2));
 
       const unitCost = Number(
         itemFinancialSnap.data()?.unit_cost ?? itemData.unit_cost,
       ) || 0;
-      const deductedProfit = (price - unitCost) * returnQty;
+      const deductedProfit = Number(((price - unitCost) * returnQty).toFixed(2));
       const rawProfit = orderFinancialSnap.data()?.total_profit ?? orderData?.total_profit;
       const currentProfit = Number.isFinite(Number(rawProfit)) ? Number(rawProfit) : 0;
 
@@ -1827,8 +1973,7 @@ const returnQty = Number(returnData.quantity) || 0;
 
       // 3. تحديث الفاتورة
       const currentTotal = Number(orderData?.total_amount || orderData?.total || 0);
-      const safeNewTotal = Math.max(0, currentTotal - refundAmount);
-
+const safeNewTotal = Math.max(0, Number((currentTotal - refundAmount).toFixed(2)));
       tx.update(orderRef, {
         status: safeNewTotal <= 0.01 && !hasOtherPending ? "returned" : (hasOtherPending ? "return_requested" : "delivered"),
         total: safeNewTotal,
@@ -2304,13 +2449,34 @@ exports.manageUserAccount = onCall(
     const allowedRoles = ["merchant", "driver", "admin", "super_admin", "accountant", "warehouse_manager"];
 
     switch (cleanAction) {
-     case "change_role": {
+ case "change_role": {
+        if (targetData.is_banned === true) {
+          throw new HttpsError(
+            "failed-precondition",
+            "لا يمكن تغيير رتبة حساب محظور قبل رفع الحظر عنه"
+          );
+        }
         const cleanRole = String(newRole || "").trim().toLowerCase();
         if (!allowedRoles.includes(cleanRole)) {
           throw new HttpsError("invalid-argument", "الرتبة المحددة غير صالحة");
         }
         if (cleanRole === "super_admin" && callerRole !== "super_admin") {
           throw new HttpsError("permission-denied", "ترقية الحساب إلى مدير عام مقتصرة على المدير العام فقط");
+        }
+
+        // 🔒 تحديث الرتبة وإبطال الجلسات في خادم الأمان أولاً لضمان عدم حدوث تباين عند الفشل
+        try {
+          const userRecord = await auth.getUser(cleanTargetId);
+          const currentClaims = userRecord.customClaims || {};
+          await auth.setCustomUserClaims(cleanTargetId, {
+            ...currentClaims,
+            role: cleanRole,
+            purpose: "registered",
+          });
+          await auth.revokeRefreshTokens(cleanTargetId);
+        } catch (authErr) {
+          console.error(`[manageUserAccount] Failed to set claims/revoke tokens for ${cleanTargetId}:`, authErr);
+          throw new HttpsError("internal", "تعذر توثيق الصلاحيات في خادم الأمان، لم يتم إجراء أي تغيير");
         }
 
         const updates = {
@@ -2325,23 +2491,8 @@ exports.manageUserAccount = onCall(
           updates.account_status = "active";
         }
 
-    await targetRef.update(updates);
-
-        // تحديث الرتبة وإبطال التوكنات القديمة فوراً لمنع تسريب الصلاحيات
-        try {
-          const userRecord = await auth.getUser(cleanTargetId);
-          const currentClaims = userRecord.customClaims || {};
-          await auth.setCustomUserClaims(cleanTargetId, {
-            ...currentClaims,
-            role: cleanRole,
-            purpose: "registered",
-          });
-          await auth.revokeRefreshTokens(cleanTargetId);
-        } catch (authErr) {
-          console.error(`[manageUserAccount] Failed to set claims/revoke tokens for ${cleanTargetId}:`, authErr);
-          throw new HttpsError("internal", "تم تحديث البيانات وفشل توثيق الصلاحيات في خادم الأمان، يرجى إعادة المحاولة");
-        }
-        return { success: true, message: "تم تغيير الرتبة وإبطال الجلسات السابقة بنجاح" };
+        await targetRef.update(updates);
+        return { success: true, message: "تم تغيير الرتبة وتوثيق الصلاحيات بنجاح" };
       }
    case "ban": {
         await targetRef.update({
@@ -2379,7 +2530,13 @@ exports.manageUserAccount = onCall(
         } catch (_) {}
         return { success: true, message: "تم رفع الحظر بنجاح" };
       }
-      case "toggle_active": {
+   case "toggle_active": {
+        if (targetData.is_banned === true) {
+          throw new HttpsError(
+            "failed-precondition",
+            "الحساب محظور نهائياً، استخدم خيار رفع الحظر بدلاً من التفعيل"
+          );
+        }
         if (typeof isActive !== "boolean") {
           throw new HttpsError("invalid-argument", "حالة التفعيل يجب أن تكون قيمة منطقية");
         }
@@ -2764,12 +2921,15 @@ const stockRestores = new Map();
           profit_recorded: true,
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
-      } else if (cleanStatus === "returned" && isProfitRecorded) {
-        const remainingProfitToDeduct = Math.max(0, Number(
-          financialSnap.data()?.total_profit ?? order.total_profit ?? 0
-        ));
-        const netRemainingAmount = Math.max(0, Number(order.total_amount) || Number(order.total) || 0);
-
+    } else if (cleanStatus === "returned" && isProfitRecorded) {
+        const rawRemainingProfit = financialSnap.data()?.total_profit ?? order.total_profit ?? 0;
+        const remainingProfitToDeduct = Number.isFinite(Number(rawRemainingProfit))
+          ? Number(Number(rawRemainingProfit).toFixed(2))
+          : 0;
+        const netRemainingAmount = Math.max(
+          0,
+          Number((Number(order.total_amount) || Number(order.total) || 0).toFixed(2))
+        );
         const lastResetAt = summarySnap?.data()?.last_reset_at?.toMillis?.() ?? 0;
         const orderDeliveredAt = order.delivered_at?.toMillis?.() ?? (order.created_at?.toMillis?.() ?? 0);
         const isFromCurrentCycle = orderDeliveredAt >= lastResetAt;
@@ -2890,10 +3050,26 @@ OrderCalculator.applyProductStockDeltas({
           });
         }
       }
-      return { success: true, changed: true };
+ const shouldNotifyDrivers =
+        (cleanStatus === "confirmed" || cleanStatus === "preparing") &&
+        !driverId &&
+        !order.driver_id;
+
+      return {
+        success: true,
+        changed: true,
+        shouldNotifyDrivers,
+        orderTotal: Number(order.total_amount || order.total || 0),
+      };
     });
+
+    if (txResult?.shouldNotifyDrivers) {
+      await NotificationService.notifyDriversNewOrder(cleanOrderId, txResult.orderTotal);
+    }
+
+    return { success: txResult.success, changed: txResult.changed };
   }
-);// ══════════════════════════════════════════════════════════════
+);     // ══════════════════════════════════════════════════════════════
 // 📦 إدارة الكتالوج والمخزون سحابياً مع البث اللحظي لجميع التجار
 // ══════════════════════════════════════════════════════════════
 // 1. إضافة منتج جديد بسلطة السيرفر
@@ -3013,9 +3189,10 @@ const parsedVariants = rawVariants.map((v, idx) => {
           })).filter((u) => u.label.length > 0)
         : [],
     })).filter((v) => v.label.length > 0);
-const effectiveStock = parsedVariants.length > 0
-      ? Number(parsedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0).toFixed(4))
-      : stock;
+const baseStock = Number(Math.max(0, stock).toFixed(4));
+    const hasBaseStock = parsedVariants.length === 0 ? true : (data.hasBaseStock === true || baseStock > 0);
+    const totalVariantStock = parsedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+    const effectiveStock = Number((baseStock + totalVariantStock).toFixed(4));
 
     const newDocRef = db.collection("products").doc();
     const productPayload = {
@@ -3024,6 +3201,8 @@ const effectiveStock = parsedVariants.length > 0
       brand_id: brandId,
       category_id: categoryId,
       price: price,
+      base_stock: baseStock,
+      has_base_stock: hasBaseStock,
       stock: effectiveStock,
       is_active: true,
       is_deleted: false,
@@ -3210,52 +3389,86 @@ exports.adminUpdateProduct = onCall(
           cost_price: Math.max(0, incomingCost),
         };
       });
-    // استخراج الباركودات بشكل موحد وفحص فرادتها
-  if (updates.variants !== undefined) {
-        const rawVars = Array.isArray(updates.variants) ? updates.variants : [];
-        safeUpdates.variants = rawVars.map((v, idx) => ({
-          id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
-          label: String(v.label || "").trim(),
-          price: Math.max(0, Number(v.price) || 0),
-          stock: Math.max(0, Number(v.stock) || 0),
-          items_per_carton: Math.max(1, parseInt(v.items_per_carton, 10) || 1),
-          size_text: v.size_text ? String(v.size_text).trim() : null,
-          size_ml: v.size_ml != null ? Number(v.size_ml) : null,
-          image_url: v.image_url ? String(v.image_url).trim() : null,
-          barcode: Normalizer.barcode(v.barcode) || null,
-          production_date: Normalizer.toSafeTimestamp(v.production_date),
-          expiry_date: Normalizer.toSafeTimestamp(v.expiry_date),
-          units: Array.isArray(v.units)
-            ? v.units.map((u) => ({
-                label: String(u.label || "").trim(),
-                price: Math.max(0, Number(u.price) || 0),
-                qty: Math.max(1, parseInt(u.qty, 10) || 1),
-                size_ml: u.size_ml != null ? Number(u.size_ml) : null,
-                image_url: u.image_url ? String(u.image_url).trim() : null,
-                barcode: Normalizer.barcode(u.barcode) || null,
-                production_date: Normalizer.toSafeTimestamp(u.production_date),
-                expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
-              })).filter((u) => u.label.length > 0)
-            : [],
-        })).filter((v) => v.label.length > 0);
+  const existingVariantsList = Array.isArray(existing.variants) ? existing.variants : [];
+      const existingVariantsMap = new Map(
+        existingVariantsList.map((ev) => [String(ev.id || ev.label).trim(), ev])
+      );
+      let variantAuditDelta = 0;
 
-        financialUpdates.variants = rawVars.map((v, idx) => ({
-          id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
-          label: String(v.label || "").trim(),
-          cost_price: Math.max(0, Number(v.cost_price) || 0),
-          units: Array.isArray(v.units)
-            ? v.units.map((u) => ({
-                label: String(u.label || "").trim(),
-                cost_price: Math.max(0, Number(u.cost_price) || 0),
-              })).filter((u) => u.label.length > 0)
-            : [],
-        })).filter((v) => v.label.length > 0);
+      if (updates.variants !== undefined) {
+        const rawVars = Array.isArray(updates.variants) ? updates.variants : [];
+        const resolvedVars = [];
+        const resolvedFinancialVars = [];
+        const baseTs = Date.now();
+
+        for (let idx = 0; idx < rawVars.length; idx++) {
+          const v = rawVars[idx];
+          const label = String(v.label || "").trim();
+          if (!label) continue;
+
+          const vId = String(v.id || `v_${idx}_${baseTs}`).trim();
+          const prevVariant = existingVariantsMap.get(vId);
+
+          let finalVariantStock;
+          if (prevVariant && v.stock_delta !== undefined && v.is_new_variant !== true) {
+            const liveVStock = Math.max(0, Number(prevVariant.stock) || 0);
+            const vDelta = Number(v.stock_delta) || 0;
+            const effVDelta = vDelta < 0 ? -Math.min(liveVStock, Math.abs(vDelta)) : vDelta;
+            finalVariantStock = Number((liveVStock + effVDelta).toFixed(4));
+            variantAuditDelta = Number((variantAuditDelta + effVDelta).toFixed(4));
+          } else {
+            finalVariantStock = Math.max(0, Number(v.stock) || 0);
+            const prevVStock = prevVariant ? Math.max(0, Number(prevVariant.stock) || 0) : 0;
+            variantAuditDelta = Number((variantAuditDelta + (finalVariantStock - prevVStock)).toFixed(4));
+          }
+
+          resolvedVars.push({
+            id: vId,
+            label,
+            price: Math.max(0, Number(v.price) || 0),
+            stock: finalVariantStock,
+            items_per_carton: Math.max(1, parseInt(v.items_per_carton, 10) || 1),
+            size_text: v.size_text ? String(v.size_text).trim() : null,
+            size_ml: v.size_ml != null ? Number(v.size_ml) : null,
+            image_url: v.image_url ? String(v.image_url).trim() : null,
+            barcode: Normalizer.barcode(v.barcode) || null,
+            production_date: Normalizer.toSafeTimestamp(v.production_date),
+            expiry_date: Normalizer.toSafeTimestamp(v.expiry_date),
+            units: Array.isArray(v.units)
+              ? v.units.map((u) => ({
+                  label: String(u.label || "").trim(),
+                  price: Math.max(0, Number(u.price) || 0),
+                  qty: Math.max(1, parseInt(u.qty, 10) || 1),
+                  size_ml: u.size_ml != null ? Number(u.size_ml) : null,
+                  image_url: u.image_url ? String(u.image_url).trim() : null,
+                  barcode: Normalizer.barcode(u.barcode) || null,
+                  production_date: Normalizer.toSafeTimestamp(u.production_date),
+                  expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
+                })).filter((u) => u.label.length > 0)
+              : [],
+          });
+
+          resolvedFinancialVars.push({
+            id: vId,
+            label,
+            cost_price: Math.max(0, Number(v.cost_price) || 0),
+            units: Array.isArray(v.units)
+              ? v.units.map((u) => ({
+                  label: String(u.label || "").trim(),
+                  cost_price: Math.max(0, Number(u.cost_price) || 0),
+                })).filter((u) => u.label.length > 0)
+              : [],
+          });
+        }
+
+        safeUpdates.variants = resolvedVars;
+        financialUpdates.variants = resolvedFinancialVars;
       }
 
       if (updates.barcode !== undefined || updates.units !== undefined || updates.variants !== undefined) {
         const targetBarcode = updates.barcode !== undefined ? updates.barcode : existing.barcode;
         const targetUnits = updates.units !== undefined ? updates.units : (existing.units ?? []);
-        const targetVariants = updates.variants !== undefined ? updates.variants : (existing.variants ?? []);
+        const targetVariants = safeUpdates.variants !== undefined ? safeUpdates.variants : existingVariantsList;
 
         if (updates.barcode === null || updates.barcode === "") {
           safeUpdates.barcode = FieldValue.delete();
@@ -3264,7 +3477,7 @@ exports.adminUpdateProduct = onCall(
         }
 
         const allBarcodes = Normalizer.extractAllBarcodes(targetBarcode, targetUnits, targetVariants);
-   if (allBarcodes.length > 0) {
+        if (allBarcodes.length > 0) {
           const barcodeChunks = [];
           for (let i = 0; i < allBarcodes.length; i += 10) {
             barcodeChunks.push(allBarcodes.slice(i, i + 10));
@@ -3298,59 +3511,58 @@ exports.adminUpdateProduct = onCall(
         const safeTs = Normalizer.toSafeTimestamp(updates.expiry_date);
         safeUpdates.expiry_date = safeTs ? safeTs : FieldValue.delete();
       }
-let newStock = Number(existing.stock) || 0;
-      const hasUpdatedVariants =
-        Array.isArray(safeUpdates.variants) && safeUpdates.variants.length > 0;
 
-      if (hasUpdatedVariants) {
-        newStock = Number(
-          safeUpdates.variants
-            .reduce((sum, v) => sum + (Number(v.stock) || 0), 0)
-            .toFixed(4)
+      const hasExistingVariants = existingVariantsList.length > 0;
+      const currentBaseStock = Math.max(
+        0,
+        Number(hasExistingVariants ? (existing.base_stock ?? 0) : (existing.base_stock ?? existing.stock)) || 0
+      );
+      let nextBaseStock = currentBaseStock;
+      let baseAuditDelta = 0;
+
+      const incomingBaseDelta = updates.base_stock_delta !== undefined
+        ? updates.base_stock_delta
+        : updates.stock_delta;
+
+      if (incomingBaseDelta !== undefined) {
+        const delta = Number(incomingBaseDelta) || 0;
+        baseAuditDelta = Number(
+          (delta < 0 ? -Math.min(currentBaseStock, Math.abs(delta)) : delta).toFixed(4)
         );
-        safeUpdates.stock = newStock;
-        const stockDiff = Number((newStock - (Number(existing.stock) || 0)).toFixed(4));
-        if (Math.abs(stockDiff) > 0.0001) {
-          const auditRef = db.collection("inventory_audit_log").doc();
-          tx.set(auditRef, {
-            product_id: cleanId,
-            product_name: safeUpdates.name || existing.name || "",
-            action: "variants_stock_sync",
-            delta: stockDiff,
-            resulting_stock: newStock,
-            performed_by: callerUid,
-            created_at: FieldValue.serverTimestamp(),
-          });
-        }
-      } else if (updates.stock !== undefined) {
-        newStock = Math.max(0, Number(updates.stock) || 0);
-        safeUpdates.stock = newStock;
+        nextBaseStock = Number((currentBaseStock + baseAuditDelta).toFixed(4));
+        safeUpdates.base_stock = nextBaseStock;
+      } else if (updates.stock !== undefined && updates.variants === undefined) {
+        nextBaseStock = Math.max(0, Number(updates.stock) || 0);
+        baseAuditDelta = Number((nextBaseStock - currentBaseStock).toFixed(4));
+        safeUpdates.base_stock = nextBaseStock;
+      }
 
+      if (updates.has_base_stock !== undefined) {
+        safeUpdates.has_base_stock = Boolean(updates.has_base_stock);
+      } else if (safeUpdates.base_stock !== undefined && nextBaseStock > 0) {
+        safeUpdates.has_base_stock = true;
+      }
+
+      const finalVariantsList = safeUpdates.variants !== undefined ? safeUpdates.variants : existingVariantsList;
+      const totalVariantStock = finalVariantsList.reduce(
+        (sum, v) => sum + Math.max(0, Number(v.stock) || 0),
+        0
+      );
+      let newStock = Number(existing.stock) || 0;
+
+      if (safeUpdates.base_stock !== undefined || safeUpdates.variants !== undefined) {
+        newStock = Number((nextBaseStock + totalVariantStock).toFixed(4));
+        safeUpdates.stock = newStock;
+      }
+
+      const totalAuditDelta = Number((baseAuditDelta + variantAuditDelta).toFixed(4));
+      if (Math.abs(totalAuditDelta) > 0.0001) {
         const auditRef = db.collection("inventory_audit_log").doc();
         tx.set(auditRef, {
           product_id: cleanId,
           product_name: safeUpdates.name || existing.name || "",
-          action: "stock_set",
-          delta: newStock - (Number(existing.stock) || 0),
-          resulting_stock: newStock,
-          performed_by: callerUid,
-          created_at: FieldValue.serverTimestamp(),
-        });
-      } else if (updates.stock_delta !== undefined) {
-        const currentStock = Math.max(0, Number(existing.stock) || 0);
-        const delta = Number(updates.stock_delta) || 0;
-        const effectiveDelta = Number(
-          (delta < 0 ? -Math.min(currentStock, Math.abs(delta)) : delta).toFixed(4)
-        );
-        newStock = Number((currentStock + effectiveDelta).toFixed(4));
-        safeUpdates.stock = FieldValue.increment(effectiveDelta);
-
-        const auditRef = db.collection("inventory_audit_log").doc();
-        tx.set(auditRef, {
-          product_id: cleanId,
-          product_name: safeUpdates.name || existing.name || "",
-          action: "stock_delta",
-          delta: effectiveDelta,
+          action: safeUpdates.variants !== undefined ? "variants_delta_sync" : "base_stock_delta",
+          delta: totalAuditDelta,
           resulting_stock: newStock,
           performed_by: callerUid,
           created_at: FieldValue.serverTimestamp(),
@@ -3538,15 +3750,15 @@ exports.adminProcessBatchReturn = onCall(
         const capacity = Number(itemData.carton_capacity) || 1;
         const unitQty = Number(itemData.unit_qty) || capacity;
         const cartonsToRestore = Number(((returnQty * unitQty) / capacity).toFixed(4));
-        const price = Number(itemData.price) || 0;
-        const itemRefund = price * returnQty;
+      const price = Number(itemData.price) || 0;
+        const itemRefund = Number((price * returnQty).toFixed(2));
         const unitCost = Number(
           itemFinancialSnaps[i].data()?.unit_cost ?? itemData.unit_cost,
         ) || 0;
-        const itemProfit = (price - unitCost) * returnQty;
+        const itemProfit = Number(((price - unitCost) * returnQty).toFixed(2));
 
-        totalRefund += itemRefund;
-        totalDeductedProfit += itemProfit;
+        totalRefund = Number((totalRefund + itemRefund).toFixed(2));
+        totalDeductedProfit = Number((totalDeductedProfit + itemProfit).toFixed(2));
 const pId = itemData.product_id;
         const vId = itemData.variant_id ? String(itemData.variant_id).trim() : null;
         if (pId) {
@@ -3618,7 +3830,7 @@ const pId = itemData.product_id;
       });
   // تحديث بيانات الفاتورة الأصلية وتصفير عداد المرتجعات المعلقة لفتح إمكانية الإرجاع مستقبلاً
       const currentTotal = Number(orderData.total_amount || orderData.total || 0);
-      const safeNewTotal = Math.max(0, currentTotal - totalRefund);
+    const safeNewTotal = Math.max(0, Number((currentTotal - totalRefund).toFixed(2)));  
     const rawProfit = orderFinancialSnap.data()?.total_profit ?? orderData?.total_profit;
       const currentProfit = Number.isFinite(Number(rawProfit)) ? Number(rawProfit) : 0;
 
@@ -3820,15 +4032,18 @@ exports.adminUpdateBrand = onCall(
           .where("brand_id", "==", cleanId)
           .where("is_deleted", "==", false)
           .get();
-        if (!prodsSnap.empty) {
-          const batch = db.batch();
-          prodsSnap.docs.forEach((doc) => {
-            batch.update(doc.ref, {
-              category_id: cleanCatId,
-              updated_at: FieldValue.serverTimestamp(),
+    if (!prodsSnap.empty) {
+          const CHUNK_SIZE = 400;
+          for (let i = 0; i < prodsSnap.docs.length; i += CHUNK_SIZE) {
+            const batch = db.batch();
+            prodsSnap.docs.slice(i, i + CHUNK_SIZE).forEach((doc) => {
+              batch.update(doc.ref, {
+                category_id: cleanCatId,
+                updated_at: FieldValue.serverTimestamp(),
+              });
             });
-          });
-          await batch.commit();
+            await batch.commit();
+          }
         }
       } catch (err) {
         console.error(`[adminUpdateBrand] failed to sync product categories: ${err.message}`);

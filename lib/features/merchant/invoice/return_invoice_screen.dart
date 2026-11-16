@@ -87,9 +87,10 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
   Future<void> _shareAsImage() async {
     setState(() => _saving = true);
     try {
-      final context = _repaintKey.currentContext;
-      if (context == null) return;
-      final boundary = context.findRenderObject() as RenderRepaintBoundary?;
+      final repaintContext = _repaintKey.currentContext;
+      if (repaintContext == null) return;
+      final boundary =
+          repaintContext.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null || !boundary.attached) return;
 
       WidgetsBinding.instance.scheduleFrame();

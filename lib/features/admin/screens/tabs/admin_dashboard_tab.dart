@@ -335,8 +335,8 @@ class _TodayLiveCard extends ConsumerWidget {
           );
         }
 
-        final revenue = (today['revenue'] as double?) ?? 0;
-        final ordersCount = (today['orders'] as double?)?.toInt() ?? 0;
+        final revenue = (today['revenue'] as num?)?.toDouble() ?? 0.0;
+        final ordersCount = (today['orders'] as num?)?.toInt() ?? 0;
         final now = DateTime.now();
         return Container(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -498,12 +498,12 @@ class _StatsGrid extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _StatCard(
-                title: 'إجمالي الإيرادات',
-                value: '${stats.totalRevenue.toStringAsFixed(0)} ر.ي',
+                title: 'صافي الإيرادات',
+                value: '${stats.netRevenue.toStringAsFixed(0)} ر.ي',
                 icon: Icons.payments_rounded,
                 color: const Color(0xFF8B5CF6),
                 trend: null,
-                fillPercent: stats.totalRevenue > 0 ? 0.75 : 0,
+                fillPercent: stats.netRevenue > 0 ? 0.75 : 0,
               ),
             ),
           ]),
@@ -544,7 +544,7 @@ class _StatsGrid extends StatelessWidget {
 
           // ── بطاقة الربح ──
           _ProfitCard(
-            revenue: stats.totalRevenue,
+            revenue: stats.netRevenue,
             profit: stats.totalProfit,
             hasCostData: stats.hasCostData,
           ),
@@ -964,11 +964,11 @@ class _QuickSummary extends StatelessWidget {
             .toStringAsFixed(0)
         : '0';
 
-    // حساب متوسط قيمة الطلب بناءً على الطلبات المسلّمة الفعلية
+// حساب متوسط قيمة الطلب بناءً على صافي الإيرادات والطلبات المسلّمة الفعلية
     final effectiveOrderCount =
         stats.deliveredOrders > 0 ? stats.deliveredOrders : stats.totalOrders;
-    final avgOrder = effectiveOrderCount > 0 && stats.totalRevenue > 0
-        ? (stats.totalRevenue / effectiveOrderCount).toStringAsFixed(0)
+    final avgOrder = effectiveOrderCount > 0 && stats.netRevenue > 0
+        ? (stats.netRevenue / effectiveOrderCount).toStringAsFixed(0)
         : '0';
     // ✅ جديد: نسبة الإلغاء
     final cancelRate = stats.totalOrders > 0

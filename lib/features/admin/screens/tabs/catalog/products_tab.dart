@@ -143,6 +143,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                   sizeMl: data['size'],
                   sizeText: data['size_text'],
                   stock: (data['stock'] as num?)?.toDouble() ?? 0.0,
+                  hasBaseStock: data['has_base_stock'] == true,
                   imageUrl: data['imageUrl'],
                   productionDate: data['production_date'],
                   expiryDate: data['expiry_date'],
@@ -529,6 +530,8 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _ProductEditSheet(
         product: product,
@@ -564,10 +567,17 @@ class _ProductTile extends StatelessWidget {
     final imageUrl = product['image_url'] as String?;
     final price = (product['price'] as num?)?.toStringAsFixed(0) ?? '0';
     final rawVariants = product['variants'];
-    final double rawStock = (rawVariants is List && rawVariants.isNotEmpty)
+    final hasVarList = rawVariants is List && rawVariants.isNotEmpty;
+    final double variantSum = hasVarList
         ? rawVariants.whereType<Map>().fold<double>(
             0.0, (sum, v) => sum + ((v['stock'] as num?)?.toDouble() ?? 0.0))
-        : ((product['stock'] as num?)?.toDouble() ?? 0.0);
+        : 0.0;
+    final double baseStockVal = hasVarList
+        ? ((product['base_stock'] as num?)?.toDouble() ?? 0.0)
+        : ((product['base_stock'] as num?)?.toDouble() ??
+            (product['stock'] as num?)?.toDouble() ??
+            0.0);
+    final double rawStock = baseStockVal + variantSum;
     final bool isIntegerStock = (rawStock - rawStock.round()).abs() < 0.001;
     final stockStr = isIntegerStock
         ? rawStock.round().toString()
@@ -959,233 +969,17 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
   }
 
   Future<void> _quickAddBrand(BuildContext sheetCtx, StateSetter setSt) async {
-    final nameCtrl = TextEditingController();
-    String? selectedCatId;
-    XFile? logoFile;
-    Uint8List? logoBytes;
-    bool savingBrand = false;
-    String? brandErr;
-
-    final categories = ref.read(adminCategoriesProvider).value ?? [];
-
-    await showModalBottomSheet<String>(
+    final newBrandId = await showModalBottomSheet<String>(
       context: sheetCtx,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (bCtx) => StatefulBuilder(
-        builder: (dialogCtx, setBSt) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(dialogCtx).viewInsets.bottom,
-          ),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.business_rounded,
-                          color: AppColors.primary, size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'إضافة شركة جديدة سريعاً',
-                      style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 20),
-                GestureDetector(
-                  onTap: savingBrand
-                      ? null
-                      : () async {
-                          final (f, b) = await pickCatalogImage();
-                          if (f != null && b != null) {
-                            setBSt(() {
-                              logoFile = f;
-                              logoBytes = b;
-                            });
-                          }
-                        },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFB),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: logoBytes != null
-                              ? Image.memory(logoBytes!,
-                                  width: 40, height: 40, fit: BoxFit.cover)
-                              : Container(
-                                  width: 40,
-                                  height: 40,
-                                  color: AppColors.primary
-                                      .withValues(alpha: 0.08),
-                                  child: const Icon(Icons.add_a_photo_rounded,
-                                      color: AppColors.primary, size: 20),
-                                ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            logoBytes != null
-                                ? 'تم اختيار الشعار ✓'
-                                : 'شعار الشركة (اختياري)',
-                            style: const TextStyle(
-                                fontFamily: 'Cairo', fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: nameCtrl,
-                  textDirection: TextDirection.rtl,
-                  decoration: catalogInputDec('اسم الشركة *'),
-                  style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedCatId,
-                  hint: const Text('اختر الصنف التابع له *',
-                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
-                  decoration: catalogInputDec('الصنف التابع له'),
-                  items: categories
-                      .map((c) => DropdownMenuItem(
-                            value: c['id'].toString(),
-                            child: Text(c['name'] ?? '',
-                                style: const TextStyle(
-                                    fontFamily: 'Cairo', fontSize: 13)),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setBSt(() => selectedCatId = v),
-                ),
-                if (brandErr != null) ...[
-                  const SizedBox(height: 8),
-                  Text(brandErr!,
-                      style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          color: Colors.red,
-                          fontSize: 12)),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: savingBrand
-                        ? null
-                        : () async {
-                            final bName = nameCtrl.text.trim();
-                            if (bName.isEmpty) {
-                              setBSt(() => brandErr = 'اسم الشركة مطلوب');
-                              return;
-                            }
-                            if (selectedCatId == null) {
-                              setBSt(() => brandErr = 'اختر الصنف التابع له');
-                              return;
-                            }
-                            setBSt(() {
-                              savingBrand = true;
-                              brandErr = null;
-                            });
-                            try {
-                              String? logoUrl;
-                              if (logoFile != null) {
-                                logoUrl = await uploadCatalogImage(logoFile!);
-                              }
-                              await ref.read(adminServiceProvider).addBrand(
-                                    name: bName,
-                                    categoryId: selectedCatId!,
-                                    logoUrl: logoUrl,
-                                  );
-                              ref.invalidate(brandsProvider);
-                              final updated =
-                                  await ref.read(brandsProvider.future);
-                              final match = updated.firstWhere(
-                                (b) => b['name'] == bName,
-                                orElse: () => updated.last,
-                              );
-                              final newId = match['id'].toString();
-                              if (dialogCtx.mounted) {
-                                Navigator.pop(dialogCtx, newId);
-                              }
-                            } catch (e) {
-                              setBSt(() {
-                                savingBrand = false;
-                                brandErr = 'فشل إضافة الشركة: $e';
-                              });
-                            }
-                          },
-                    icon: savingBrand
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.add_rounded, size: 20),
-                    label: Text(
-                      savingBrand ? 'جاري الإضافة...' : 'حفظ واختيار الشركة',
-                      style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ).then((newBrandId) {
-      if (newBrandId != null && mounted) {
-        setSt(() {
-          _selectedBrandId = newBrandId;
-        });
-      }
-    });
+      builder: (_) => const _QuickAddBrandSheet(),
+    );
+    if (newBrandId != null && mounted) {
+      setSt(() {
+        _selectedBrandId = newBrandId;
+      });
+    }
   }
 
   void _clearForm() {
@@ -1236,12 +1030,16 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
       setSt(() => _error = 'أدخل سعراً صحيحاً أو أضف حجماً بسعر محدد');
       return;
     }
-    final prodText = ArabicNormalizer.normalizeDigits(_prodCtrl.text).trim();
+    final prodText = ArabicNormalizer.normalizeDigits(_prodCtrl.text)
+        .trim()
+        .replaceAll('/', '-');
     if (prodText.isNotEmpty && DateTime.tryParse(prodText) == null) {
       setSt(() => _error = 'صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
       return;
     }
-    final expText = ArabicNormalizer.normalizeDigits(_expCtrl.text).trim();
+    final expText = ArabicNormalizer.normalizeDigits(_expCtrl.text)
+        .trim()
+        .replaceAll('/', '-');
     if (expText.isNotEmpty && DateTime.tryParse(expText) == null) {
       setSt(() => _error = 'صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
       return;
@@ -1261,9 +1059,10 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
           0;
       final rawStockText =
           ArabicNormalizer.normalizeDigits(_stockCtrl.text).trim();
-      final parsedStock = _variants.isNotEmpty && rawStockText.isEmpty
-          ? _variants.fold<double>(0.0, (sum, v) => sum + v.stock)
-          : (double.tryParse(rawStockText) ?? 0.0);
+      final parsedBaseStock =
+          rawStockText.isEmpty ? 0.0 : (double.tryParse(rawStockText) ?? 0.0);
+      final bool hasBaseStock =
+          _variants.isEmpty || (rawStockText.isNotEmpty && parsedBaseStock > 0);
       final parsedItems = int.tryParse(
           ArabicNormalizer.normalizeDigits(_itemsCtrl.text).trim());
 
@@ -1272,12 +1071,14 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
         'brandId': _selectedBrandId,
         'price': parsedPrice,
         'cost_price': parsedCost,
-        'stock': parsedStock,
+        'stock': parsedBaseStock,
+        'has_base_stock': hasBaseStock,
         'items': parsedItems,
         'size': numericSize,
         'size_text': sizeInput,
-        'barcode':
-            _barcodeCtrl.text.trim().isEmpty ? null : _barcodeCtrl.text.trim(),
+        'barcode': _barcodeCtrl.text.trim().isEmpty
+            ? null
+            : ArabicNormalizer.normalizeDigits(_barcodeCtrl.text).trim(),
         'production_date': prodText.isEmpty ? null : prodText,
         'expiry_date': expText.isEmpty ? null : expText,
         'imageUrl': imageUrl,
@@ -1314,506 +1115,522 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       constraints: BoxConstraints(
         maxWidth: 680,
         maxHeight: MediaQuery.of(context).size.height * 0.92,
       ),
       builder: (sheetContext) => StatefulBuilder(
-        builder: (ctx, setSt) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFFF5F7FA),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 12, bottom: 4),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
+        builder: (ctx, setSt) => PopScope(
+          canPop: !_loading,
+          child: Padding(
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF5F7FA),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 4),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.add_circle_outline_rounded,
+                              color: AppColors.primary, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'إضافة منتج جديد',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF1A1A2E),
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded,
+                              color: Colors.grey),
+                          onPressed: _loading
+                              ? null
+                              : () => Navigator.of(sheetContext).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
                         ),
-                        child: const Icon(Icons.add_circle_outline_rounded,
-                            color: AppColors.primary, size: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'إضافة منتج جديد',
-                        style: TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1A1A2E),
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon:
-                            const Icon(Icons.close_rounded, color: Colors.grey),
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Column(
-                        children: [
-                          GestureDetector(
-                            onTap: _loading
-                                ? null
-                                : () async {
-                                    await _pickImage();
-                                    setSt(() {});
-                                  },
-                            child: Container(
-                              width: double.infinity,
-                              height: 70,
-                              decoration: BoxDecoration(
-                                color: _imageBytes != null
-                                    ? AppColors.primary.withValues(alpha: 0.04)
-                                    : const Color(0xFFF8FAFB),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
+                        child: Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _loading
+                                  ? null
+                                  : () async {
+                                      await _pickImage();
+                                      setSt(() {});
+                                    },
+                              child: Container(
+                                width: double.infinity,
+                                height: 70,
+                                decoration: BoxDecoration(
                                   color: _imageBytes != null
-                                      ? AppColors.primary.withValues(alpha: 0.4)
-                                      : Colors.grey.withValues(alpha: 0.2),
+                                      ? AppColors.primary
+                                          .withValues(alpha: 0.04)
+                                      : const Color(0xFFF8FAFB),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _imageBytes != null
+                                        ? AppColors.primary
+                                            .withValues(alpha: 0.4)
+                                        : Colors.grey.withValues(alpha: 0.2),
+                                  ),
                                 ),
-                              ),
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 14),
-                                child: Row(
-                                  children: [
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: _imageBytes != null
-                                          ? Image.memory(_imageBytes!,
-                                              width: 44,
-                                              height: 44,
-                                              fit: BoxFit.cover)
-                                          : Container(
-                                              width: 44,
-                                              height: 44,
-                                              decoration: BoxDecoration(
-                                                color: AppColors.primary
-                                                    .withValues(alpha: 0.07),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14),
+                                  child: Row(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: _imageBytes != null
+                                            ? Image.memory(_imageBytes!,
+                                                width: 44,
+                                                height: 44,
+                                                fit: BoxFit.cover)
+                                            : Container(
+                                                width: 44,
+                                                height: 44,
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.primary
+                                                      .withValues(alpha: 0.07),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: const Icon(
+                                                  Icons
+                                                      .add_photo_alternate_rounded,
+                                                  size: 22,
+                                                  color: AppColors.primary,
+                                                ),
                                               ),
-                                              child: const Icon(
-                                                Icons
-                                                    .add_photo_alternate_rounded,
-                                                size: 22,
-                                                color: AppColors.primary,
-                                              ),
-                                            ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        _imageBytes != null
-                                            ? 'تم اختيار الصورة ✓'
-                                            : 'صورة المنتج (اختياري) • أقل من 3MB',
-                                        style: TextStyle(
-                                          fontFamily: 'Cairo',
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: _imageBytes != null
-                                              ? AppColors.primary
-                                              : Colors.grey[600],
-                                        ),
                                       ),
-                                    ),
-                                    if (_imageBytes != null)
-                                      GestureDetector(
-                                        onTap: () {
-                                          setState(() {
-                                            _image = null;
-                                            _imageBytes = null;
-                                            _uploadedImageUrl = null;
-                                          });
-                                          setSt(() {});
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red
-                                                .withValues(alpha: 0.1),
-                                            shape: BoxShape.circle,
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          _imageBytes != null
+                                              ? 'تم اختيار الصورة ✓'
+                                              : 'صورة المنتج (اختياري) • أقل من 3MB',
+                                          style: TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: _imageBytes != null
+                                                ? AppColors.primary
+                                                : Colors.grey[600],
                                           ),
-                                          child: const Icon(Icons.close_rounded,
-                                              size: 14, color: Colors.red),
                                         ),
                                       ),
-                                  ],
+                                      if (_imageBytes != null)
+                                        GestureDetector(
+                                          onTap: () {
+                                            setState(() {
+                                              _image = null;
+                                              _imageBytes = null;
+                                              _uploadedImageUrl = null;
+                                            });
+                                            setSt(() {});
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red
+                                                  .withValues(alpha: 0.1),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                                Icons.close_rounded,
+                                                size: 14,
+                                                color: Colors.red),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              const Text(
-                                'الشركة / الماركة *',
-                                style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF555555),
-                                ),
-                              ),
-                              const Spacer(),
-                              TextButton.icon(
-                                onPressed: _loading
-                                    ? null
-                                    : () => _quickAddBrand(sheetContext, setSt),
-                                icon: const Icon(
-                                    Icons.add_circle_outline_rounded,
-                                    size: 15,
-                                    color: AppColors.primary),
-                                label: const Text(
-                                  '+ شركة جديدة',
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                const Text(
+                                  'الشركة / الماركة *',
                                   style: TextStyle(
                                     fontFamily: 'Cairo',
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF555555),
                                   ),
                                 ),
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Builder(builder: (_) {
-                            final currentBrands =
-                                ref.watch(brandsProvider).value ??
-                                    widget.brands;
-                            return DropdownButtonFormField<String>(
-                              key: _brandFieldKey,
-                              initialValue: currentBrands.any((b) =>
-                                      b['id'].toString() == _selectedBrandId)
-                                  ? _selectedBrandId
-                                  : null,
-                              hint: const Text('اختر الشركة *',
-                                  style: TextStyle(
+                                const Spacer(),
+                                TextButton.icon(
+                                  onPressed: _loading
+                                      ? null
+                                      : () =>
+                                          _quickAddBrand(sheetContext, setSt),
+                                  icon: const Icon(
+                                      Icons.add_circle_outline_rounded,
+                                      size: 15,
+                                      color: AppColors.primary),
+                                  label: const Text(
+                                    '+ شركة جديدة',
+                                    style: TextStyle(
                                       fontFamily: 'Cairo',
-                                      fontSize: 13,
-                                      color: Colors.grey)),
-                              decoration: catalogInputDec(''),
-                              isExpanded: true,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Builder(builder: (_) {
+                              final currentBrands =
+                                  ref.watch(brandsProvider).value ??
+                                      widget.brands;
+                              return DropdownButtonFormField<String>(
+                                key: _brandFieldKey,
+                                initialValue: currentBrands.any((b) =>
+                                        b['id'].toString() == _selectedBrandId)
+                                    ? _selectedBrandId
+                                    : null,
+                                hint: const Text('اختر الشركة *',
+                                    style: TextStyle(
+                                        fontFamily: 'Cairo',
+                                        fontSize: 13,
+                                        color: Colors.grey)),
+                                decoration: catalogInputDec(''),
+                                isExpanded: true,
+                                style: const TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                icon: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: AppColors.primary),
+                                items: currentBrands
+                                    .map((b) => DropdownMenuItem(
+                                          value: b['id'].toString(),
+                                          child: Text(
+                                            b['name'] ?? '',
+                                            style: const TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 13,
+                                              color: Colors.black87,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ))
+                                    .toList(),
+                                onChanged: _loading
+                                    ? null
+                                    : (v) => setSt(() => _selectedBrandId = v),
+                              );
+                            }),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _nameCtrl,
+                              enabled: !_loading,
+                              onChanged: (_) => setSt(() {}),
+                              textDirection: TextDirection.rtl,
+                              decoration: catalogInputDec('اسم المنتج *'),
                               style: const TextStyle(
                                 fontFamily: 'Cairo',
                                 fontSize: 13,
                                 color: Colors.black87,
                                 fontWeight: FontWeight.bold,
                               ),
-                              icon: const Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: AppColors.primary),
-                              items: currentBrands
-                                  .map((b) => DropdownMenuItem(
-                                        value: b['id'].toString(),
-                                        child: Text(
-                                          b['name'] ?? '',
-                                          style: const TextStyle(
-                                            fontFamily: 'Cairo',
-                                            fontSize: 13,
-                                            color: Colors.black87,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ))
-                                  .toList(),
-                              onChanged: _loading
-                                  ? null
-                                  : (v) => setSt(() => _selectedBrandId = v),
-                            );
-                          }),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _nameCtrl,
-                            enabled: !_loading,
-                            onChanged: (_) => setSt(() {}),
-                            textDirection: TextDirection.rtl,
-                            decoration: catalogInputDec('اسم المنتج *'),
-                            style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 13,
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _priceCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  inputFormatters: const [
-                                    ArabicDigitsInputFormatter()
-                                  ],
-                                  decoration: catalogInputDec('السعر ر.ي *'),
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo', fontSize: 13),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: _costCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  inputFormatters: const [
-                                    ArabicDigitsInputFormatter()
-                                  ],
-                                  decoration: catalogInputDec('سعر الشراء 🔒'),
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo', fontSize: 13),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _stockCtrl,
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  inputFormatters: const [
-                                    ArabicDigitsInputFormatter()
-                                  ],
-                                  decoration: catalogInputDec('مخزون كرتون'),
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo', fontSize: 13),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: _itemsCtrl,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: const [
-                                    ArabicDigitsInputFormatter(
-                                        allowDecimal: false)
-                                  ],
-                                  decoration: catalogInputDec('حبات/كرتون'),
-                                  style: const TextStyle(
-                                      fontFamily: 'Cairo', fontSize: 13),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          CatalogSmallField(
-                            ctrl: _sizeCtrl,
-                            hint:
-                                'الحجم أو الكمية (مثال: 1.5 لتر ، 10 كجم ، 500 مل)',
-                            type: TextInputType.text,
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: CatalogSmallField(
-                                  ctrl: _barcodeCtrl,
-                                  hint:
-                                      'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
-                                  type: TextInputType.text,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              GestureDetector(
-                                onTap: () async {
-                                  final scanned =
-                                      await BarcodeScannerScreen.scan(ctx);
-                                  if (scanned != null && scanned.isNotEmpty) {
-                                    setSt(() => _barcodeCtrl.text = scanned);
-                                  }
-                                },
-                                child: Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(10),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _priceCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    inputFormatters: const [
+                                      ArabicDigitsInputFormatter()
+                                    ],
+                                    decoration: catalogInputDec('السعر ر.ي *'),
+                                    style: const TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 13),
                                   ),
-                                  child: const Icon(
-                                      Icons.qr_code_scanner_rounded,
-                                      color: Colors.white,
-                                      size: 22),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _ManualDateField(
-                                  ctrl: _prodCtrl,
-                                  hint: 'إنتاج: 2026-05-15',
-                                  icon: Icons.calendar_today_rounded,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _costCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    inputFormatters: const [
+                                      ArabicDigitsInputFormatter()
+                                    ],
+                                    decoration:
+                                        catalogInputDec('سعر الشراء 🔒'),
+                                    style: const TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 13),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _ManualDateField(
-                                  ctrl: _expCtrl,
-                                  hint: 'انتهاء: 2027-05-15',
-                                  icon: Icons.event_busy_rounded,
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _stockCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                            decimal: true),
+                                    inputFormatters: const [
+                                      ArabicDigitsInputFormatter()
+                                    ],
+                                    decoration: catalogInputDec('مخزون كرتون'),
+                                    style: const TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 13),
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          ProductUnitsEditor(
-                            productName: _nameCtrl.text.trim(),
-                            initialUnits: _units,
-                            onChanged: (units) {
-                              _units = units;
-                              setSt(() {});
-                            },
-                          ),
-                          ProductVariantsEditor(
-                            productName: _nameCtrl.text.trim(),
-                            initialVariants: _variants,
-                            onChanged: (variants) {
-                              _variants = variants;
-                              setSt(() {});
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (_error != null)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                      border:
-                          Border.all(color: Colors.red.withValues(alpha: 0.3)),
-                    ),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 12,
-                        color: Colors.red,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 10,
-                        offset: const Offset(0, -3),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            side: BorderSide(color: Colors.grey.shade300),
-                          ),
-                          child: const Text('إلغاء',
-                              style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.bold)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _itemsCtrl,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: const [
+                                      ArabicDigitsInputFormatter(
+                                          allowDecimal: false)
+                                    ],
+                                    decoration: catalogInputDec('حبات/كرتون'),
+                                    style: const TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            CatalogSmallField(
+                              ctrl: _sizeCtrl,
+                              hint:
+                                  'الحجم أو الكمية (مثال: 1.5 لتر ، 10 كجم ، 500 مل)',
+                              type: TextInputType.text,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CatalogSmallField(
+                                    ctrl: _barcodeCtrl,
+                                    hint:
+                                        'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
+                                    type: TextInputType.text,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () async {
+                                    final scanned =
+                                        await BarcodeScannerScreen.scan(ctx);
+                                    if (scanned != null && scanned.isNotEmpty) {
+                                      setSt(() => _barcodeCtrl.text = scanned);
+                                    }
+                                  },
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                        Icons.qr_code_scanner_rounded,
+                                        color: Colors.white,
+                                        size: 22),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _ManualDateField(
+                                    ctrl: _prodCtrl,
+                                    hint: 'إنتاج: 2026-05-15',
+                                    icon: Icons.calendar_today_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _ManualDateField(
+                                    ctrl: _expCtrl,
+                                    hint: 'انتهاء: 2027-05-15',
+                                    icon: Icons.event_busy_rounded,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            ProductUnitsEditor(
+                              productName: _nameCtrl.text.trim(),
+                              initialUnits: _units,
+                              onChanged: (units) {
+                                _units = units;
+                                setSt(() {});
+                              },
+                            ),
+                            ProductVariantsEditor(
+                              productName: _nameCtrl.text.trim(),
+                              initialVariants: _variants,
+                              onChanged: (variants) {
+                                _variants = variants;
+                                setSt(() {});
+                              },
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          onPressed:
-                              _loading ? null : () => _submit(ctx, setSt),
-                          icon: _loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                      color: Colors.white, strokeWidth: 2),
-                                )
-                              : const Icon(Icons.save_rounded, size: 20),
-                          label: Text(
-                            _loading ? 'جاري الحفظ...' : 'حفظ المنتج',
-                            style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
+                    ),
+                  ),
+                  if (_error != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: Colors.red.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, -3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _loading
+                                ? null
+                                : () => Navigator.of(sheetContext).pop(),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              side: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            child: const Text('إلغاء',
+                                style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton.icon(
+                            onPressed:
+                                _loading ? null : () => _submit(ctx, setSt),
+                            icon: _loading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.save_rounded, size: 20),
+                            label: Text(
+                              _loading ? 'جاري الحفظ...' : 'حفظ المنتج',
+                              style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              elevation: 0,
                             ),
                           ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            elevation: 0,
-                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1954,6 +1771,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
   late final TextEditingController expCtrl;
   late final TextEditingController barcodeCtrl;
   late double initialStockValue;
+  late Map<String, double> _initialVariantStocks;
   late List<ProductUnit> editUnits;
   late List<ProductVariant> editVariants;
   String? selectedBrandId;
@@ -1983,7 +1801,11 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
     itemsCtrl = TextEditingController(
         text: (p['items_per_carton'] as num?)?.toString() ?? '');
 
-    initialStockValue = (p['stock'] as num?)?.toDouble() ?? 0.0;
+    final rawVars = p['variants'];
+    final hasVars = rawVars is List && rawVars.isNotEmpty;
+    initialStockValue = p['base_stock'] != null
+        ? (p['base_stock'] as num).toDouble()
+        : (hasVars ? 0.0 : ((p['stock'] as num?)?.toDouble() ?? 0.0));
     final bool isInitialInteger =
         (initialStockValue - initialStockValue.round()).abs() < 0.001;
     stockCtrl = TextEditingController(
@@ -1991,7 +1813,6 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
           ? initialStockValue.round().toString()
           : initialStockValue.toStringAsFixed(2),
     );
-
     // 4. الحجم الحر (يكتب التاجر ما يريد بيده: 1.5 لتر أو 10 كجم أو 500 مل أو يتركه فارغاً)
     sizeCtrl = TextEditingController(
       text: p['size_text']?.toString() ??
@@ -2011,6 +1832,9 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
     editVariants = (p['variants'] as List<dynamic>? ?? [])
         .map((e) => ProductVariant.fromMap(Map<String, dynamic>.from(e as Map)))
         .toList();
+    _initialVariantStocks = {
+      for (final v in editVariants) v.id: v.stock,
+    };
   }
 
   @override
@@ -2233,8 +2057,8 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                           final currentBrands =
                               ref.watch(brandsProvider).value ?? widget.brands;
                           return DropdownButtonFormField<String>(
-                            initialValue: currentBrands.any(
-                                    (b) => b['id'].toString() == selectedBrandId)
+                            initialValue: currentBrands.any((b) =>
+                                    b['id'].toString() == selectedBrandId)
                                 ? selectedBrandId
                                 : null,
                             hint: const Text('اختر الشركة / الماركة *',
@@ -2465,233 +2289,17 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
   }
 
   Future<void> _quickAddBrandInEdit() async {
-    final nameCtrl = TextEditingController();
-    String? selectedCatId;
-    XFile? logoFile;
-    Uint8List? logoBytes;
-    bool savingBrand = false;
-    String? brandErr;
-
-    final categories = ref.read(adminCategoriesProvider).value ?? [];
-
-    await showModalBottomSheet<String>(
+    final newBrandId = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (bCtx) => StatefulBuilder(
-        builder: (dialogCtx, setBSt) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(dialogCtx).viewInsets.bottom,
-          ),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.business_rounded,
-                          color: AppColors.primary, size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'إضافة شركة جديدة سريعاً',
-                      style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 20),
-                GestureDetector(
-                  onTap: savingBrand
-                      ? null
-                      : () async {
-                          final (f, b) = await pickCatalogImage();
-                          if (f != null && b != null) {
-                            setBSt(() {
-                              logoFile = f;
-                              logoBytes = b;
-                            });
-                          }
-                        },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFB),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: logoBytes != null
-                              ? Image.memory(logoBytes!,
-                                  width: 40, height: 40, fit: BoxFit.cover)
-                              : Container(
-                                  width: 40,
-                                  height: 40,
-                                  color: AppColors.primary
-                                      .withValues(alpha: 0.08),
-                                  child: const Icon(Icons.add_a_photo_rounded,
-                                      color: AppColors.primary, size: 20),
-                                ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            logoBytes != null
-                                ? 'تم اختيار الشعار ✓'
-                                : 'شعار الشركة (اختياري)',
-                            style: const TextStyle(
-                                fontFamily: 'Cairo', fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: nameCtrl,
-                  textDirection: TextDirection.rtl,
-                  decoration: catalogInputDec('اسم الشركة *'),
-                  style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedCatId,
-                  hint: const Text('اختر الصنف التابع له *',
-                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
-                  decoration: catalogInputDec('الصنف التابع له'),
-                  items: categories
-                      .map((c) => DropdownMenuItem(
-                            value: c['id'].toString(),
-                            child: Text(c['name'] ?? '',
-                                style: const TextStyle(
-                                    fontFamily: 'Cairo', fontSize: 13)),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setBSt(() => selectedCatId = v),
-                ),
-                if (brandErr != null) ...[
-                  const SizedBox(height: 8),
-                  Text(brandErr!,
-                      style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          color: Colors.red,
-                          fontSize: 12)),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: savingBrand
-                        ? null
-                        : () async {
-                            final bName = nameCtrl.text.trim();
-                            if (bName.isEmpty) {
-                              setBSt(() => brandErr = 'اسم الشركة مطلوب');
-                              return;
-                            }
-                            if (selectedCatId == null) {
-                              setBSt(() => brandErr = 'اختر الصنف التابع له');
-                              return;
-                            }
-                            setBSt(() {
-                              savingBrand = true;
-                              brandErr = null;
-                            });
-                            try {
-                              String? logoUrl;
-                              if (logoFile != null) {
-                                logoUrl = await uploadCatalogImage(logoFile!);
-                              }
-                              await ref.read(adminServiceProvider).addBrand(
-                                    name: bName,
-                                    categoryId: selectedCatId!,
-                                    logoUrl: logoUrl,
-                                  );
-                              ref.invalidate(brandsProvider);
-                              final updated =
-                                  await ref.read(brandsProvider.future);
-                              final match = updated.firstWhere(
-                                (b) => b['name'] == bName,
-                                orElse: () => updated.last,
-                              );
-                              final newId = match['id'].toString();
-                              if (dialogCtx.mounted) {
-                                Navigator.pop(dialogCtx, newId);
-                              }
-                            } catch (e) {
-                              setBSt(() {
-                                savingBrand = false;
-                                brandErr = 'فشل إضافة الشركة: $e';
-                              });
-                            }
-                          },
-                    icon: savingBrand
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.add_rounded, size: 20),
-                    label: Text(
-                      savingBrand ? 'جاري الإضافة...' : 'حفظ واختيار الشركة',
-                      style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ).then((newBrandId) {
-      if (newBrandId != null && mounted) {
-        setState(() {
-          selectedBrandId = newBrandId;
-        });
-      }
-    });
+      builder: (_) => const _QuickAddBrandSheet(),
+    );
+    if (newBrandId != null && mounted) {
+      setState(() {
+        selectedBrandId = newBrandId;
+      });
+    }
   }
 
   Future<void> _saveProductUpdates() async {
@@ -2708,14 +2316,18 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
       return;
     }
 
-    final prodText = ArabicNormalizer.normalizeDigits(prodCtrl.text).trim();
+    final prodText = ArabicNormalizer.normalizeDigits(prodCtrl.text)
+        .trim()
+        .replaceAll('/', '-');
     if (prodText.isNotEmpty && DateTime.tryParse(prodText) == null) {
       setState(
           () => _editError = 'صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
       return;
     }
 
-    final expText = ArabicNormalizer.normalizeDigits(expCtrl.text).trim();
+    final expText = ArabicNormalizer.normalizeDigits(expCtrl.text)
+        .trim()
+        .replaceAll('/', '-');
     if (expText.isNotEmpty && DateTime.tryParse(expText) == null) {
       setState(() =>
           _editError = 'صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
@@ -2769,10 +2381,18 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         : (int.tryParse(
                 ArabicNormalizer.normalizeDigits(itemsCtrl.text).trim()) ??
             1);
-
-    final double? syncedVariantStock = editVariants.isNotEmpty
-        ? editVariants.fold<double>(0.0, (sum, v) => sum + v.stock)
-        : null;
+    final variantsPayload = editVariants.map((v) {
+      final json = v.toJson();
+      if (_initialVariantStocks.containsKey(v.id)) {
+        final prevStock = _initialVariantStocks[v.id]!;
+        json['stock_delta'] =
+            double.parse((v.stock - prevStock).toStringAsFixed(4));
+        json['is_new_variant'] = false;
+      } else {
+        json['is_new_variant'] = true;
+      }
+      return json;
+    }).toList();
 
     try {
       String? updatedImageUrl;
@@ -2792,15 +2412,15 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
           'image_url': null,
         'price': parsedPrice,
         'cost_price': parsedCost,
-        if (syncedVariantStock != null)
-          'stock': syncedVariantStock
-        else if (stockWasManuallyChanged)
-          'stock_delta': stockDelta,
+        if (stockWasManuallyChanged) ...{
+          'base_stock_delta': stockDelta,
+          'has_base_stock': (newStockInput ?? 0) > 0,
+        },
         'items_per_carton': parsedItems,
         'size_text': customSizeText,
         'size_ml': numericSize,
         'barcode': barcodeCtrl.text.trim().isNotEmpty
-            ? barcodeCtrl.text.trim()
+            ? ArabicNormalizer.normalizeDigits(barcodeCtrl.text).trim()
             : FieldValue.delete(),
         'production_date': prodText.isNotEmpty
             ? Timestamp.fromDate(DateTime.parse(prodText))
@@ -2809,7 +2429,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
             ? Timestamp.fromDate(DateTime.parse(expText))
             : FieldValue.delete(),
         'units': editUnits.map((u) => u.toJson()).toList(),
-        'variants': editVariants.map((v) => v.toJson()).toList(),
+        'variants': variantsPayload,
       });
       widget.onSaved();
 
@@ -2825,5 +2445,246 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         setState(() => saving = false);
       }
     }
+  }
+}
+
+class _QuickAddBrandSheet extends ConsumerStatefulWidget {
+  const _QuickAddBrandSheet();
+
+  @override
+  ConsumerState<_QuickAddBrandSheet> createState() =>
+      _QuickAddBrandSheetState();
+}
+
+class _QuickAddBrandSheetState extends ConsumerState<_QuickAddBrandSheet> {
+  late final TextEditingController _nameCtrl;
+  String? _selectedCatId;
+  XFile? _logoFile;
+  Uint8List? _logoBytes;
+  bool _savingBrand = false;
+  String? _brandErr;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final bName = _nameCtrl.text.trim();
+    if (bName.isEmpty) {
+      setState(() => _brandErr = 'اسم الشركة مطلوب');
+      return;
+    }
+    if (_selectedCatId == null) {
+      setState(() => _brandErr = 'اختر الصنف التابع له');
+      return;
+    }
+    setState(() {
+      _savingBrand = true;
+      _brandErr = null;
+    });
+    try {
+      String? logoUrl;
+      if (_logoFile != null) {
+        logoUrl = await uploadCatalogImage(_logoFile!);
+      }
+      await ref.read(adminServiceProvider).addBrand(
+            name: bName,
+            categoryId: _selectedCatId!,
+            logoUrl: logoUrl,
+          );
+      ref.invalidate(brandsProvider);
+      final updated = await ref.read(brandsProvider.future);
+      final match = updated.firstWhere(
+        (b) => b['name'] == bName,
+        orElse: () => updated.isNotEmpty ? updated.last : <String, dynamic>{},
+      );
+      final newId = match['id']?.toString();
+      if (mounted) Navigator.pop(context, newId);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _savingBrand = false;
+          _brandErr = 'فشل إضافة الشركة: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = ref.read(adminCategoriesProvider).value ?? [];
+    return PopScope(
+      canPop: !_savingBrand,
+      child: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.business_rounded,
+                        color: AppColors.primary, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'إضافة شركة جديدة سريعاً',
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 20),
+              GestureDetector(
+                onTap: _savingBrand
+                    ? null
+                    : () async {
+                        final (f, b) = await pickCatalogImage();
+                        if (f != null && b != null && mounted) {
+                          setState(() {
+                            _logoFile = f;
+                            _logoBytes = b;
+                          });
+                        }
+                      },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: _logoBytes != null
+                            ? Image.memory(_logoBytes!,
+                                width: 40, height: 40, fit: BoxFit.cover)
+                            : Container(
+                                width: 40,
+                                height: 40,
+                                color:
+                                    AppColors.primary.withValues(alpha: 0.08),
+                                child: const Icon(Icons.add_a_photo_rounded,
+                                    color: AppColors.primary, size: 20),
+                              ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _logoBytes != null
+                              ? 'تم اختيار الشعار ✓'
+                              : 'شعار الشركة (اختياري)',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo', fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _nameCtrl,
+                enabled: !_savingBrand,
+                textDirection: TextDirection.rtl,
+                decoration: catalogInputDec('اسم الشركة *'),
+                style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedCatId,
+                hint: const Text('اختر الصنف التابع له *',
+                    style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                decoration: catalogInputDec('الصنف التابع له'),
+                items: categories
+                    .map((c) => DropdownMenuItem(
+                          value: c['id'].toString(),
+                          child: Text(c['name'] ?? '',
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13)),
+                        ))
+                    .toList(),
+                onChanged: _savingBrand
+                    ? null
+                    : (v) => setState(() => _selectedCatId = v),
+              ),
+              if (_brandErr != null) ...[
+                const SizedBox(height: 8),
+                Text(_brandErr!,
+                    style: const TextStyle(
+                        fontFamily: 'Cairo', color: Colors.red, fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _savingBrand ? null : _save,
+                  icon: _savingBrand
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.add_rounded, size: 20),
+                  label: Text(
+                    _savingBrand ? 'جاري الإضافة...' : 'حفظ واختيار الشركة',
+                    style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

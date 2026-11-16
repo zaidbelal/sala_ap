@@ -34,14 +34,17 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   final Map<int, int> _variantQtys = {};
   PageController? _pageController;
 
-  ProductVariant? get _currentVariant => widget.product.hasVariants
-      ? widget.product.variants[_variantIndex]
-      : null;
+  List<ProductVariant> get _effectiveVariants => widget.product.hasVariants
+      ? widget.product.allVariantsWithBase
+      : const [];
+
+  ProductVariant? get _currentVariant =>
+      _effectiveVariants.isNotEmpty ? _effectiveVariants[_variantIndex] : null;
 
   ProductUnit? _unitForIndex(int idx) {
     if (!widget.product.hasVariants) return _selectedUnit;
     if (_variantUnits.containsKey(idx)) return _variantUnits[idx];
-    final units = widget.product.variants[idx].units;
+    final units = _effectiveVariants[idx].units;
     return units.isNotEmpty ? units.first : null;
   }
 
@@ -53,9 +56,10 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.product.hasVariants) {
+    final allVars = _effectiveVariants;
+    if (widget.product.hasVariants && allVars.isNotEmpty) {
       if (widget.initialVariant != null) {
-        final idx = widget.product.variants.indexWhere(
+        final idx = allVars.indexWhere(
           (v) =>
               v.id == widget.initialVariant!.id ||
               v.label.trim() == widget.initialVariant!.label.trim(),
@@ -63,8 +67,8 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         if (idx != -1) _variantIndex = idx;
       }
       _pageController = PageController(initialPage: _variantIndex);
-      for (var i = 0; i < widget.product.variants.length; i++) {
-        final units = widget.product.variants[i].units;
+      for (var i = 0; i < allVars.length; i++) {
+        final units = allVars[i].units;
         _variantUnits[i] = (i == _variantIndex && widget.initialUnit != null)
             ? (units
                     .where((u) =>
@@ -105,11 +109,12 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     return widget.product.imageUrl;
   }
 
-  String _sizeDisplayFor(ProductVariant? v) {
-    if (_selectedUnit != null &&
-        _selectedUnit!.label.trim() != 'كرتون' &&
-        _selectedUnit!.sizeMl != null) {
-      final us = _selectedUnit!.sizeMl!;
+  String _sizeDisplayFor(ProductVariant? v, {ProductUnit? unit}) {
+    final activeUnit = unit ?? _selectedUnit;
+    if (activeUnit != null &&
+        activeUnit.label.trim() != 'كرتون' &&
+        activeUnit.sizeMl != null) {
+      final us = activeUnit.sizeMl!;
       return us % 1 == 0 ? '${us.toInt()} مل' : '$us مل';
     }
     if (v?.sizeText != null && v!.sizeText!.trim().isNotEmpty) {
@@ -119,17 +124,19 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         widget.product.sizeText!.trim().isNotEmpty) {
       return widget.product.sizeText!.trim();
     }
-    final s = _selectedUnit?.sizeMl ?? v?.sizeMl ?? widget.product.sizeMl;
+    final s = activeUnit?.sizeMl ?? v?.sizeMl ?? widget.product.sizeMl;
     if (s != null) {
       return s % 1 == 0 ? '${s.toInt()} مل' : '$s مل';
     }
     return '—';
   }
 
-  int? _itemsFor(ProductVariant? v) =>
-      _selectedUnit?.qty ?? v?.itemsPerCarton ?? widget.product.itemsPerCarton;
-
-
+  int? _itemsFor(ProductVariant? v, {ProductUnit? unit}) {
+    final activeUnit = unit ?? _selectedUnit;
+    return activeUnit?.qty ??
+        v?.itemsPerCarton ??
+        widget.product.itemsPerCarton;
+  }
 
   String _formatDate(String? date) {
     if (date == null || date.isEmpty) return '—';
@@ -152,7 +159,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
 
   void _addToCart() {
     final v = _currentVariant;
-    final availableStock = v?.stock ?? widget.product.stock;
+    final isBaseVariant = v == null || v.id == 'base_default';
+    final effectiveVariant = isBaseVariant ? null : v;
+    final availableStock = v?.stock ?? widget.product.baseStock;
     if (availableStock <= 0) return;
 
     final cartonCap = v?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1;
@@ -164,7 +173,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     double usedCartons = 0.0;
     for (final cItem in ref.read(cartProvider).values) {
       if (cItem.product.id == widget.product.id &&
-          (cItem.selectedVariant?.id ?? '') == (v?.id ?? '')) {
+          (cItem.selectedVariant?.id ?? '') == (effectiveVariant?.id ?? '')) {
         final cCap = cItem.selectedVariant?.itemsPerCarton ??
             cItem.product.itemsPerCarton ??
             1;
@@ -197,12 +206,11 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
           widget.product,
           qtyToAdd,
           unit: _selectedUnit,
-          variant: v,
+          variant: effectiveVariant,
         );
-    final title = v != null
+    final title = !isBaseVariant && v != null
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
-
     Navigator.pop(context);
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -217,7 +225,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
-        margin: const EdgeInsets.all(16),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 85),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -227,7 +235,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
   Widget build(BuildContext context) {
     final product = widget.product;
     final currentVariant = _currentVariant;
-    final activeStock = currentVariant?.stock ?? product.stock;
+    final activeStock = currentVariant?.stock ?? product.baseStock;
     final isOutOfStock = activeStock <= 0;
     final total = _priceFor(currentVariant) * _qty;
 
@@ -289,9 +297,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: product.variants.length,
+                  itemCount: _effectiveVariants.length,
                   itemBuilder: (_, idx) {
-                    final v = product.variants[idx];
+                    final v = _effectiveVariants[idx];
                     final isSel = idx == _variantIndex;
                     final vOut = v.stock <= 0;
                     return GestureDetector(
@@ -346,12 +354,12 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
               Expanded(
                 child: PageView.builder(
                   controller: _pageController,
-                  itemCount: product.variants.length,
+                  itemCount: _effectiveVariants.length,
                   onPageChanged: _onVariantChanged,
                   itemBuilder: (context, idx) => _buildPageContent(
                     context,
                     product,
-                    product.variants[idx],
+                    _effectiveVariants[idx],
                     pageIndex: idx,
                   ),
                 ),
@@ -437,7 +445,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
     final units = v != null ? v.units : product.units;
     final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
-    final currentStock = v?.stock ?? product.stock;
+    final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??
         v?.productionDate ??
         DateTime.tryParse(product.productionDate ?? '');
@@ -528,7 +536,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                         borderRadius: AppRadius.circleAll,
                       ),
                       child: Text(
-                        '${currentPrice.toStringAsFixed(0)} ر.ي / $_currentUnitLabel',
+                        '${currentPrice.toStringAsFixed(0)} ر.ي / $pageUnitLabel',
                         style: const TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,
@@ -631,13 +639,15 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                 _InfoTile(
                   icon: Icons.straighten_rounded,
                   label: 'الحجم',
-                  value: _sizeDisplayFor(v),
+                  value: _sizeDisplayFor(v, unit: pageUnit),
                 ),
                 _divider(context),
                 _InfoTile(
                   icon: Icons.inventory_2_rounded,
                   label: 'عدد الحبات / كرتون',
-                  value: _itemsFor(v) != null ? '${_itemsFor(v)} حبة' : '—',
+                  value: _itemsFor(v, unit: pageUnit) != null
+                      ? '${_itemsFor(v, unit: pageUnit)} حبة'
+                      : '—',
                 ),
                 _divider(context),
                 _InfoTile(

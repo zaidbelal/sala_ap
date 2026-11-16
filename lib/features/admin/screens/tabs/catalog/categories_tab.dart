@@ -282,23 +282,90 @@ void _showEditCategoryDialog(
   WidgetRef ref,
   Map<String, dynamic> category,
 ) {
-  final id = category['id'].toString();
-  final nameCtrl = TextEditingController(text: category['name'] ?? '');
-  XFile? newImage;
-  Uint8List? newImageBytes;
-  bool removeImage = false;
-  final String? existingImageUrl = category['image_url']?.toString();
-  bool loading = false;
-  String? error;
-
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    isDismissible: false,
+    enableDrag: false,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => StatefulBuilder(
-      builder: (sheetCtx, setSt) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+    builder: (_) => _EditCategoryModalSheet(category: category),
+  );
+}
+
+class _EditCategoryModalSheet extends ConsumerStatefulWidget {
+  final Map<String, dynamic> category;
+  const _EditCategoryModalSheet({required this.category});
+
+  @override
+  ConsumerState<_EditCategoryModalSheet> createState() =>
+      _EditCategoryModalSheetState();
+}
+
+class _EditCategoryModalSheetState
+    extends ConsumerState<_EditCategoryModalSheet> {
+  late final TextEditingController _nameCtrl;
+  XFile? _newImage;
+  Uint8List? _newImageBytes;
+  bool _removeImage = false;
+  String? _existingImageUrl;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.category['name'] ?? '');
+    _existingImageUrl = widget.category['image_url']?.toString();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final cleanName = _nameCtrl.text.trim();
+    if (cleanName.isEmpty) {
+      setState(() => _error = 'اسم الصنف مطلوب');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      String? uploadedUrl;
+      if (_newImage != null) {
+        uploadedUrl = await uploadCatalogImage(_newImage!);
+      }
+      await ref.read(adminServiceProvider).updateCategory(
+            widget.category['id'].toString(),
+            name: cleanName,
+            imageUrl: uploadedUrl ?? (_removeImage ? null : _existingImageUrl),
+            removeImage: _removeImage,
+          );
+      ref.invalidate(adminCategoriesProvider);
+      ref.invalidate(brandsProvider);
+      ref.read(adminProductsProvider.notifier).loadInitial();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'فشل تحديث الصنف: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_loading,
+      child: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           decoration: const BoxDecoration(
@@ -329,29 +396,34 @@ void _showEditCategoryDialog(
                         color: AppColors.primary, size: 20),
                   ),
                   const SizedBox(width: 10),
-                  const Text(
-                    'تعديل الصنف',
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
+                  const Expanded(
+                    child: Text(
+                      'تعديل الصنف',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
+                  ),
+                  IconButton(
+                    onPressed: _loading ? null : () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded, color: Colors.grey),
                   ),
                 ],
               ),
               const Divider(height: 24),
-              // صورة الصنف
               GestureDetector(
-                onTap: loading
+                onTap: _loading
                     ? null
                     : () async {
                         final (file, bytes) = await pickCatalogImage();
-                        if (file != null && bytes != null) {
-                          setSt(() {
-                            newImage = file;
-                            newImageBytes = bytes;
-                            removeImage = false;
-                            error = null;
+                        if (file != null && bytes != null && mounted) {
+                          setState(() {
+                            _newImage = file;
+                            _newImageBytes = bytes;
+                            _removeImage = false;
+                            _error = null;
                           });
                         }
                       },
@@ -367,16 +439,16 @@ void _showEditCategoryDialog(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: newImageBytes != null
-                            ? Image.memory(newImageBytes!,
+                        child: _newImageBytes != null
+                            ? Image.memory(_newImageBytes!,
                                 width: 50, height: 50, fit: BoxFit.cover)
-                            : (!removeImage &&
-                                    existingImageUrl != null &&
-                                    existingImageUrl.isNotEmpty)
+                            : (!_removeImage &&
+                                    _existingImageUrl != null &&
+                                    _existingImageUrl!.isNotEmpty)
                                 ? CachedNetworkImage(
                                     cacheManager: ImagePrecacheService
                                         .instance.cacheManager,
-                                    imageUrl: existingImageUrl,
+                                    imageUrl: _existingImageUrl!,
                                     width: 50,
                                     height: 50,
                                     fit: BoxFit.cover,
@@ -393,25 +465,27 @@ void _showEditCategoryDialog(
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          newImageBytes != null
+                          _newImageBytes != null
                               ? 'تم اختيار صورة جديدة'
-                              : (!removeImage && existingImageUrl != null)
+                              : (!_removeImage && _existingImageUrl != null)
                                   ? 'اضغط لتغيير صورة الصنف'
                                   : 'إضافة صورة للصنف (اختياري)',
                           style: const TextStyle(
                               fontFamily: 'Cairo', fontSize: 13),
                         ),
                       ),
-                      if (newImageBytes != null ||
-                          (!removeImage && existingImageUrl != null))
+                      if (_newImageBytes != null ||
+                          (!_removeImage && _existingImageUrl != null))
                         IconButton(
                           icon: const Icon(Icons.close_rounded,
                               color: Colors.red, size: 20),
-                          onPressed: () => setSt(() {
-                            newImage = null;
-                            newImageBytes = null;
-                            removeImage = true;
-                          }),
+                          onPressed: _loading
+                              ? null
+                              : () => setState(() {
+                                    _newImage = null;
+                                    _newImageBytes = null;
+                                    _removeImage = true;
+                                  }),
                         ),
                     ],
                   ),
@@ -419,7 +493,8 @@ void _showEditCategoryDialog(
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: nameCtrl,
+                controller: _nameCtrl,
+                enabled: !_loading,
                 textDirection: TextDirection.rtl,
                 decoration: catalogInputDec('اسم الصنف *'),
                 style: const TextStyle(
@@ -427,60 +502,19 @@ void _showEditCategoryDialog(
                     fontSize: 14,
                     fontWeight: FontWeight.bold),
               ),
-              if (error != null) ...[
+              if (_error != null) ...[
                 const SizedBox(height: 10),
-                Text(error!,
+                Text(_error!,
                     style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        color: Colors.red,
-                        fontSize: 12)),
+                        fontFamily: 'Cairo', color: Colors.red, fontSize: 12)),
               ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: loading
-                      ? null
-                      : () async {
-                          final cleanName = nameCtrl.text.trim();
-                          if (cleanName.isEmpty) {
-                            setSt(() => error = 'اسم الصنف مطلوب');
-                            return;
-                          }
-                          setSt(() {
-                            loading = true;
-                            error = null;
-                          });
-                          try {
-                            String? uploadedUrl;
-                            if (newImage != null) {
-                              uploadedUrl =
-                                  await uploadCatalogImage(newImage!);
-                            }
-                            await ref
-                                .read(adminServiceProvider)
-                                .updateCategory(
-                                  id,
-                                  name: cleanName,
-                                  imageUrl: uploadedUrl ??
-                                      (removeImage ? null : existingImageUrl),
-                                  removeImage: removeImage,
-                                );
-                            ref.invalidate(adminCategoriesProvider);
-                            ref.invalidate(brandsProvider);
-                            ref
-                                .read(adminProductsProvider.notifier)
-                                .loadInitial();
-                            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-                          } catch (e) {
-                            setSt(() {
-                              loading = false;
-                              error = 'فشل تحديث الصنف: $e';
-                            });
-                          }
-                        },
-                  icon: loading
+                  onPressed: _loading ? null : _save,
+                  icon: _loading
                       ? const SizedBox(
                           width: 18,
                           height: 18,
@@ -489,7 +523,7 @@ void _showEditCategoryDialog(
                         )
                       : const Icon(Icons.save_rounded, size: 18),
                   label: Text(
-                    loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
+                    _loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
                     style: const TextStyle(
                         fontFamily: 'Cairo',
                         fontWeight: FontWeight.w800,
@@ -507,8 +541,8 @@ void _showEditCategoryDialog(
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ════════════════════════════════════════

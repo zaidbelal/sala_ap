@@ -46,7 +46,7 @@ class _ProductUnitsEditorState extends State<ProductUnitsEditor> {
 
   void _add() async {
     final unit = await _showUnitDialog(context);
-    if (unit == null) return;
+    if (unit == null || !mounted) return;
     if (_units.any((u) => u.label.trim() == unit.label.trim())) {
       if (mounted) {
         showDialog(
@@ -77,7 +77,7 @@ class _ProductUnitsEditorState extends State<ProductUnitsEditor> {
 
   void _edit(int index) async {
     final unit = await _showUnitDialog(context, existing: _units[index]);
-    if (unit == null) return;
+    if (unit == null || !mounted) return;
     final isDuplicate = _units.asMap().entries.any(
           (entry) =>
               entry.key != index &&
@@ -299,6 +299,8 @@ Future<ProductUnit?> _showUnitDialog(
   return showModalBottomSheet<ProductUnit>(
     context: context,
     isScrollControlled: true,
+    isDismissible: false,
+    enableDrag: false,
     backgroundColor: Colors.transparent,
     builder: (_) => _UnitEditModalSheet(existing: existing),
   );
@@ -919,10 +921,12 @@ class _ProductVariantsEditorState extends State<ProductVariantsEditor> {
     final variant = await showModalBottomSheet<ProductVariant>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (_) => const _VariantEditModalSheet(),
     );
-    if (variant == null) return;
+    if (variant == null || !mounted) return;
     if (_variants.any((v) => v.label.trim() == variant.label.trim())) {
       if (mounted) {
         showDialog(
@@ -950,10 +954,12 @@ class _ProductVariantsEditorState extends State<ProductVariantsEditor> {
     final variant = await showModalBottomSheet<ProductVariant>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (_) => _VariantEditModalSheet(existing: _variants[index]),
     );
-    if (variant == null) return;
+    if (variant == null || !mounted) return;
     setState(() => _variants[index] = variant);
     widget.onChanged(_variants);
   }

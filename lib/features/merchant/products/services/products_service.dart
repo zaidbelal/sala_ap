@@ -21,6 +21,8 @@ class ProductModel {
   final String? expiryDate;
   final double costPrice;
   final double stock;
+  final double baseStock;
+  final bool hasBaseStock;
   final int salesCount; // 👈 عداد المبيعات الفعلي الموثق سحابياً
   final String? barcode;
   final int sortOrder;
@@ -42,6 +44,8 @@ class ProductModel {
     this.expiryDate,
     this.costPrice = 0,
     this.stock = 0.0,
+    this.baseStock = 0.0,
+    this.hasBaseStock = false,
     this.salesCount = 0,
     this.barcode,
     this.sortOrder = 999,
@@ -52,14 +56,38 @@ class ProductModel {
 
   bool get hasVariants => variants.isNotEmpty;
 
+  /// دمج بيانات المنتج الأساسي تلقائياً كأول حجم فقط إذا كان له مخزون أساسي مستقل
+  List<ProductVariant> get allVariantsWithBase {
+    if (variants.isEmpty) return const [];
+    if (!hasBaseStock && baseStock <= 0) return variants;
+    final baseVariant = ProductVariant(
+      id: 'base_default',
+      label: (sizeText != null && sizeText!.trim().isNotEmpty)
+          ? sizeText!.trim()
+          : 'الحجم الأساسي',
+      price: price,
+      stock: baseStock,
+      itemsPerCarton: itemsPerCarton ?? 1,
+      sizeText: sizeText,
+      sizeMl: sizeMl,
+      imageUrl: imageUrl,
+      barcode: barcode,
+      units: units,
+    );
+    return [baseVariant, ...variants];
+  }
+
   double get effectiveMinPrice {
     if (variants.isEmpty) return price;
-    return variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
+    return allVariantsWithBase
+        .map((v) => v.price)
+        .reduce((a, b) => a < b ? a : b);
   }
 
   double get totalStock {
-    if (variants.isEmpty) return stock;
-    return variants.fold(0.0, (sum, v) => sum + (v.stock > 0 ? v.stock : 0.0));
+    if (variants.isEmpty) return baseStock;
+    return baseStock +
+        variants.fold(0.0, (sum, v) => sum + (v.stock > 0 ? v.stock : 0.0));
   }
 
   // 🚀 خوارزمية تصنيف الحجم الذكية (كبير / وسط / صغير)
@@ -249,6 +277,14 @@ class ProductModel {
       expiryDate: expDate,
       costPrice: 0.0,
       stock: (m['stock'] as num?)?.toDouble() ?? 0.0,
+      baseStock: m['base_stock'] != null
+          ? (m['base_stock'] as num).toDouble()
+          : (sanitizedVariants.isEmpty
+              ? ((m['stock'] as num?)?.toDouble() ?? 0.0)
+              : 0.0),
+      hasBaseStock: m['has_base_stock'] == true ||
+          sanitizedVariants.isEmpty ||
+          (m['base_stock'] != null && (m['base_stock'] as num).toDouble() > 0),
       salesCount: (m['sales_count'] as num?)?.toInt() ?? 0,
       barcode: barcode,
       sortOrder: (m['sort_order'] as num?)?.toInt() ?? 999,
@@ -278,6 +314,8 @@ class ProductModel {
       'expiry_date': expiryDate,
       'cost_price': costPrice,
       'stock': stock,
+      'base_stock': baseStock,
+      'has_base_stock': hasBaseStock,
       'sales_count': salesCount,
       'sort_order': sortOrder,
       if (allBarcodes.isNotEmpty) 'all_barcodes': allBarcodes,

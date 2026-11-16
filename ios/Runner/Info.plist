@@ -9,7 +9,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>سَلة</string>
+	<string>وصًال</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -17,7 +17,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>sala</string>
+	<string>wissal</string>
 	<!-- ═══════════════════════════════════════════
 	     تعريف اللغة العربية رسمياً لنظام iOS ومتجر أبل
 	════════════════════════════════════════════ -->
@@ -38,17 +38,17 @@
 	     إذن الموقع — أثناء استخدام التطبيق فقط (آمن ومعتمد من أبل)
 	════════════════════════════════════════════ -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>يحتاج تطبيق سَلة لموقعك لتحديد عنوان المتجر وتوصيل طلبات الجملة بدقة.</string>
+	<string>يحتاج تطبيق وصًال لموقعك لتحديد عنوان المتجر وتوصيل طلبات الجملة بدقة.</string>
 
 	<!-- ═══════════════════════════════════════════
 	     إذن الكاميرا ومكتبة الصور — الباركود، الفواتير، وصور المنتجات
 	════════════════════════════════════════════ -->
 	<key>NSCameraUsageDescription</key>
-	<string>يحتاج تطبيق سَلة للكاميرا لمسح باركود المنتجات لإضافتها للسلة والتقاط صور الفواتير والمنتجات.</string>
+	<string>يحتاج تطبيق وصًال للكاميرا لمسح باركود المنتجات لإضافتها للسلة والتقاط صور الفواتير والمنتجات.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>يحتاج تطبيق سَلة للوصول إلى الصور لرفع ومشاركة صور الفواتير والمنتجات.</string>
+	<string>يحتاج تطبيق وصًال للوصول إلى الصور لرفع ومشاركة صور الفواتير والمنتجات.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>يحتاج تطبيق سَلة لحفظ الفواتير والإيصالات الحرارية في معرض الصور الخاص بك.</string>
+	<string>يحتاج تطبيق وصًال لحفظ الفواتير والإيصالات الحرارية في معرض الصور الخاص بك.</string>
 
 	<!-- ═══════════════════════════════════════════
 	     الإشعارات في الخلفية (FCM)

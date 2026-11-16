@@ -771,15 +771,15 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
   @override
   Widget build(BuildContext context) {
     final service = ref.read(adminServiceProvider);
-
     Future<void> changeStatus(String newStatus) async {
       if (_busy) return;
+      final messenger = ScaffoldMessenger.of(context);
       setState(() => _busy = true);
       try {
         await service.updateOrderStatus(order.id, newStatus);
-        if (context.mounted) {
+        if (mounted) {
           onDone();
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          messenger.showSnackBar(const SnackBar(
             content: Text('تم تحديث حالة الطلب',
                 style: TextStyle(fontFamily: 'Cairo')),
             backgroundColor: AppColors.primary,
@@ -789,8 +789,8 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
           ));
         }
       } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        if (mounted) {
+          messenger.showSnackBar(SnackBar(
             content: Text(e.toString(),
                 style: const TextStyle(fontFamily: 'Cairo', fontSize: 11)),
             backgroundColor: Colors.red,
@@ -874,7 +874,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                   label: 'رفض الطلب',
                   icon: Icons.cancel_rounded,
                   color: Colors.red,
-                  onTap: () => changeStatus('cancelled')),
+                  onTap: () => changeStatus('rejected')),
             ],
             if (order.status == 'confirmed' ||
                 order.status == 'pending' ||
@@ -898,6 +898,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                 color: Colors.indigo,
                 onTap: () async {
                   if (_busy) return;
+                  final messenger = ScaffoldMessenger.of(context);
                   setState(() => _busy = true);
                   final adminUid = AppStorage.userId ?? '';
                   final adminName = AppStorage.userName ?? 'الإدارة';
@@ -908,9 +909,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                       driverId: adminUid,
                       driverName: adminName,
                     );
-                    if (context.mounted) {
+                    if (mounted) {
                       onDone();
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(
                           content: Text('تم استلام الطلب وبدء التوصيل بنجاح 🚚',
                               style: TextStyle(fontFamily: 'Cairo')),
@@ -922,8 +923,8 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                       );
                     }
                   } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) {
+                      messenger.showSnackBar(
                         SnackBar(
                           content: Text(e.toString(),
                               style: const TextStyle(
@@ -954,6 +955,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                 color: const Color(0xFFEA580C),
                 onTap: () async {
                   if (_busy) return;
+                  final messenger = ScaffoldMessenger.of(context);
                   setState(() => _busy = true);
                   try {
                     var currentReturns = returns;
@@ -980,9 +982,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                         returnItems: returnItemsPayload,
                       );
                     }
-                    if (context.mounted) {
+                    if (mounted) {
                       onDone();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      messenger.showSnackBar(const SnackBar(
                         content: Text(
                             'تم قبول المرتجع وتسويته واستعادة المخزون بنجاح ✓',
                             style: TextStyle(fontFamily: 'Cairo')),
@@ -993,15 +995,15 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                       ));
                     }
                   } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    if (mounted) {
+                      messenger.showSnackBar(SnackBar(
                         content: Text(e.toString(),
                             style: const TextStyle(
                                 fontFamily: 'Cairo', fontSize: 11)),
                         backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                         shape: const StadiumBorder(),
-                        margin: EdgeInsets.all(16),
+                        margin: const EdgeInsets.all(16),
                       ));
                     }
                   } finally {
@@ -1015,6 +1017,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                 color: Colors.red,
                 onTap: () async {
                   if (_busy) return;
+                  final messenger = ScaffoldMessenger.of(context);
                   setState(() => _busy = true);
                   try {
                     final pendingReturns =
@@ -1032,9 +1035,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                         ),
                       );
                     }
-                    if (context.mounted) {
+                    if (mounted) {
                       onDone();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      messenger.showSnackBar(const SnackBar(
                         content: Text('تم رفض طلب الإرجاع',
                             style: TextStyle(fontFamily: 'Cairo')),
                         backgroundColor: Colors.red,
@@ -1044,15 +1047,15 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                       ));
                     }
                   } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    if (mounted) {
+                      messenger.showSnackBar(SnackBar(
                         content: Text(e.toString(),
                             style: const TextStyle(
                                 fontFamily: 'Cairo', fontSize: 11)),
                         backgroundColor: Colors.red,
                         behavior: SnackBarBehavior.floating,
                         shape: const StadiumBorder(),
-                        margin: EdgeInsets.all(16),
+                        margin: const EdgeInsets.all(16),
                       ));
                     }
                   } finally {

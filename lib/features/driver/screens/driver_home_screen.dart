@@ -433,15 +433,24 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
       );
       return;
     }
-
     BuildContext? dialogContext;
     bool dialogOpen = true;
+    bool dismissedBeforeBuild = false;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        dialogContext = ctx;
+        if (dismissedBeforeBuild) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ctx.mounted &&
+                Navigator.of(ctx, rootNavigator: true).canPop()) {
+              Navigator.of(ctx, rootNavigator: true).pop();
+            }
+          });
+        } else {
+          dialogContext = ctx;
+        }
         return const PopScope(
           canPop: false,
           child: Center(
@@ -453,8 +462,11 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
     void closeLoadingDialog() {
       if (!dialogOpen) return;
       dialogOpen = false;
+      dismissedBeforeBuild = true;
       final ctx = dialogContext;
-      if (ctx != null && ctx.mounted) {
+      if (ctx != null &&
+          ctx.mounted &&
+          Navigator.of(ctx, rootNavigator: true).canPop()) {
         Navigator.of(ctx, rootNavigator: true).pop();
       }
       dialogContext = null;
@@ -667,11 +679,20 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
       }
       // ── إظهار شاشة الانتظار بأمان بعد إغلاق كافة النوافذ ──
       BuildContext? dialogCtx;
+      bool dismissedBeforeBuild = false;
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (c) {
-          dialogCtx = c;
+          if (dismissedBeforeBuild) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (c.mounted && Navigator.of(c, rootNavigator: true).canPop()) {
+                Navigator.of(c, rootNavigator: true).pop();
+              }
+            });
+          } else {
+            dialogCtx = c;
+          }
           return const PopScope(
             canPop: false,
             child: Center(
@@ -681,9 +702,12 @@ class _DriverHomeScreenState extends ConsumerState<DriverHomeScreen>
       );
 
       void dismissDialog() {
+        dismissedBeforeBuild = true;
         final ctx = dialogCtx;
-        if (ctx != null && ctx.mounted && Navigator.of(ctx).canPop()) {
-          Navigator.of(ctx).pop();
+        if (ctx != null &&
+            ctx.mounted &&
+            Navigator.of(ctx, rootNavigator: true).canPop()) {
+          Navigator.of(ctx, rootNavigator: true).pop();
         }
         dialogCtx = null;
       }

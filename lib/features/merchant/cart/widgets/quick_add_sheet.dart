@@ -76,9 +76,12 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
       }
 
       if (cachedData.isEmpty || !AppCache.instance.isProductsFresh()) {
-        await ref.read(productsProvider(null).notifier).refresh();
+        if (cachedData.isEmpty) {
+          await ref.read(productsProvider(null).future);
+        } else {
+          await ref.read(productsProvider(null).notifier).refresh();
+        }
         var refreshedData = AppCache.instance.getProducts() ?? [];
-
         if (refreshedData.isEmpty) {
           final snap = await FirebaseFirestore.instance
               .collection('products')
@@ -250,9 +253,11 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
                               key: ValueKey(_filtered[i].id),
                               product: _filtered[i],
                               onAdd: (qty, unit, variant) {
+                                final isBase = variant?.id == 'base_default';
                                 ref.read(cartProvider.notifier).addItem(
                                     _filtered[i], qty,
-                                    unit: unit, variant: variant);
+                                    unit: unit,
+                                    variant: isBase ? null : variant);
 
                                 HapticFeedback.lightImpact();
                               }),
@@ -266,17 +271,17 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
 // ════════════════════════════════════════
 // صف المنتج
 // ════════════════════════════════════════
-class _ProductTile extends StatefulWidget {
+class _ProductTile extends ConsumerStatefulWidget {
   final ProductModel product;
   final void Function(int qty, ProductUnit? unit, ProductVariant? variant)
       onAdd;
   const _ProductTile({super.key, required this.product, required this.onAdd});
 
   @override
-  State<_ProductTile> createState() => _ProductTileState();
+  ConsumerState<_ProductTile> createState() => _ProductTileState();
 }
 
-class _ProductTileState extends State<_ProductTile> {
+class _ProductTileState extends ConsumerState<_ProductTile> {
   int _qty = 1;
   bool _added = false;
   ProductVariant? _selectedVariant;
@@ -298,8 +303,9 @@ class _ProductTileState extends State<_ProductTile> {
 
   void _initUnit() {
     _qty = 1;
-    _selectedVariant =
-        widget.product.hasVariants ? widget.product.variants.first : null;
+    _selectedVariant = widget.product.hasVariants
+        ? widget.product.allVariantsWithBase.first
+        : null;
     final units = _selectedVariant != null
         ? _selectedVariant!.units
         : widget.product.units;
@@ -332,16 +338,18 @@ class _ProductTileState extends State<_ProductTile> {
   }
 
   int _remainingMaxUnits() {
-    final stock = _selectedVariant?.stock ?? widget.product.stock;
+    final stock = _selectedVariant?.stock ?? widget.product.baseStock;
     if (stock <= 0) return 0;
     final cartonCap =
         (_selectedVariant?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1)
             .clamp(1, 9999);
     final unitQty = (_selectedUnit?.qty ?? cartonCap).clamp(1, 9999);
 
-    final container = ProviderScope.containerOf(context);
-    final cart = container.read(cartProvider);
-    final targetVarId = _selectedVariant?.id ?? '';
+    final cart = ref.read(cartProvider);
+    final targetVarId =
+        (_selectedVariant == null || _selectedVariant!.id == 'base_default')
+            ? ''
+            : _selectedVariant!.id;
     double usedCartons = 0.0;
     for (final cItem in cart.values) {
       if (cItem.product.id == widget.product.id &&
@@ -387,7 +395,7 @@ class _ProductTileState extends State<_ProductTile> {
 
   @override
   Widget build(BuildContext context) {
-    final activeStock = _selectedVariant?.stock ?? widget.product.stock;
+    final activeStock = _selectedVariant?.stock ?? widget.product.baseStock;
     final activeUnits = _selectedVariant != null
         ? _selectedVariant!.units
         : widget.product.units;
@@ -475,13 +483,14 @@ class _ProductTileState extends State<_ProductTile> {
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: widget.product.variants.map((v) {
+                      children: widget.product.allVariantsWithBase.map((v) {
                         final isSel = _selectedVariant?.id == v.id;
                         return GestureDetector(
                           onTap: () => setState(() {
                             _selectedVariant = v;
                             _selectedUnit =
                                 v.units.isNotEmpty ? v.units.first : null;
+                            _qty = 1;
                           }),
                           child: Container(
                             margin: const EdgeInsetsDirectional.only(end: 4),

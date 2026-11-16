@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../services/admin_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 
 class AdminReturnsPaginationState {
   final List<Map<String, dynamic>> returns;
@@ -56,8 +57,23 @@ class AdminReturnsPaginationNotifier
     super.dispose();
   }
 
+  List<Map<String, dynamic>> _sortDescending(
+      Iterable<Map<String, dynamic>> items) {
+    final list = items.toList();
+    list.sort((a, b) => AppDateParser.parse(b['created_at'])
+        .compareTo(AppDateParser.parse(a['created_at'])));
+    return list;
+  }
+
   void updateLocally(String returnId, String newStatus,
       {String? rejectionReason}) {
+    if (_olderReturns.containsKey(returnId)) {
+      _olderReturns[returnId] = {
+        ..._olderReturns[returnId]!,
+        'status': newStatus,
+        if (rejectionReason != null) 'rejection_reason': rejectionReason,
+      };
+    }
     final updated = state.returns.map((r) {
       if (r['id']?.toString() == returnId) {
         return {
@@ -98,7 +114,7 @@ class AdminReturnsPaginationNotifier
           ...liveMap,
         };
         state = state.copyWith(
-          returns: merged.values.toList(),
+          returns: _sortDescending(merged.values),
           isLoading: false,
           hasMore: _olderReturns.isEmpty
               ? snap.docs.length == _pageSize
@@ -133,7 +149,7 @@ class AdminReturnsPaginationNotifier
       map.addAll(_olderReturns);
 
       state = state.copyWith(
-        returns: map.values.toList(),
+        returns: _sortDescending(map.values),
         isLoadingMore: false,
         hasMore: snap.docs.length == _pageSize,
       );

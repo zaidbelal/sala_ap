@@ -121,6 +121,16 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
   }
 
   Future<void> _saveToGallery() async {
+    if (widget.items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('يرجى انتظار اكتمال تحميل أصناف الفاتورة قبل الحفظ',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _isProcessing = true);
     final bytes = await ThermalPrinterService.capturePngFromKey(_receiptKey);
     if (!mounted) return;

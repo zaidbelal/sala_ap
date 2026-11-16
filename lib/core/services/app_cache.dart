@@ -224,8 +224,8 @@ class AppCache {
         ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
             .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
 
-      // حماية صارمة: لا يتم استبدال الكاش الشامل إذا كانت الذاكرة فارغة والوارد دفعة جزئية
-      if (currentList.isNotEmpty || liveBatch.length >= 100) {
+      // حماية وضمان حفظ الكاش الشامل للكتالوجات الكبيرة والصغيرة دون استثناء
+      if (currentList.isNotEmpty || merged.isNotEmpty) {
         final existingSavedAt = _ram[_keyProducts]?.savedAt;
         final preservedSavedAt =
             (_isFullProductsSeeded && existingSavedAt != null)

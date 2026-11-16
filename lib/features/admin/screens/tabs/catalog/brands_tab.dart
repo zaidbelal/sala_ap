@@ -225,8 +225,8 @@ class _BrandTile extends StatelessWidget {
                   color: Colors.red.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child:
-                    const Icon(Icons.delete_rounded, color: Colors.red, size: 18),
+                child: const Icon(Icons.delete_rounded,
+                    color: Colors.red, size: 18),
               ),
               onPressed: onDelete,
             ),
@@ -271,24 +271,103 @@ void _showEditBrandDialog(
   Map<String, dynamic> brand,
   List<Map<String, dynamic>> categories,
 ) {
-  final id = brand['id'].toString();
-  final nameCtrl = TextEditingController(text: brand['name'] ?? '');
-  String? selectedCategoryId = brand['category_id']?.toString();
-  XFile? newLogo;
-  Uint8List? newLogoBytes;
-  bool removeLogo = false;
-  final String? existingLogoUrl = brand['logo_url']?.toString();
-  bool loading = false;
-  String? error;
-
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    isDismissible: false,
+    enableDrag: false,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => StatefulBuilder(
-      builder: (sheetCtx, setSt) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+    builder: (_) => _EditBrandModalSheet(
+      brand: brand,
+      categories: categories,
+    ),
+  );
+}
+
+class _EditBrandModalSheet extends ConsumerStatefulWidget {
+  final Map<String, dynamic> brand;
+  final List<Map<String, dynamic>> categories;
+
+  const _EditBrandModalSheet({
+    required this.brand,
+    required this.categories,
+  });
+
+  @override
+  ConsumerState<_EditBrandModalSheet> createState() =>
+      _EditBrandModalSheetState();
+}
+
+class _EditBrandModalSheetState extends ConsumerState<_EditBrandModalSheet> {
+  late final TextEditingController _nameCtrl;
+  String? _selectedCategoryId;
+  XFile? _newLogo;
+  Uint8List? _newLogoBytes;
+  bool _removeLogo = false;
+  String? _existingLogoUrl;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.brand['name'] ?? '');
+    _selectedCategoryId = widget.brand['category_id']?.toString();
+    _existingLogoUrl = widget.brand['logo_url']?.toString();
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final cleanName = _nameCtrl.text.trim();
+    if (cleanName.isEmpty) {
+      setState(() => _error = 'اسم الشركة مطلوب');
+      return;
+    }
+    if (_selectedCategoryId == null) {
+      setState(() => _error = 'اختر الصنف التابع له');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      String? uploadedUrl;
+      if (_newLogo != null) {
+        uploadedUrl = await uploadCatalogImage(_newLogo!);
+      }
+      await ref.read(adminServiceProvider).updateBrand(
+            widget.brand['id'].toString(),
+            name: cleanName,
+            categoryId: _selectedCategoryId!,
+            logoUrl: uploadedUrl ?? (_removeLogo ? null : _existingLogoUrl),
+            removeLogo: _removeLogo,
+          );
+      ref.invalidate(brandsProvider);
+      ref.read(adminProductsProvider.notifier).loadInitial(forceServer: true);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'فشل تحديث الشركة: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_loading,
+      child: Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           decoration: const BoxDecoration(
@@ -319,29 +398,34 @@ void _showEditBrandDialog(
                         color: AppColors.primary, size: 20),
                   ),
                   const SizedBox(width: 10),
-                  const Text(
-                    'تعديل الشركة / الماركة',
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
+                  const Expanded(
+                    child: Text(
+                      'تعديل الشركة / الماركة',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
+                  ),
+                  IconButton(
+                    onPressed: _loading ? null : () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded, color: Colors.grey),
                   ),
                 ],
               ),
               const Divider(height: 24),
-              // شعار الشركة
               GestureDetector(
-                onTap: loading
+                onTap: _loading
                     ? null
                     : () async {
                         final (file, bytes) = await pickCatalogImage();
-                        if (file != null && bytes != null) {
-                          setSt(() {
-                            newLogo = file;
-                            newLogoBytes = bytes;
-                            removeLogo = false;
-                            error = null;
+                        if (file != null && bytes != null && mounted) {
+                          setState(() {
+                            _newLogo = file;
+                            _newLogoBytes = bytes;
+                            _removeLogo = false;
+                            _error = null;
                           });
                         }
                       },
@@ -357,16 +441,16 @@ void _showEditBrandDialog(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: newLogoBytes != null
-                            ? Image.memory(newLogoBytes!,
+                        child: _newLogoBytes != null
+                            ? Image.memory(_newLogoBytes!,
                                 width: 50, height: 50, fit: BoxFit.cover)
-                            : (!removeLogo &&
-                                    existingLogoUrl != null &&
-                                    existingLogoUrl.isNotEmpty)
+                            : (!_removeLogo &&
+                                    _existingLogoUrl != null &&
+                                    _existingLogoUrl!.isNotEmpty)
                                 ? CachedNetworkImage(
                                     cacheManager: ImagePrecacheService
                                         .instance.cacheManager,
-                                    imageUrl: existingLogoUrl,
+                                    imageUrl: _existingLogoUrl!,
                                     width: 50,
                                     height: 50,
                                     fit: BoxFit.cover,
@@ -383,25 +467,27 @@ void _showEditBrandDialog(
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          newLogoBytes != null
+                          _newLogoBytes != null
                               ? 'تم اختيار شعار جديد'
-                              : (!removeLogo && existingLogoUrl != null)
+                              : (!_removeLogo && _existingLogoUrl != null)
                                   ? 'اضغط لتغيير الشعار'
                                   : 'شعار الشركة (اختياري)',
                           style: const TextStyle(
                               fontFamily: 'Cairo', fontSize: 13),
                         ),
                       ),
-                      if (newLogoBytes != null ||
-                          (!removeLogo && existingLogoUrl != null))
+                      if (_newLogoBytes != null ||
+                          (!_removeLogo && _existingLogoUrl != null))
                         IconButton(
                           icon: const Icon(Icons.close_rounded,
                               color: Colors.red, size: 20),
-                          onPressed: () => setSt(() {
-                            newLogo = null;
-                            newLogoBytes = null;
-                            removeLogo = true;
-                          }),
+                          onPressed: _loading
+                              ? null
+                              : () => setState(() {
+                                    _newLogo = null;
+                                    _newLogoBytes = null;
+                                    _removeLogo = true;
+                                  }),
                         ),
                     ],
                   ),
@@ -409,7 +495,8 @@ void _showEditBrandDialog(
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: nameCtrl,
+                controller: _nameCtrl,
+                enabled: !_loading,
                 textDirection: TextDirection.rtl,
                 decoration: catalogInputDec('اسم الشركة *'),
                 style: const TextStyle(
@@ -419,14 +506,14 @@ void _showEditBrandDialog(
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: categories.any(
-                        (c) => c['id'].toString() == selectedCategoryId)
-                    ? selectedCategoryId
+                initialValue: widget.categories
+                        .any((c) => c['id'].toString() == _selectedCategoryId)
+                    ? _selectedCategoryId
                     : null,
                 hint: const Text('اختر الصنف التابع له *',
                     style: TextStyle(fontFamily: 'Cairo', fontSize: 13)),
                 decoration: catalogInputDec('الصنف التابع له'),
-                items: categories
+                items: widget.categories
                     .map((c) => DropdownMenuItem(
                           value: c['id'].toString(),
                           child: Text(c['name'] ?? '',
@@ -434,64 +521,23 @@ void _showEditBrandDialog(
                                   fontFamily: 'Cairo', fontSize: 13)),
                         ))
                     .toList(),
-                onChanged: (v) => setSt(() => selectedCategoryId = v),
+                onChanged: _loading
+                    ? null
+                    : (v) => setState(() => _selectedCategoryId = v),
               ),
-              if (error != null) ...[
+              if (_error != null) ...[
                 const SizedBox(height: 10),
-                Text(error!,
+                Text(_error!,
                     style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        color: Colors.red,
-                        fontSize: 12)),
+                        fontFamily: 'Cairo', color: Colors.red, fontSize: 12)),
               ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: loading
-                      ? null
-                      : () async {
-                          final cleanName = nameCtrl.text.trim();
-                          if (cleanName.isEmpty) {
-                            setSt(() => error = 'اسم الشركة مطلوب');
-                            return;
-                          }
-                          if (selectedCategoryId == null) {
-                            setSt(() => error = 'اختر الصنف التابع له');
-                            return;
-                          }
-                          setSt(() {
-                            loading = true;
-                            error = null;
-                          });
-                          try {
-                            String? uploadedUrl;
-                            if (newLogo != null) {
-                              uploadedUrl =
-                                  await uploadCatalogImage(newLogo!);
-                            }
-                            await ref.read(adminServiceProvider).updateBrand(
-                                  id,
-                                  name: cleanName,
-                                  categoryId: selectedCategoryId!,
-                                  logoUrl: uploadedUrl ??
-                                      (removeLogo ? null : existingLogoUrl),
-                                  removeLogo: removeLogo,
-                                );
-                            ref.invalidate(brandsProvider);
-                            ref
-                                .read(adminProductsProvider.notifier)
-                                .loadInitial(forceServer: true);
-                            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-                          } catch (e) {
-                            setSt(() {
-                              loading = false;
-                              error = 'فشل تحديث الشركة: $e';
-                            });
-                          }
-                        },
-                  icon: loading
+                  onPressed: _loading ? null : _save,
+                  icon: _loading
                       ? const SizedBox(
                           width: 18,
                           height: 18,
@@ -500,7 +546,7 @@ void _showEditBrandDialog(
                         )
                       : const Icon(Icons.save_rounded, size: 18),
                   label: Text(
-                    loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
+                    _loading ? 'جاري الحفظ...' : 'حفظ التعديلات',
                     style: const TextStyle(
                         fontFamily: 'Cairo',
                         fontWeight: FontWeight.w800,
@@ -518,8 +564,8 @@ void _showEditBrandDialog(
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 // ════════════════════════════════════════

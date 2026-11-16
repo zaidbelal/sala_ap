@@ -179,8 +179,8 @@ class DriverStatsScreen extends ConsumerWidget {
 
                 // ── نسبة الإنجاز ──────────────────────────────
                 _CompletionRate(
-                  delivered: (stats['delivered'] as int?) ?? 0,
-                  total: (stats['total'] as int?) ?? 0,
+                  delivered: (stats['delivered'] as num?)?.toInt() ?? 0,
+                  total: (stats['total'] as num?)?.toInt() ?? 0,
                 ),
               ],
             ),

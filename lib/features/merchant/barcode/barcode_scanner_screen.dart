@@ -394,10 +394,11 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
       _isProcessingMatch = true;
       SupermarketSoundHelper.playSupermarketBeep();
       await _stopCamera();
-      if (mounted) Navigator.of(context).pop(code);
+      if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+        Navigator.of(context).pop(code);
+      }
       return;
     }
-
     _isProcessingMatch = true;
     final result = await _lookup(code);
     if (!mounted) return;
@@ -423,7 +424,9 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         _isProcessingMatch = false;
       } else {
         await _stopCamera();
-        if (mounted) Navigator.of(context).pop(product);
+        if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
+          Navigator.of(context).pop(product);
+        }
       }
     } else {
       // 🚀 لم يجد شيئاً: لا نتوقف! نعطي تغذية راجعة خفيفة ونستمر بالمسح فوراً حتى يجد

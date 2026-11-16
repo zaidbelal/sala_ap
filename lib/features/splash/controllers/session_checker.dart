@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wissal/core/services/local_storage.dart';
 import 'package:wissal/core/services/realtime_hub.dart';
-import 'package:wissal/features/auth/login/services/quickconnect_otp_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 import 'dart:async';
 
 enum SessionResult {
@@ -80,17 +81,37 @@ class SessionChecker {
       return SessionResult.unauthenticated;
     }
     try {
-      final doc = await FirebaseFirestore.instance
+      var doc = await FirebaseFirestore.instance
           .collection('profiles')
           .doc(userId)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 3));
-// 🔒 المصدر السيادي الوحيد للأمان: التحقق الصارم من التوكن المشفر (Cryptographic Custom Claims)
-      final tokenResult = await firebaseUser.getIdTokenResult(true);
-      final verifiedRole =
-          (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
-      final isBannedClaim = tokenResult.claims?['is_banned'] == true;
 
+      var tokenResult = await firebaseUser.getIdTokenResult(true);
+      var verifiedRole =
+          (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+
+      if (!doc.exists || verifiedRole == null) {
+        try {
+          await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable(
+                'syncPhoneAuthProfile',
+                options:
+                    HttpsCallableOptions(timeout: const Duration(seconds: 6)),
+              )
+              .call();
+          doc = await FirebaseFirestore.instance
+              .collection('profiles')
+              .doc(userId)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
+          tokenResult = await firebaseUser.getIdTokenResult(true);
+          verifiedRole =
+              (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
+        } catch (_) {}
+      }
+
+      final isBannedClaim = tokenResult.claims?['is_banned'] == true;
       if (isBannedClaim) {
         await FirebaseAuth.instance.signOut();
         await AppStorage.clearUserData();
@@ -101,40 +122,20 @@ class SessionChecker {
         final data = doc.data()!;
         final isActive = data['is_active'] as bool? ?? false;
         final isBanned = data['is_banned'] == true;
+        final isDeleted = data['is_deleted'] == true;
         final docRole =
             (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
 
-        if (isBanned) {
+        if (isBanned || isDeleted) {
           await FirebaseAuth.instance.signOut();
           await AppStorage.clearUserData();
           return SessionResult.unauthenticated;
         }
 
-        // 🛡️ قاعدة أمنية قطعية: حظر أي رتبة إدارية أو سائق ما لم تكن موقعة ومثبتة في Claims
-        const privilegedRoles = {
-          'admin',
-          'super_admin',
-          'accountant',
-          'warehouse_manager',
-          'driver'
-        };
-        // التحقق مما إذا كان الحساب ينتمي لأرقام الاختبار المعتمدة لفايربيز
-        final phoneNum = data['phone_number']?.toString() ?? '';
-        final isTestAccount =
-            QuickConnectOtpService.isFirebaseTestPhone(phoneNum);
-
-        final String effectiveRole;
-        if (privilegedRoles.contains(docRole)) {
-          if (verifiedRole == docRole || isTestAccount) {
-            effectiveRole = docRole;
-          } else {
-            // تراجع آمن وتجريد من الصلاحيات إذا لم تتطابق التوقيعات المشفرة
-            effectiveRole = 'merchant';
-          }
-        } else {
-          effectiveRole = verifiedRole ?? docRole;
-        }
-
+        final effectiveRole = AuthService.resolveVerifiedRole(
+          docRole: docRole,
+          claimsRole: verifiedRole,
+        );
         await AppStorage.setIsActive(isActive);
         await AppStorage.setIsBanned(false);
         await AppStorage.saveUserData(

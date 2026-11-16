@@ -178,7 +178,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final result = await Navigator.of(context).push<LatLng>(
       MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
     );
-    if (result != null) setState(() => _location = result);
+    if (result != null && mounted) setState(() => _location = result);
   }
 
 // تم إلغاء showDialog المعرض لتعارض المسارات واستبداله بـ Overlay مدمج وآمن 100% داخل الشجرة
@@ -284,7 +284,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         }),
       );
 
-      if (successfullyQueriedIds.isEmpty) return false;
+      if (!mounted || successfullyQueriedIds.isEmpty) return false;
 
       return ref.read(cartProvider.notifier).validateAndUpdatePrices(
             liveDocs,
@@ -398,8 +398,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ).timeout(const Duration(seconds: 30));
 
       _orderIdempotencyKey = null;
-      ref.read(cartProvider.notifier).clear();
       if (!mounted) return;
+      ref.read(cartProvider.notifier).clear();
 
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
@@ -420,7 +420,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         caseSensitive: false,
       );
       final matches = exp.allMatches(err);
-      if (matches.isNotEmpty) {
+      if (matches.isNotEmpty && mounted) {
         final cartNotifier = ref.read(cartProvider.notifier);
         final keysToRemove = <String>{};
 

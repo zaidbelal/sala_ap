@@ -41,16 +41,15 @@
         android:usesCleartextTraffic="false"
         android:enableOnBackInvokedCallback="true">
 
-        <!-- 🗺️ مفتاح خرائط قوقل -->
+     <!-- 🗺️ مفتاح خرائط قوقل -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDIWBNhFJU2OGwrlFKv85c1S9bLNQmRmw8" />
+            android:value="AIzaSyAAU_ZQJm-WSQVX2POUFyfvULTzMsHa1Mc" />
 
         <activity
             android:name="io.flutter.embedding.android.FlutterActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"

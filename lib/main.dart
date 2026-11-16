@@ -94,6 +94,11 @@ void main() async {
           errorStr.contains('Failed to load font')) {
         return;
       }
+      // تجاهل أخطاء تزامن لوحة المفاتيح والماسحات الضوئية الخارجية في محرك فلاتر
+      if (errorStr.contains('KeyDownEvent is dispatched') ||
+          errorStr.contains('hardware_keyboard.dart')) {
+        return;
+      }
       if (errorStr.contains('MultiImageStreamCompleter')) {
         FlutterError.presentError(details);
         try {
@@ -114,9 +119,23 @@ void main() async {
         }
         return;
       }
+
+      // تجاوزات التخطيط المرئي (RenderFlex overflow) ليست انهيارات قاتلة للتطبيق
+      if (errorStr.contains('RenderFlex overflowed')) {
+        FlutterError.presentError(details);
+        try {
+          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+        } catch (_) {}
+        return;
+      }
+
       FlutterError.presentError(details);
       try {
-        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        if (details.silent) {
+          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+        } else {
+          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        }
       } catch (_) {}
     };
 

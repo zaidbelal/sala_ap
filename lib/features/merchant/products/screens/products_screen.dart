@@ -750,20 +750,21 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
 
       case ProductSortCriteria.highestPrice:
         filtered.sort((a, b) {
-          double minPriceOf(Map<String, dynamic> m) {
+          double maxPriceOf(Map<String, dynamic> m) {
             final v = m['variants'];
             if (v is List && v.isNotEmpty) {
               final prices = v
                   .whereType<Map>()
                   .map((e) => (e['price'] as num?)?.toDouble() ?? 0.0)
                   .toList();
-              if (prices.isNotEmpty)
-                return prices.reduce((x, y) => x < y ? x : y);
+              if (prices.isNotEmpty) {
+                return prices.reduce((x, y) => x > y ? x : y);
+              }
             }
             return (m['price'] as num?)?.toDouble() ?? 0.0;
           }
 
-          return minPriceOf(b).compareTo(minPriceOf(a));
+          return maxPriceOf(b).compareTo(maxPriceOf(a));
         });
         break;
 
@@ -823,7 +824,8 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
             'count': 1,
           };
         } else {
-          brands[bId]!['count'] = (brands[bId]!['count'] as int) + 1;
+          brands[bId]!['count'] =
+              ((brands[bId]!['count'] as num?)?.toInt() ?? 0) + 1;
         }
       }
     }

@@ -203,101 +203,126 @@ class AuthService {
       );
     }
   }
+
   // ══════════════════════════════════════════
   // حفظ بيانات المستخدم محلياً
   // ══════════════════════════════════════════
+  /// مصدر الحقيقة الموحد للتحقق التشفيري من الرتبة عبر Custom Claims لجميع المستخدمين بدون أي استثناءات
+  static String resolveVerifiedRole({
+    required String docRole,
+    required String? claimsRole,
+  }) {
+    final cleanDocRole = docRole.trim().toLowerCase();
+    final cleanClaimRole = claimsRole?.trim().toLowerCase();
+    const privilegedRoles = {
+      'admin',
+      'super_admin',
+      'accountant',
+      'warehouse_manager',
+      'driver',
+    };
+
+    if (privilegedRoles.contains(cleanDocRole) ||
+        (cleanClaimRole != null && privilegedRoles.contains(cleanClaimRole))) {
+      if (cleanClaimRole != null && cleanClaimRole == cleanDocRole) {
+        return cleanDocRole;
+      }
+      return 'merchant';
+    }
+
+    if (cleanClaimRole != null && cleanClaimRole.isNotEmpty) {
+      return cleanClaimRole;
+    }
+    return cleanDocRole.isNotEmpty ? cleanDocRole : 'merchant';
+  }
 
   Future<void> saveUserLocally(
     String userId,
   ) async {
     try {
-      var document = await _db.collection('profiles').doc(userId).get().timeout(
-            const Duration(seconds: 10),
-          );
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      final currentAuthUid = firebaseUser?.uid ?? userId;
+      if (currentAuthUid.isEmpty) {
+        throw StateError('Missing authenticated user ID');
+      }
+
+      var document = await _db
+          .collection('profiles')
+          .doc(currentAuthUid)
+          .get()
+          .timeout(const Duration(seconds: 10));
 
       if (!document.exists) {
-        final currentUserPhone = FirebaseAuth.instance.currentUser?.phoneNumber;
-        if (currentUserPhone != null && currentUserPhone.isNotEmpty) {
-          final querySnap = await _db
+        try {
+          final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable(
+            'syncPhoneAuthProfile',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+          );
+          await callable.call();
+          document = await _db
               .collection('profiles')
-              .where('phone_number', isEqualTo: currentUserPhone)
-              .limit(1)
-              .get()
-              .timeout(const Duration(seconds: 5));
-          if (querySnap.docs.isNotEmpty) {
-            // الاعتماد المباشر على الوثيقة الموثقة بأمان دون محاولة كتابة مباشرة تخالف قواعد الحماية
-            document = querySnap.docs.first;
-          }
-        }
+              .doc(currentAuthUid)
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 8));
+        } catch (_) {}
       }
+
       if (!document.exists) {
-        throw StateError(
-          'User profile was not found',
-        );
+        throw StateError('User profile was not found');
       }
       final data = document.data();
-      if (data == null) {
-        throw StateError(
-          'User profile data is empty',
-        );
+      if (data == null || data['is_deleted'] == true) {
+        throw StateError('User profile data is empty');
       }
+
       IdTokenResult? idTokenResult;
       try {
-        idTokenResult = await FirebaseAuth.instance.currentUser
+        idTokenResult = await firebaseUser
             ?.getIdTokenResult(true)
-            .timeout(const Duration(seconds: 4));
+            .timeout(const Duration(seconds: 5));
       } catch (_) {
         idTokenResult = null;
       }
+
+      if (idTokenResult?.claims?['role'] == null && firebaseUser != null) {
+        try {
+          final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable(
+            'syncPhoneAuthProfile',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+          );
+          await callable.call();
+          idTokenResult = await firebaseUser
+              .getIdTokenResult(true)
+              .timeout(const Duration(seconds: 5));
+        } catch (_) {}
+      }
+
+      if (idTokenResult?.claims?['is_banned'] == true) {
+        throw StateError('User account is inactive or banned');
+      }
+
       final claimsRole =
           (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
       final docRole =
           (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
-      const privilegedRoles = {
-        'admin',
-        'super_admin',
-        'accountant',
-        'warehouse_manager',
-        'driver'
-      };
-
-      // 🔒 التحقق الصارم: حظر أي رتبة ذات صلاحية ما لم تكن متطابقة في كلا الطرفين (Claims و Firestore)
-      final isTestAccount = QuickConnectOtpService.isFirebaseTestPhone(
-        data['phone_number']?.toString() ?? '',
+      final role = resolveVerifiedRole(
+        docRole: docRole,
+        claimsRole: claimsRole,
       );
 
-      final String role;
-      if (privilegedRoles.contains(docRole) ||
-          privilegedRoles.contains(claimsRole)) {
-        if ((claimsRole != null && claimsRole == docRole) || isTestAccount) {
-          role = docRole;
-        } else {
-          role = 'merchant';
-        }
-      } else {
-        role = claimsRole ?? docRole;
-      }
       final isActive = data['is_active'] as bool? ?? false;
       final isBanned = data['is_banned'] == true;
       final accountStatus =
           data['account_status']?.toString().trim().toLowerCase() ?? '';
 
       if (isBanned || (!isActive && accountStatus != 'pending')) {
-        throw StateError(
-          'User account is inactive or banned',
-        );
+        throw StateError('User account is inactive or banned');
       }
 
-      await AppStorage.setIsActive(
-        isActive,
-      );
-
-      await AppStorage.setIsBanned(
-        isBanned,
-      );
-
-      // توحيد المعرف دائماً ليتطابق مع Firebase Auth UID لضمان ثبات الجلسة في الراوتر
-      final currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? userId;
+      await AppStorage.setIsActive(isActive);
+      await AppStorage.setIsBanned(isBanned);
 
       await AppStorage.saveUserData(
         userId: currentAuthUid,
@@ -306,9 +331,7 @@ class AuthService {
         storeName: data['store_name'] as String?,
         phone: data['phone_number'] as String?,
       );
-      await NotificationService.instance.saveTokenToFirestore(
-        currentAuthUid,
-      );
+      await NotificationService.instance.saveTokenToFirestore(currentAuthUid);
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(

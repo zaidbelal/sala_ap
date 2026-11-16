@@ -77,7 +77,7 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
         ),
       );
 
-      if (selectedVal != null) {
+      if (selectedVal != null && mounted) {
         if (selectedVal <= 0) {
           onDelete?.call();
         } else {

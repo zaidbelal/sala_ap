@@ -7,6 +7,8 @@ import '../../../../core/constants/app_adaptive_colors.dart';
 import '../../../../core/services/image_precache_service.dart';
 import '../services/products_service.dart';
 import '../../cart/providers/cart_provider.dart';
+import 'package:wissal/core/models/product_unit.dart';
+import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'product_details_sheet.dart';
 
 class ProductCard extends ConsumerStatefulWidget {
@@ -19,59 +21,123 @@ class ProductCard extends ConsumerStatefulWidget {
 
 class _ProductCardState extends ConsumerState<ProductCard> {
   int _qty = 1;
+  int _selectedVariantIndex = 0;
+  ProductUnit? _selectedUnit;
 
-  Future<void> _showManualQtyDialog() async {
-    HapticFeedback.mediumImpact();
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => _ManualQtyDialog(
-        initialQty: _qty,
-        unitLabel: 'كرتون',
-      ),
-    );
+  List<ProductVariant> get _allVariants => widget.product.hasVariants
+      ? widget.product.allVariantsWithBase
+      : const [];
 
-    if (result != null && result > 0 && mounted) {
-      setState(() => _qty = result);
+  ProductVariant? get _activeVariant =>
+      _allVariants.isNotEmpty ? _allVariants[_selectedVariantIndex] : null;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSelection();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProductCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.product.id != widget.product.id) {
+      _initSelection();
     }
   }
 
+  void _initSelection() {
+    _qty = 1;
+    _selectedVariantIndex = 0;
+    _updateSelectedUnit();
+  }
+
+  void _updateSelectedUnit() {
+    final v = _activeVariant;
+    final units = v != null ? v.units : widget.product.units;
+    _selectedUnit = units.isNotEmpty ? units.first : null;
+  }
+
+  double get _currentUnitPrice {
+    if (_selectedUnit != null) return _selectedUnit!.price;
+    if (_activeVariant != null) return _activeVariant!.price;
+    return widget.product.price;
+  }
+
+  String get _currentUnitLabel => _selectedUnit?.label ?? 'كرتون';
+
+  String? get _currentImage {
+    if (_selectedUnit?.imageUrl != null &&
+        _selectedUnit!.imageUrl!.trim().isNotEmpty) {
+      return _selectedUnit!.imageUrl!.trim();
+    }
+    if (_activeVariant?.imageUrl != null &&
+        _activeVariant!.imageUrl!.trim().isNotEmpty) {
+      return _activeVariant!.imageUrl!.trim();
+    }
+    return widget.product.imageUrl;
+  }
+
+  double get _currentStock => _activeVariant?.stock ?? widget.product.baseStock;
+  void _onVariantSelected(int index) {
+    if (_selectedVariantIndex == index) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedVariantIndex = index;
+      _qty = 1;
+      _updateSelectedUnit();
+    });
+  }
+
+  void _onUnitSelected(ProductUnit unit) {
+    if (_selectedUnit?.label == unit.label) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selectedUnit = unit;
+      _qty = 1;
+    });
+  }
+
   void _addToCart() {
-    if (widget.product.stock <= 0) {
+    final v = _activeVariant;
+    final isBaseVariant = v == null || v.id == 'base_default';
+    final effectiveVariant = isBaseVariant ? null : v;
+    final availableStock = _currentStock;
+
+    if (availableStock <= 0) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('عذراً، هذا الصنف غير متوفر حالياً في المستودع',
+          content: Text('عذراً، هذا الحجم غير متوفر حالياً في المستودع',
               style: TextStyle(fontFamily: 'Cairo')),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
-    if (widget.product.stock < 1) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'المتبقي أقل من كرتون كامل، اختر وحدة أصغر من تفاصيل الصنف',
-              style: TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      _openSheet();
-      return;
-    }
-    final cartonCap = (widget.product.itemsPerCarton ?? 1) > 0
-        ? widget.product.itemsPerCarton!
+
+    final cartonCap = (v?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1);
+    final safeCap = cartonCap > 0 ? cartonCap : 1;
+    final unitQty = (_selectedUnit?.qty ?? safeCap) > 0
+        ? (_selectedUnit?.qty ?? safeCap)
         : 1;
+
     double usedCartons = 0.0;
-    for (final item in ref.read(cartProvider).values) {
-      if (item.product.id == widget.product.id) {
-        final uQty = item.selectedUnit?.qty ?? cartonCap;
-        usedCartons += (item.quantity * uQty) / cartonCap;
+    for (final cItem in ref.read(cartProvider).values) {
+      if (cItem.product.id == widget.product.id &&
+          (cItem.selectedVariant?.id ?? '') == (effectiveVariant?.id ?? '')) {
+        final cCap = cItem.selectedVariant?.itemsPerCarton ??
+            cItem.product.itemsPerCarton ??
+            1;
+        final uQty = cItem.selectedUnit?.qty ?? cCap;
+        usedCartons += (cItem.quantity * uQty) / (cCap > 0 ? cCap : 1);
       }
     }
-    final remainingCartons = (widget.product.stock - usedCartons).floor();
-    if (remainingCartons <= 0) {
+
+    final remainingCartons =
+        (availableStock - usedCartons).clamp(0.0, availableStock);
+    final maxAddableUnits = ((remainingCartons * safeCap) / unitQty).floor();
+
+    if (maxAddableUnits <= 0) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -86,29 +152,31 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       return;
     }
 
-    final qtyToAdd = _qty > remainingCartons ? remainingCartons : _qty;
-    if (qtyToAdd != _qty) {
-      setState(() => _qty = qtyToAdd);
-    }
+    final qtyToAdd = _qty > maxAddableUnits ? maxAddableUnits : _qty;
     HapticFeedback.mediumImpact();
 
     ref.read(cartProvider.notifier).addItem(
           widget.product,
           qtyToAdd,
+          unit: _selectedUnit,
+          variant: effectiveVariant,
         );
+
+    final title = !isBaseVariant && v != null
+        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        : '${widget.product.name} - $_currentUnitLabel';
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          qtyToAdd < _qty
-              ? '⚠️ تم إضافة المتبقي فقط ($qtyToAdd كرتون) من (${widget.product.name})'
-              : '✅ تمت إضافة $qtyToAdd من (${widget.product.name}) إلى السلة',
+          '✅ تمت إضافة $qtyToAdd من $title للسلة',
           style: const TextStyle(fontFamily: 'Cairo'),
           textAlign: TextAlign.right,
         ),
         backgroundColor: AppColors.primary,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 85),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(milliseconds: 1500),
       ),
@@ -121,50 +189,78 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ProductDetailsSheet(product: widget.product),
+      builder: (_) => ProductDetailsSheet(
+        product: widget.product,
+        initialVariant: _activeVariant,
+        initialUnit: _selectedUnit,
+      ),
     );
+  }
+
+  Future<void> _showManualQtyDialog() async {
+    HapticFeedback.mediumImpact();
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => _ManualQtyDialog(
+        initialQty: _qty,
+        unitLabel: _currentUnitLabel,
+        productName: _activeVariant != null
+            ? '${widget.product.name} (${_activeVariant!.label})'
+            : widget.product.name,
+      ),
+    );
+
+    if (result != null && result > 0 && mounted) {
+      final v = _activeVariant;
+      final availableStock = _currentStock;
+      final cartonCap =
+          (v?.itemsPerCarton ?? widget.product.itemsPerCarton ?? 1);
+      final safeCap = cartonCap > 0 ? cartonCap : 1;
+      final unitQty = (_selectedUnit?.qty ?? safeCap) > 0
+          ? (_selectedUnit?.qty ?? safeCap)
+          : 1;
+
+      final maxUnits = availableStock > 0
+          ? ((availableStock * safeCap) / unitQty).floor().clamp(1, 999)
+          : 999;
+
+      final finalQty = result > maxUnits ? maxUnits : result;
+      setState(() => _qty = finalQty);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final cartQty = ref.watch(
-      cartProvider.select((c) => c.values
-          .where((item) => item.product.id == widget.product.id)
-          .fold<int>(0, (sum, item) => sum + item.quantity)),
-    );
-    final hasVariants = widget.product.hasVariants;
-    final isOutOfStock = hasVariants
-        ? widget.product.totalStock <= 0
-        : widget.product.stock <= 0;
-    final pageTotal = (hasVariants
-            ? widget.product.effectiveMinPrice
-            : widget.product.price) *
-        _qty;
+    final v = _activeVariant;
+    final isOutOfStock = _currentStock <= 0;
+    final currentPrice = _currentUnitPrice;
+    final pageTotal = currentPrice * _qty;
+    final availableUnits = v != null ? v.units : widget.product.units;
 
-    return GestureDetector(
-      onTap: _openSheet,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        decoration: BoxDecoration(
-          color: context.bgCard,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: context.borderColor),
-          boxShadow: [
-            BoxShadow(
-              color: context.shadowColor.withValues(alpha: 0.05),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── اسم المنتج ──
-              Text(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: context.borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: context.shadowColor.withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── 1. اسم المنتج + شريط الأحجام المتوفرة ──
+            GestureDetector(
+              onTap: _openSheet,
+              child: Text(
                 widget.product.name,
                 style: TextStyle(
                   fontFamily: 'Cairo',
@@ -175,27 +271,96 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 10),
+            ),
 
-              // ── السعر والإجمالي والصورة ──
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'الإجمالي',
-                          style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 11,
-                            color: context.textSecondary,
+            // شريط اختيار الحجم بنقرة واحدة فائقة السلاسة
+            if (_allVariants.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 32,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _allVariants.length,
+                  itemBuilder: (ctx, idx) {
+                    final variant = _allVariants[idx];
+                    final isSel = idx == _selectedVariantIndex;
+                    final vOut = variant.stock <= 0;
+
+                    return GestureDetector(
+                      onTap: () => _onVariantSelected(idx),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsetsDirectional.only(end: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? AppColors.primary
+                              : AppColors.primary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSel
+                                ? AppColors.primary
+                                : (vOut
+                                    ? Colors.red.withValues(alpha: 0.3)
+                                    : AppColors.primary.withValues(alpha: 0.2)),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (vOut) ...[
+                              const Icon(Icons.block_rounded,
+                                  size: 11, color: Colors.red),
+                              const SizedBox(width: 3),
+                            ],
+                            Text(
+                              variant.label,
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight:
+                                    isSel ? FontWeight.w800 : FontWeight.w700,
+                                color: isSel
+                                    ? Colors.white
+                                    : (vOut ? Colors.red : AppColors.primary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 10),
+
+            // ── 2. المنطقة الوسطى (الصورة + الأسعار مع التحديث الفوري) ──
+            Row(
+              children: [
+                // الإجمالي
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'الإجمالي',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          color: context.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: Text(
+                          key: ValueKey(pageTotal),
                           '${pageTotal.toStringAsFixed(0)} ر.ي',
                           style: TextStyle(
                             fontFamily: 'Cairo',
@@ -204,26 +369,32 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                             color: context.textPrimary,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          hasVariants ? 'ابتداءً من' : 'سعر الكرتون',
-                          style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 11,
-                            color: context.textSecondary,
-                          ),
+                ),
+
+                // سعر الوحدة المحددة
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'سعر $_currentUnitLabel',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          color: context.textSecondary,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${(hasVariants ? widget.product.effectiveMinPrice : widget.product.price).toStringAsFixed(0)} ر.ي',
+                      ),
+                      const SizedBox(height: 2),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: Text(
+                          key: ValueKey('${currentPrice}_$_currentUnitLabel'),
+                          '${currentPrice.toStringAsFixed(0)} ر.ي',
                           style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 15,
@@ -231,216 +402,210 @@ class _ProductCardState extends ConsumerState<ProductCard> {
                             color: context.textPrimary,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _openSheet,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        width: 76,
-                        height: 76,
-                        color: context.bgInput,
-                        child: widget.product.imageUrl != null &&
-                                widget.product.imageUrl!.isNotEmpty
-                            ? CachedNetworkImage(
-                                cacheManager:
-                                    ImagePrecacheService.instance.cacheManager,
-                                imageUrl: widget.product.imageUrl!,
-                                fit: BoxFit.contain,
-                                memCacheWidth: 200,
-                                placeholder: (_, __) => const Center(
-                                  child: Icon(Icons.inventory_2_outlined,
-                                      color: Colors.grey, size: 28),
-                                ),
-                                errorWidget: (_, __, ___) => const Center(
-                                  child: Icon(Icons.inventory_2_outlined,
-                                      color: AppColors.primary, size: 28),
-                                ),
-                              )
-                            : const Center(
+                ),
+
+                const SizedBox(width: 10),
+
+                // صورة المنتج أو الحجم أو الوحدة المحددة
+                GestureDetector(
+                  onTap: _openSheet,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: 76,
+                      height: 76,
+                      color: context.bgInput,
+                      child: _currentImage != null && _currentImage!.isNotEmpty
+                          ? CachedNetworkImage(
+                              cacheManager:
+                                  ImagePrecacheService.instance.cacheManager,
+                              imageUrl: _currentImage!,
+                              fit: BoxFit.contain,
+                              memCacheWidth: 200,
+                              placeholder: (_, __) => const Center(
+                                child: Icon(Icons.inventory_2_outlined,
+                                    color: Colors.grey, size: 28),
+                              ),
+                              errorWidget: (_, __, ___) => const Center(
                                 child: Icon(Icons.inventory_2_outlined,
                                     color: AppColors.primary, size: 28),
                               ),
-                      ),
+                            )
+                          : const Center(
+                              child: Icon(Icons.inventory_2_outlined,
+                                  color: AppColors.primary, size: 28),
+                            ),
                     ),
                   ),
-                ],
-              ),
-
-              if (hasVariants) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: widget.product.variants.map((v) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: AppColors.primary.withValues(alpha: 0.2)),
-                      ),
-                      child: Text(
-                        '${v.label} (${v.price.toStringAsFixed(0)} ر.ي)',
-                        style: const TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    );
-                  }).toList(),
                 ),
-              ] else ...[
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (cartQty > 0) ...[
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            const Icon(Icons.shopping_cart_rounded,
-                                size: 16, color: AppColors.primary),
-                            Positioned(
-                              top: -7,
-                              right: -7,
-                              child: Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: const BoxDecoration(
-                                    color: Colors.red, shape: BoxShape.circle),
-                                child: Text(
-                                  '$cartQty',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                    ],
-                    GestureDetector(
-                      onTap: () {
-                        if (_qty > 1) {
-                          HapticFeedback.lightImpact();
-                          setState(() => _qty--);
-                        }
-                      },
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: context.bgInput,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: context.borderColor),
-                        ),
-                        child: Icon(
-                          Icons.remove_rounded,
-                          color: _qty > 1
-                              ? context.textPrimary
-                              : Colors.grey.shade400,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onDoubleTap: _showManualQtyDialog,
-                      child: Container(
+              ],
+            ),
+
+            // ── 3. شريط وحدات الحجم المحدد (كرتون / نصف كرتون / حبة) ──
+            if (availableUnits.length > 1) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 28,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: availableUnits.length,
+                  itemBuilder: (ctx, uIdx) {
+                    final unit = availableUnits[uIdx];
+                    final isSelUnit = _selectedUnit?.label == unit.label;
+
+                    return GestureDetector(
+                      onTap: () => _onUnitSelected(unit),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        margin: const EdgeInsetsDirectional.only(end: 6),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                            horizontal: 9, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: isSelUnit
+                              ? const Color(0xFF1B8E3D)
+                              : context.bgInput,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelUnit
+                                ? const Color(0xFF1B8E3D)
+                                : context.borderColor,
+                          ),
+                        ),
                         child: Text(
-                          '$_qty',
-                          textAlign: TextAlign.center,
+                          '${unit.label} (${unit.price.toStringAsFixed(0)} ر.ي)',
                           style: TextStyle(
                             fontFamily: 'Cairo',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: context.textPrimary,
+                            fontSize: 10.5,
+                            fontWeight:
+                                isSelUnit ? FontWeight.w800 : FontWeight.w600,
+                            color:
+                                isSelUnit ? Colors.white : context.textPrimary,
                           ),
                         ),
                       ),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        final maxWholeCartons =
-                            widget.product.stock.floor().clamp(1, 999);
-                        if (_qty < maxWholeCartons) {
-                          HapticFeedback.lightImpact();
-                          setState(() => _qty++);
-                        }
-                      },
-                      child: Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.add_rounded,
-                            color: Colors.white, size: 20),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 12),
-
-              SizedBox(
-                width: double.infinity,
-                height: 46,
-                child: ElevatedButton.icon(
-                  onPressed: isOutOfStock
-                      ? null
-                      : (hasVariants ? _openSheet : _addToCart),
-                  icon: Icon(
-                      isOutOfStock
-                          ? Icons.remove_shopping_cart_rounded
-                          : (hasVariants
-                              ? Icons.tune_rounded
-                              : Icons.shopping_cart_outlined),
-                      size: 19),
-                  label: Text(
-                    isOutOfStock
-                        ? 'نفد المخزون'
-                        : (hasVariants
-                            ? 'اختيار الحجم والكمية${cartQty > 0 ? " ($cartQty بالسلة)" : ""}'
-                            : 'إضافة للسلة'),
-                    style: const TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        isOutOfStock ? Colors.grey : AppColors.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
             ],
-          ),
+
+            const SizedBox(height: 12),
+
+            // ── 4. عداد الكمية (+ / -) وزر الإضافة للسلة المباشر ──
+            Row(
+              children: [
+                // أزرار التحكم بالكمية
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.bgInput,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: context.borderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          if (_qty > 1) {
+                            HapticFeedback.lightImpact();
+                            setState(() => _qty--);
+                          }
+                        },
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: context.bgInput,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.remove_rounded,
+                            color: _qty > 1
+                                ? context.textPrimary
+                                : Colors.grey.shade400,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _showManualQtyDialog,
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
+                          child: Text(
+                            '$_qty',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          setState(() => _qty++);
+                        },
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.add_rounded,
+                              color: Colors.white, size: 18),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                // زر الإضافة للسلة المباشر
+                Expanded(
+                  child: SizedBox(
+                    height: 42,
+                    child: ElevatedButton.icon(
+                      onPressed: isOutOfStock ? null : _addToCart,
+                      icon: Icon(
+                        isOutOfStock
+                            ? Icons.remove_shopping_cart_rounded
+                            : Icons.shopping_cart_outlined,
+                        size: 17,
+                      ),
+                      label: Text(
+                        isOutOfStock
+                            ? 'نفد المخزون'
+                            : 'إضافة ($_currentUnitLabel)',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            isOutOfStock ? Colors.grey : AppColors.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -448,15 +613,17 @@ class _ProductCardState extends ConsumerState<ProductCard> {
 }
 
 // ══════════════════════════════════════════════════════
-// نافذة إدخال الكمية اليدوية الآمنة والخالية من الأخطاء
+// نافذة إدخال الكمية اليدوية وتدعم الأرقام العربية والإنجليزية
 // ══════════════════════════════════════════════════════
 class _ManualQtyDialog extends StatefulWidget {
   final int initialQty;
   final String unitLabel;
+  final String productName;
 
   const _ManualQtyDialog({
     required this.initialQty,
     required this.unitLabel,
+    required this.productName,
   });
 
   @override
@@ -474,25 +641,12 @@ class _ManualQtyDialogState extends State<_ManualQtyDialog> {
 
   @override
   void dispose() {
-    _controller.dispose(); // يُحذف بأمان تام فقط بعد إغلاق النافذة بالكامل
+    _controller.dispose();
     super.dispose();
   }
 
   void _submit() {
-    const arabic = {
-      '٠': '0',
-      '١': '1',
-      '٢': '2',
-      '٣': '3',
-      '٤': '4',
-      '٥': '5',
-      '٦': '6',
-      '٧': '7',
-      '٨': '8',
-      '٩': '9'
-    };
-    var text = _controller.text.trim();
-    arabic.forEach((k, v) => text = text.replaceAll(k, v));
+    final text = ArabicNormalizer.normalizeDigits(_controller.text).trim();
     final val = int.tryParse(text);
     FocusScope.of(context).unfocus();
     Navigator.pop(context, (val != null && val > 0) ? val : null);
@@ -517,7 +671,20 @@ class _ManualQtyDialogState extends State<_ManualQtyDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'أدخل عدد الكراتين / الحبات المطلوبة مباشرة:',
+            widget.productName,
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: context.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'أدخل عدد (${widget.unitLabel}) المطلوبة:',
             style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 12,
@@ -535,34 +702,13 @@ class _ManualQtyDialogState extends State<_ManualQtyDialog> {
             onSubmitted: (_) => _submit(),
             inputFormatters: [
               TextInputFormatter.withFunction((oldVal, newVal) {
-                const arabic = {
-                  '٠': '0',
-                  '١': '1',
-                  '٢': '2',
-                  '٣': '3',
-                  '٤': '4',
-                  '٥': '5',
-                  '٦': '6',
-                  '٧': '7',
-                  '٨': '8',
-                  '٩': '9',
-                  '۰': '0',
-                  '۱': '1',
-                  '۲': '2',
-                  '۳': '3',
-                  '۴': '4',
-                  '۵': '5',
-                  '۶': '6',
-                  '۷': '7',
-                  '۸': '8',
-                  '۹': '9'
-                };
-                var t = newVal.text;
-                arabic.forEach((k, v) => t = t.replaceAll(k, v));
-                t = t.replaceAll(RegExp(r'[^0-9]'), '');
+                // تحويل الأرقام العربية المشرقية (١، ٢، ٣...) تلقائياً لأرقام قياسية
+                final normalized =
+                    ArabicNormalizer.normalizeDigits(newVal.text);
+                final digitsOnly = normalized.replaceAll(RegExp(r'[^0-9]'), '');
                 return TextEditingValue(
-                  text: t,
-                  selection: TextSelection.collapsed(offset: t.length),
+                  text: digitsOnly,
+                  selection: TextSelection.collapsed(offset: digitsOnly.length),
                 );
               }),
               LengthLimitingTextInputFormatter(4),
@@ -581,6 +727,11 @@ class _ManualQtyDialogState extends State<_ManualQtyDialog> {
                 borderRadius: BorderRadius.circular(14),
                 borderSide:
                     const BorderSide(color: AppColors.primary, width: 1.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide:
+                    const BorderSide(color: AppColors.primary, width: 2),
               ),
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
             ),

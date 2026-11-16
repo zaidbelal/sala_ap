@@ -85,10 +85,8 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
     setState(() => _isSigningOut = true);
 
     try {
-      ref.read(cartProvider.notifier).clear();
-      ref.invalidate(cartProvider);
+      await ref.read(cartProvider.notifier).clearAsync();
       await ref.read(authServiceProvider).signOut();
-
       if (!mounted) return;
       context.go('/login');
     } finally {

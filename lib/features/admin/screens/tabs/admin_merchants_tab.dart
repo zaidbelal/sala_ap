@@ -27,9 +27,9 @@ class MerchantsPaginationNotifier
   DocumentSnapshot? _lastDoc;
   bool _hasMore = true;
   static const int _pageSize = 30;
+  int _requestGeneration = 0;
   String currentQuery = '';
   _Filter currentFilter = _Filter.all;
-
   bool get hasMore => _hasMore;
   Query<Map<String, dynamic>> _buildBaseQuery(_Filter filter) {
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
@@ -53,6 +53,8 @@ class MerchantsPaginationNotifier
   Future<void> loadInitial(
       {String query = '', _Filter filter = _Filter.all}) async {
     if (!mounted) return;
+    final gen = ++_requestGeneration;
+    _lastDoc = null;
     currentQuery = query.trim();
     currentFilter = filter;
     state = const AsyncValue.loading();
@@ -61,8 +63,7 @@ class MerchantsPaginationNotifier
       final snap = await _buildBaseQuery(filter)
           .limit(fetchLimit)
           .get(const GetOptions(source: Source.serverAndCache));
-      if (!mounted) return;
-
+      if (!mounted || gen != _requestGeneration) return;
       _lastDoc = snap.docs.isNotEmpty ? snap.docs.last : null;
       _hasMore = currentQuery.isEmpty && snap.docs.length == _pageSize;
       final list = snap.docs.map((doc) {
@@ -253,7 +254,14 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
     );
   }
 
-// ── فلاتر الحالة الفورية فائقة السلاسة بدون وميض أو تجميد شاشة (0ms) ──
+  void _selectFilter(_Filter next) {
+    if (_filter == next) return;
+    setState(() => _filter = next);
+    ref
+        .read(_merchantsProvider.notifier)
+        .loadInitial(query: _search, filter: next);
+  }
+
   Widget _buildFilterChips() {
     return SizedBox(
       height: 36,
@@ -265,37 +273,25 @@ class _AdminMerchantsTabState extends ConsumerState<AdminMerchantsTab> {
               label: 'الكل',
               filter: _Filter.all,
               current: _filter,
-              onTap: () {
-                if (_filter != _Filter.all)
-                  setState(() => _filter = _Filter.all);
-              }),
+              onTap: () => _selectFilter(_Filter.all)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'مفعّل',
               filter: _Filter.active,
               current: _filter,
-              onTap: () {
-                if (_filter != _Filter.active)
-                  setState(() => _filter = _Filter.active);
-              }),
+              onTap: () => _selectFilter(_Filter.active)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'معطّل',
               filter: _Filter.inactive,
               current: _filter,
-              onTap: () {
-                if (_filter != _Filter.inactive)
-                  setState(() => _filter = _Filter.inactive);
-              }),
+              onTap: () => _selectFilter(_Filter.inactive)),
           const SizedBox(width: 8),
           _FilterChip(
               label: 'محظور',
               filter: _Filter.banned,
               current: _filter,
-              onTap: () {
-                if (_filter != _Filter.banned)
-                  setState(() => _filter = _Filter.banned);
-              }),
+              onTap: () => _selectFilter(_Filter.banned)),
         ],
       ),
     );

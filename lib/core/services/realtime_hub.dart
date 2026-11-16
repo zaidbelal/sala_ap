@@ -14,6 +14,7 @@ import 'connectivity_service.dart';
 import 'package:wissal/core/services/app_cache.dart';
 import 'package:wissal/features/merchant/cart/providers/cart_provider.dart';
 import 'package:wissal/core/utils/arabic_normalizer.dart';
+import 'package:wissal/features/auth/login/services/auth_service.dart';
 // ══════════════════════════════════════════════════════════
 //  RealtimeHub — Production-Grade
 // ══════════════════════════════════════════════════════════
@@ -322,25 +323,33 @@ class RealtimeHub {
         return;
       }
       if (wasInactive && isActive) {
-        // 🔒 التحقق المشفر من الصلاحيات لمنع تصعيد الرتب دون تفويض
         String verifiedRole = 'merchant';
         try {
-          final tokenResult =
-              await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
-          final claimRole =
-              (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-          const privileged = {
-            'admin',
-            'super_admin',
-            'accountant',
-            'warehouse_manager',
-            'driver'
-          };
-          if (privileged.contains(newRole)) {
-            verifiedRole = (claimRole == newRole) ? newRole : 'merchant';
-          } else {
-            verifiedRole = claimRole ?? newRole;
+          final tokenResult = await FirebaseAuth.instance.currentUser
+              ?.getIdTokenResult(true)
+              .timeout(const Duration(seconds: 5));
+          if (tokenResult?.claims?['is_banned'] == true) {
+            await AuthService().signOut(container: _container);
+            final navContext = NotificationService.navigatorKey.currentContext;
+            if (navContext != null && navContext.mounted) {
+              navContext.go('/login');
+            }
+            return;
           }
+          verifiedRole = AuthService.resolveVerifiedRole(
+            docRole: newRole,
+            claimsRole: tokenResult?.claims?['role']?.toString(),
+          );
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-token-revoked' || e.code == 'user-disabled') {
+            await AuthService().signOut(container: _container);
+            final navContext = NotificationService.navigatorKey.currentContext;
+            if (navContext != null && navContext.mounted) {
+              navContext.go('/login');
+            }
+            return;
+          }
+          verifiedRole = 'merchant';
         } catch (_) {
           verifiedRole = 'merchant';
         }
@@ -350,19 +359,18 @@ class RealtimeHub {
           userId: userId,
           role: verifiedRole,
           name: data['full_name'] as String?,
-          storeName: data['store_name'] as String?, // 👈 حفظ اسم المتجر
+          storeName: data['store_name'] as String?,
           phone: data['phone_number'] as String?,
         );
         unawaited(NotificationService.instance.saveTokenToFirestore(userId));
-        // 🚀 تصفير مؤشر الرتبة وإعادة إطلاق قنوات البث المباشر المصرحة فوراً لمنع تجمد الطلبات
         _activeUserRole = null;
         Future.microtask(() async {
           if (AppStorage.userId == userId && _initialized) {
-            await startForUser(userId, role: newRole);
+            await startForUser(userId, role: verifiedRole);
           }
         });
 
-        final targetRoute = switch (newRole) {
+        final targetRoute = switch (verifiedRole) {
           'admin' ||
           'super_admin' ||
           'accountant' ||
@@ -408,6 +416,14 @@ class RealtimeHub {
         if (networkFailed && tokenResult == null) {
           return;
         }
+        if (tokenResult?.claims?['is_banned'] == true) {
+          await AuthService().signOut(container: _container);
+          final navContext = NotificationService.navigatorKey.currentContext;
+          if (navContext != null && navContext.mounted) {
+            navContext.go('/login');
+          }
+          return;
+        }
 
         final verifiedClaimRole =
             (tokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
@@ -416,15 +432,18 @@ class RealtimeHub {
           'super_admin',
           'accountant',
           'warehouse_manager',
-          'driver'
+          'driver',
         };
 
         final bool isAwaitingClaims =
             privileged.contains(newRole) && verifiedClaimRole != newRole;
 
-        final secureRole =
-            isAwaitingClaims ? (AppStorage.userRole ?? 'merchant') : newRole;
-
+        final secureRole = isAwaitingClaims
+            ? (AppStorage.userRole ?? 'merchant')
+            : AuthService.resolveVerifiedRole(
+                docRole: newRole,
+                claimsRole: verifiedClaimRole,
+              );
         await AppStorage.saveUserData(
           userId: userId,
           role: secureRole,
@@ -740,21 +759,29 @@ class RealtimeHub {
     final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'preparing'];
 
-    // استعلام لا يتطلب Composite Index إجباري مع ترتيب زمني فوري في الذاكرة
+    // استخدام الفهرس المركب (status ASC, created_at DESC) لضمان وصول أحدث الطلبات غير المسندة أولاً
     final sub = _db
         .collection('orders')
         .where('status', whereIn: targetStatuses)
-        .limit(50)
+        .orderBy('created_at', descending: true)
+        .limit(100)
         .snapshots()
         .listen(
       (snap) {
-        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
+        final unassignedDocs = snap.docs.where((d) {
+          final driverId = d.data()['driver_id']?.toString().trim();
+          return driverId == null || driverId.isEmpty;
+        }).toList();
+
+        final data = unassignedDocs
+            .map((d) => {'id': d.id, ...d.data()})
+            .toList()
           ..sort((a, b) => AppDateParser.parse(b['created_at'])
               .compareTo(AppDateParser.parse(a['created_at'])));
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
         final currentIds = LinkedHashSet<String>.from(
-          snap.docs.map((doc) => doc.id),
+          unassignedDocs.map((doc) => doc.id),
         );
 
         for (final id in currentIds) {

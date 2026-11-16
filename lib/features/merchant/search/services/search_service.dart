@@ -270,23 +270,30 @@ class SearchService {
       if (matches.length >= resultLimit || page.docs.length < pageSize) break;
       cursor = page.docs.last;
     }
+// 2. بحث موسع مطبّع في الكاش ثم دفعة السيرفر (للكلمات الوسطى واختلاف ة/ه وى/ي)
+    if (matches.length < resultLimit) {
+      final cachedList = switch (collectionName) {
+        'products' => AppCache.instance.getAllCachedProducts(),
+        'brands' => AppCache.instance.getBrands() ?? const [],
+        'categories' => AppCache.instance.getCategories() ?? const [],
+        _ => const <Map<String, dynamic>>[],
+      };
 
-    // 2. بحث موسع شامل في الكاش ثم في دفعة السيرفر للكلمات الوسطى والأسماء الإنجليزية
-    if (matches.length < resultLimit && collectionName == 'products') {
-      final cachedProducts = AppCache.instance.getAllCachedProducts();
-      for (final product in cachedProducts) {
-        if (product['is_deleted'] == true || product['is_active'] == false) {
+      for (final item in cachedList) {
+        if (item['is_deleted'] == true || item['is_active'] == false) {
           continue;
         }
-        if (_matchesTokens(product['name']?.toString() ?? '', tokens)) {
-          matches[product['id'].toString()] = product;
+        if (_matchesTokens(item['name']?.toString() ?? '', tokens)) {
+          matches[item['id'].toString()] = item;
           if (matches.length >= resultLimit) break;
         }
       }
+
       if (matches.length < resultLimit) {
+        final fallbackLimit = collectionName == 'products' ? 300 : 150;
         final fallbackSnap = await collection
             .where('is_deleted', isEqualTo: false)
-            .limit(300)
+            .limit(fallbackLimit)
             .get(const GetOptions(source: Source.serverAndCache));
         for (final doc in fallbackSnap.docs) {
           final data = doc.data();
@@ -298,7 +305,6 @@ class SearchService {
         }
       }
     }
-
     return matches.values.toList(growable: false);
   }
 

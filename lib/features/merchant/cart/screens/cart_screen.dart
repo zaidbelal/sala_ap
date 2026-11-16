@@ -31,11 +31,12 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   Future<void> _syncCartPrices() async {
+    if (!mounted) return;
     final cart = ref.read(cartProvider);
     if (cart.isEmpty) return;
     final bool hasInternet = await ConnectivityHelper.hasActiveInternet();
     // 🛡️ حماية السلة: منع التحقق الجزئي أوفلاين لحماية أصناف التاجر من الحذف الخاطئ
-    if (!hasInternet) return;
+    if (!hasInternet || !mounted) return;
 
     final cartProductIds =
         cart.values.map((e) => e.product.id).toSet().toList();
@@ -54,6 +55,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
               .collection('products')
               .where(FieldPath.documentId, whereIn: chunk)
               .get(const GetOptions(source: Source.server));
+          if (!mounted) return;
           latestProducts
               .addAll(snap.docs.map((d) => {...d.data(), 'id': d.id}));
           successfullyQueriedIds.addAll(chunk);
@@ -61,7 +63,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
           // في حال فشل أي Chunk شبكياً، لا نعتبر منتجاته محذوفة ونحفظها للمحاولة القادمة
         }
       }
-      if (successfullyQueriedIds.isEmpty) return;
+      if (!mounted || successfullyQueriedIds.isEmpty) return;
 
       final hasChanges =
           ref.read(cartProvider.notifier).validateAndUpdatePrices(
@@ -87,6 +89,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   void _handleDelete(CartItem item) {
+    if (!mounted) return;
     ref.read(cartProvider.notifier).removeItem(item.cartKey);
     HapticFeedback.lightImpact();
     if (mounted) {
@@ -95,6 +98,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   void _openQuickAdd() {
+    if (!mounted) return;
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
@@ -105,18 +109,21 @@ class _CartScreenState extends ConsumerState<CartScreen> {
   }
 
   void _goToCheckout() {
+    if (!mounted) return;
     final cart = ref.read(cartProvider);
     if (cart.isEmpty) return;
 
     final uid = AppStorage.userId;
 
     if (uid == null || uid.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('يرجى تسجيل الدخول أولاً',
-            style: TextStyle(fontFamily: 'Cairo')),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('يرجى تسجيل الدخول أولاً',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
       return;
     }
 

@@ -1,6 +1,6 @@
 ﻿{
   "indexes": [
-  {
+    {
       "collectionGroup": "products",
       "queryScope": "COLLECTION",
       "fields": [
@@ -16,7 +16,7 @@
         { "fieldPath": "all_barcodes", "arrayConfig": "CONTAINS" }
       ]
     },
- {
+    {
       "collectionGroup": "products",
       "queryScope": "COLLECTION",
       "fields": [
@@ -38,15 +38,7 @@
         { "fieldPath": "is_deleted", "order": "ASCENDING" }
       ]
     },
-  {
-      "collectionGroup": "products",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "brand_id", "order": "ASCENDING" },
-        { "fieldPath": "is_deleted", "order": "ASCENDING" }
-      ]
-    },
-{
+    {
       "collectionGroup": "products",
       "queryScope": "COLLECTION",
       "fields": [
@@ -64,14 +56,6 @@
       ]
     },
     {
-      "collectionGroup": "orders",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "driver_id", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "products",
       "queryScope": "COLLECTION",
       "fields": [
@@ -79,7 +63,7 @@
         { "fieldPath": "name", "order": "ASCENDING" }
       ]
     },
-  {
+    {
       "collectionGroup": "profiles",
       "queryScope": "COLLECTION",
       "fields": [
@@ -182,5 +166,4 @@
     }
   ],
   "fieldOverrides": []
-  
 }

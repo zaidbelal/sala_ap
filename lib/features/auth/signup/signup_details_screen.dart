@@ -135,7 +135,7 @@ class _SignupDetailsScreenState extends ConsumerState<SignupDetailsScreen>
       builder: (_) =>
           MapLocationPickerSheet(initialLocation: _selectedLocation),
     );
-    if (result != null) {
+    if (result != null && mounted) {
       setState(() {
         _selectedLocation = result;
         _locationError = '';

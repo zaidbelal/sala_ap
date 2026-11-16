@@ -90,7 +90,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (path == AppRoutes.splash) {
         return null;
       }
-      final firebaseUser = FirebaseAuth.instance.currentUser;
 
       // 1. إذا كان المستخدم غير مسجل محلياً، يُمنع دخوله لأي مسار خاص ويُوجّه لتسجيل الدخول فوراً
       if (AppStorage.userId == null || !AppStorage.isLoggedIn) {
@@ -100,9 +99,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return null;
       }
 
+      final firebaseUser = FirebaseAuth.instance.currentUser;
       final hasMatchingFirebaseSession =
           firebaseUser != null && firebaseUser.uid == AppStorage.userId;
       if (!hasMatchingFirebaseSession) {
+        // حماية الجلسة: إذا كانت شاشة البداية لا تزال نشطة فلا تطرد المستخدم قبل انتهاء فحصها
+        if (NotificationService.isSplashActive || path == AppRoutes.splash) {
+          return null;
+        }
         if (path == AppRoutes.login ||
             path == AppRoutes.signup ||
             path == AppRoutes.otp ||
@@ -343,9 +347,10 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
     if (_isChecking) return;
     setState(() => _isChecking = true);
     try {
-      final uid = AppStorage.userId ?? FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) {
-        context.go(AppRoutes.login);
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      final uid = AppStorage.userId;
+      if (firebaseUser == null || uid == null || firebaseUser.uid != uid) {
+        if (mounted) context.go(AppRoutes.login);
         return;
       }
 
@@ -356,51 +361,72 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
 
       if (!mounted) return;
 
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final isActive = data['is_active'] as bool? ?? false;
-        final isBanned = data['is_banned'] == true;
-        final role =
-            (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      if (!doc.exists || doc.data() == null) {
+        final container = ProviderScope.containerOf(context);
+        await container.read(authServiceProvider).signOut(container: container);
+        if (mounted) context.go(AppRoutes.login);
+        return;
+      }
 
-        if (isBanned) {
+      final data = doc.data()!;
+      final isActive = data['is_active'] as bool? ?? false;
+      final isBanned = data['is_banned'] == true;
+      final isDeleted = data['is_deleted'] == true;
+      final accountStatus =
+          data['account_status']?.toString().trim().toLowerCase() ?? '';
+      final docRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+
+      if (isBanned || isDeleted || (!isActive && accountStatus != 'pending')) {
+        final container = ProviderScope.containerOf(context);
+        await container.read(authServiceProvider).signOut(container: container);
+        if (mounted) context.go(AppRoutes.login);
+        return;
+      }
+
+      if (isActive) {
+        final tokenResult = await firebaseUser
+            .getIdTokenResult(true)
+            .timeout(const Duration(seconds: 5));
+
+        if (!mounted) return;
+        if (tokenResult.claims?['is_banned'] == true) {
           final container = ProviderScope.containerOf(context);
-          await container.read(authServiceProvider).signOut();
+          await container
+              .read(authServiceProvider)
+              .signOut(container: container);
           if (mounted) context.go(AppRoutes.login);
           return;
         }
-        // إذا وافقت الإدارة وتم التفعيل: توجيهه فوراً وتشغيل قنواته اللحظية
-        if (isActive) {
-          // 🚀 تجديد التوكن المشفر قسرياً لالتقاط الصلاحيات الجديدة فوراً
-          try {
-            await FirebaseAuth.instance.currentUser?.getIdTokenResult(true);
-          } catch (_) {}
 
-          await AppStorage.setIsActive(true);
-          await AppStorage.saveUserData(
-            userId: uid,
-            role: role,
-            name: data['full_name'] as String?,
-            storeName: data['store_name'] as String?, // 👈 حفظ اسم المتجر
-            phone: data['phone_number'] as String?,
-          );
-          await RealtimeHub().startForUser(uid, role: role);
-          if (mounted) {
-            final target = switch (role) {
-              'admin' ||
-              'super_admin' ||
-              'accountant' ||
-              'warehouse_manager' =>
-                AppRoutes.adminHome,
-              'driver' => AppRoutes.driverHome,
-              _ => AppRoutes.merchantHome,
-            };
-            context.go(target);
-          }
-          return;
+        final verifiedRole = AuthService.resolveVerifiedRole(
+          docRole: docRole,
+          claimsRole: tokenResult.claims?['role']?.toString(),
+        );
+
+        await AppStorage.setIsActive(true);
+        await AppStorage.saveUserData(
+          userId: uid,
+          role: verifiedRole,
+          name: data['full_name'] as String?,
+          storeName: data['store_name'] as String?,
+          phone: data['phone_number'] as String?,
+        );
+        await RealtimeHub().startForUser(uid, role: verifiedRole);
+        if (mounted) {
+          final target = switch (verifiedRole) {
+            'admin' ||
+            'super_admin' ||
+            'accountant' ||
+            'warehouse_manager' =>
+              AppRoutes.adminHome,
+            'driver' => AppRoutes.driverHome,
+            _ => AppRoutes.merchantHome,
+          };
+          context.go(target);
         }
+        return;
       }
-
       // إذا لم يتم التفعيل بعد: رسالة تنبيه لطيفة بدون أي طرد
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -536,10 +562,10 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
                   onPressed: () async {
                     try {
                       final container = ProviderScope.containerOf(context);
-                      await container.read(authServiceProvider).signOut(
-                            onClearCart: () =>
-                                container.read(cartProvider.notifier).clear(),
-                          );
+                      await container.read(cartProvider.notifier).clearAsync();
+                      await container
+                          .read(authServiceProvider)
+                          .signOut(container: container);
                     } catch (_) {}
                     if (context.mounted) {
                       context.go(AppRoutes.login);
