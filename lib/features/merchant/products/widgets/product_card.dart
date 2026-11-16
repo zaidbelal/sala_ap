@@ -162,7 +162,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
           variant: effectiveVariant,
         );
 
-    final title = !isBaseVariant && v != null
+    final title = !isBaseVariant
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
 

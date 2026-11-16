@@ -2414,7 +2414,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         'cost_price': parsedCost,
         if (stockWasManuallyChanged) ...{
           'base_stock_delta': stockDelta,
-          'has_base_stock': (newStockInput ?? 0) > 0,
+          'has_base_stock': (newStockInput) > 0,
         },
         'items_per_carton': parsedItems,
         'size_text': customSizeText,

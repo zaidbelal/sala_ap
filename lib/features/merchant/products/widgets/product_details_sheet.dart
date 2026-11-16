@@ -208,7 +208,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
           unit: _selectedUnit,
           variant: effectiveVariant,
         );
-    final title = !isBaseVariant && v != null
+    final title = !isBaseVariant
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
     Navigator.pop(context);
