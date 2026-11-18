@@ -393,12 +393,20 @@ class OrderCalculator {
 
       const unitLabel = String(item.unit_label || "كرتون").trim();
       const isCarton = (unitLabel === "كرتون");
-      const availableUnits = Array.isArray(selectedVariant?.units ?? product.units) ? (selectedVariant?.units ?? product.units) : [];
+    const rawVariantUnits = Array.isArray(selectedVariant?.units) ? selectedVariant.units : [];
+      const rawProductUnits = Array.isArray(product.units) ? product.units : [];
+      const availableUnits = rawVariantUnits.length > 0 ? rawVariantUnits : rawProductUnits;
       let selectedUnit = availableUnits.find((u) => String(u.label || "").trim() === unitLabel);
 
       let unitQty = 1;
       if (selectedUnit) {
-        unitPrice = Number(selectedUnit.price);
+        // احتساب السعر التناسبي للوحدة في حال توريثها من المنتج الأساسي للحجم
+        if (selectedVariant && rawVariantUnits.length === 0 && Number(product.price) > 0) {
+          const ratio = Number(selectedVariant.price) / Number(product.price);
+          unitPrice = isCarton ? Number(selectedVariant.price) : Number((Number(selectedUnit.price) * ratio).toFixed(2));
+        } else {
+          unitPrice = Number(selectedUnit.price);
+        }
         unitQty = isCarton ? cartonItems : (Number(selectedUnit.qty) || 1);
       } else if (isCarton) {
         unitPrice = Number(selectedVariant?.price ?? product.price);

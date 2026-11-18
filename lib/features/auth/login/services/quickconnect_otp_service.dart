@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 class OtpVerificationRejected implements Exception {
   final String message;
@@ -12,6 +13,7 @@ class OtpVerificationRejected implements Exception {
 
 class QuickConnectOtpService {
   QuickConnectOtpService._();
+  static ConfirmationResult? _webConfirmationResult;
   static final FirebaseFunctions functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
   // ════════════════════════════════════════════════════════════
@@ -110,10 +112,24 @@ class QuickConnectOtpService {
     final cleanPhone = phone.trim();
     if (cleanPhone.isEmpty) {
       throw StateError('رقم الهاتف غير صحيح');
-    }
-
-    // ── 1. إذا كان رقم اختبار تجريبي معتمد: استخدم Firebase مباشرة في وضع الإنتاج والتطوير لمراجعي المتاجر ──
+    } // ── 1. إذا كان رقم اختبار تجريبي معتمد: استخدم Firebase مباشرة مع دعم بيئة الويب ──
     if (isFirebaseTestPhone(cleanPhone)) {
+      if (kIsWeb) {
+        try {
+          _webConfirmationResult =
+              await FirebaseAuth.instance.signInWithPhoneNumber(cleanPhone);
+          return 'fb_test_web';
+        } catch (e) {
+          final errStr = e.toString().toLowerCase();
+          if (errStr.contains('api-key-expired') ||
+              errStr.contains('invalid-api-key')) {
+            throw StateError(
+                'مفتاح Web API منتهي الصلاحية في Google Cloud. يرجى تجديده من الكونسول.');
+          }
+          throw StateError('تعذر إرسال رمز الاختبار على الويب: $e');
+        }
+      }
+
       final completer = Completer<String>();
       try {
         await FirebaseAuth.instance.verifyPhoneNumber(
@@ -148,7 +164,6 @@ class QuickConnectOtpService {
         throw StateError('تعذر إرسال رمز الاختبار: $e');
       }
     }
-
     // ── 2. للأرقام الحقيقية لجميع التجار: إرسال فوري إلى الواتساب عبر Green-API ──
     try {
       final callable = functions.httpsCallable(
@@ -189,11 +204,26 @@ class QuickConnectOtpService {
     if (!RegExp(r'^\d{6}$').hasMatch(cleanCode)) {
       throw const OtpVerificationRejected('أدخل رمز التحقق المكوّن من 6 أرقام');
     }
-
-    // ── 1. إذا كان التوثيق عبر رقم تجريبي لفايربيز ──
+// ── 1. إذا كان التوثيق عبر رقم تجريبي لفايربيز ──
     if (verificationId.startsWith('fb_test_')) {
       if (verificationId == 'fb_test_auto_verified') {
         return 'firebase_phone_verified';
+      }
+      if (verificationId == 'fb_test_web') {
+        if (_webConfirmationResult != null) {
+          try {
+            await _webConfirmationResult!.confirm(cleanCode);
+            return 'firebase_phone_verified';
+          } on FirebaseAuthException catch (e) {
+            if (e.code == 'invalid-verification-code') {
+              throw const OtpVerificationRejected(
+                  'رمز التحقق التجريبي غير صحيح');
+            }
+            throw OtpVerificationRejected(e.message ?? 'فشل التحقق التجريبي');
+          } catch (e) {
+            throw OtpVerificationRejected('خطأ في التحقق: $e');
+          }
+        }
       }
       final actualVerificationId = verificationId.replaceFirst('fb_test_', '');
       try {

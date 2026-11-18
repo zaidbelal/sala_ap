@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ثيم شاشة البداية المتوافق مع Edge-to-Edge الحديث وبدون أي APIs متوقفة -->
+    <!-- ثيم شاشة البداية الرسمي المتوافق 100% مع معايير Android 15 Edge-to-Edge -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
-    <!-- الثيم العادي للتطبيق متوافق مع نظام أندرويد 15 فما فوق -->
+    <!-- الثيم الرئيسي لتشغيل فلاتر مع شريط نظام شفاف تماماً وبدون استدعاءات قديمة -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 </resources>

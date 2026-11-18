@@ -656,15 +656,19 @@ class _ReturnInvoiceCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        'فاتورة إرجاع #$displayReturnId',
-                        style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: context.textPrimary),
+                      Expanded(
+                        child: Text(
+                          'فاتورة إرجاع #$displayReturnId',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: context.textPrimary),
+                        ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
@@ -905,15 +909,19 @@ class _OrderCard extends StatelessWidget {
                     children: [
                       Icon(Icons.access_time_rounded,
                           size: 12, color: context.iconSecondary),
-                      const SizedBox(width: 3),
-                      Text(
-                        '$time • $date',
-                        style: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 11,
-                            color: context.textSecondary),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '$time • $date',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 11,
+                              color: context.textSecondary),
+                        ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 6),
                       Text(
                         '${order.total.toStringAsFixed(0)} ر.ي',
                         style: TextStyle(

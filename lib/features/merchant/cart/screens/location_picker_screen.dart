@@ -41,43 +41,53 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           setState(() => _selectedLocation = location);
         },
       ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, -3),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        maintainBottomViewPadding: true,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            border: Border(
+              top: BorderSide(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
             ),
-          ],
-        ),
-        child: SizedBox(
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: _selectedLocation == null
-                ? null
-                : () => Navigator.of(context).pop(_selectedLocation),
-            icon: const Icon(Icons.check_circle_rounded, color: Colors.white),
-            label: Text(
-              _selectedLocation == null
-                  ? 'انقر على موقع بقالتك في الخريطة لتحديده'
-                  : 'تأكيد موقع التوصيل ✅',
-              style: const TextStyle(
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-                color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, -3),
               ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: Colors.grey.shade400,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+            ],
+          ),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _selectedLocation == null
+                  ? null
+                  : () => Navigator.of(context).pop(_selectedLocation),
+              icon: const Icon(Icons.check_circle_rounded, color: Colors.white),
+              label: Text(
+                _selectedLocation == null
+                    ? 'انقر على موقع بقالتك في الخريطة لتحديده'
+                    : 'تأكيد موقع التوصيل ✅',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade400,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
             ),
           ),

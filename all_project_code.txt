@@ -26,6 +26,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'features/auth/login/services/auth_service.dart';
 import 'features/merchant/cart/providers/cart_provider.dart';
 import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class AppRoutes {
   static const splash = '/';
@@ -95,7 +96,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (path == AppRoutes.splash) {
         return null;
       }
-      final firebaseUser = FirebaseAuth.instance.currentUser;
 
       // 1. إذا كان المستخدم غير مسجل محلياً، يُمنع دخوله لأي مسار خاص ويُوجّه لتسجيل الدخول فوراً
       if (AppStorage.userId == null || !AppStorage.isLoggedIn) {
@@ -105,9 +105,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return null;
       }
 
+      final firebaseUser = FirebaseAuth.instance.currentUser;
       final hasMatchingFirebaseSession =
           firebaseUser != null && firebaseUser.uid == AppStorage.userId;
       if (!hasMatchingFirebaseSession) {
+        // حماية الجلسة: إذا كانت شاشة البداية لا تزال نشطة فلا تطرد المستخدم قبل انتهاء فحصها
+        if (NotificationService.isSplashActive || path == AppRoutes.splash) {
+          return null;
+        }
         if (path == AppRoutes.login ||
             path == AppRoutes.signup ||
             path == AppRoutes.otp ||
@@ -384,9 +389,8 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
         if (mounted) context.go(AppRoutes.login);
         return;
       }
-
       if (isActive) {
-        final tokenResult = await firebaseUser
+        var tokenResult = await firebaseUser
             .getIdTokenResult(true)
             .timeout(const Duration(seconds: 5));
 
@@ -400,11 +404,23 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
           return;
         }
 
+        var claimsRole =
+            tokenResult.claims?['role']?.toString().trim().toLowerCase();
+        if (claimsRole != docRole) {
+          try {
+            await FirebaseFunctions.instanceFor(region: 'us-central1')
+                .httpsCallable('syncPhoneAuthProfile')
+                .call();
+            tokenResult = await firebaseUser.getIdTokenResult(true);
+            claimsRole =
+                tokenResult.claims?['role']?.toString().trim().toLowerCase();
+          } catch (_) {}
+        }
+
         final verifiedRole = AuthService.resolveVerifiedRole(
           docRole: docRole,
-          claimsRole: tokenResult.claims?['role']?.toString(),
+          claimsRole: claimsRole,
         );
-
         await AppStorage.setIsActive(true);
         await AppStorage.saveUserData(
           userId: uid,
@@ -773,7 +789,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // إعدادات الويب
 const webFirebaseOptions = FirebaseOptions(
-  apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
+  apiKey: 'AIzaSyAH7vDwpFainJt7_WLgzojDZxseHL-rAbc',
   appId: '1:846679653389:web:f155633d42da3784902944',
   messagingSenderId: '846679653389',
   projectId: 'app-sala-b42dd',
@@ -875,7 +891,8 @@ void main() async {
       if (errorStr.contains('RenderFlex overflowed')) {
         FlutterError.presentError(details);
         try {
-          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+          FirebaseCrashlytics.instance
+              .recordFlutterError(details, fatal: false);
         } catch (_) {}
         return;
       }
@@ -883,7 +900,8 @@ void main() async {
       FlutterError.presentError(details);
       try {
         if (details.silent) {
-          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+          FirebaseCrashlytics.instance
+              .recordFlutterError(details, fatal: false);
         } else {
           FirebaseCrashlytics.instance.recordFlutterFatalError(details);
         }
@@ -18638,7 +18656,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
         'cost_price': parsedCost,
         if (stockWasManuallyChanged) ...{
           'base_stock_delta': stockDelta,
-          'has_base_stock': (newStockInput ?? 0) > 0,
+          'has_base_stock': (newStockInput) > 0,
         },
         'items_per_carton': parsedItems,
         'size_text': customSizeText,
@@ -23335,126 +23353,6 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                 },
               ),
             ],
-            if (order.status == 'shipped')
-              _ActionBtn(
-                  label: 'تأكيد التسليم',
-                  icon: Icons.done_all_rounded,
-                  color: AppColors.primary,
-                  onTap: () => changeStatus('delivered')),
-            if (order.status == 'return_requested') ...[
-              _ActionBtn(
-                label: 'قبول المرتجع وتسويته ✓',
-                icon: Icons.assignment_turned_in_rounded,
-                color: const Color(0xFFEA580C),
-                onTap: () async {
-                  if (_busy) return;
-                  setState(() => _busy = true);
-                  try {
-                    var currentReturns = returns;
-                    if (currentReturns.isEmpty) {
-                      currentReturns = await service.getOrderReturns(order.id);
-                    }
-                    final pendingReturns = currentReturns
-                        .where((r) => r['status'] == 'pending')
-                        .toList();
-                    if (pendingReturns.isEmpty) {
-                      await service.updateOrderStatus(order.id, 'returned');
-                    } else {
-                      final returnItemsPayload = pendingReturns
-                          .map((r) => {
-                                'item_id': r['order_item_id']?.toString() ?? '',
-                                'quantity':
-                                    (r['quantity'] as num?)?.toInt() ?? 0,
-                              })
-                          .toList();
-
-                      await service.processReturn(
-                        order.id,
-                        'اعتماد وتسوية المرتجعات من الإدارة',
-                        returnItems: returnItemsPayload,
-                      );
-                    }
-                    if (context.mounted) {
-                      onDone();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text(
-                            'تم قبول المرتجع وتسويته واستعادة المخزون بنجاح ✓',
-                            style: TextStyle(fontFamily: 'Cairo')),
-                        backgroundColor: Color(0xFFEA580C),
-                        behavior: SnackBarBehavior.floating,
-                        shape: StadiumBorder(),
-                        margin: EdgeInsets.all(16),
-                      ));
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(e.toString(),
-                            style: const TextStyle(
-                                fontFamily: 'Cairo', fontSize: 11)),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                        shape: const StadiumBorder(),
-                        margin: EdgeInsets.all(16),
-                      ));
-                    }
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                },
-              ),
-              _ActionBtn(
-                label: 'رفض طلب الإرجاع ✗',
-                icon: Icons.cancel_rounded,
-                color: Colors.red,
-                onTap: () async {
-                  if (_busy) return;
-                  setState(() => _busy = true);
-                  try {
-                    final pendingReturns =
-                        returns.where((r) => r['status'] == 'pending').toList();
-                    if (pendingReturns.isEmpty) {
-                      await service.updateOrderStatus(order.id, 'delivered');
-                    } else {
-                      await Future.wait(
-                        pendingReturns.map(
-                          (ret) => service.updateReturnStatus(
-                            ret['id']?.toString() ?? '',
-                            'rejected',
-                            rejectionReason: 'تم الرفض من الإدارة',
-                          ),
-                        ),
-                      );
-                    }
-                    if (context.mounted) {
-                      onDone();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('تم رفض طلب الإرجاع',
-                            style: TextStyle(fontFamily: 'Cairo')),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                        shape: StadiumBorder(),
-                        margin: EdgeInsets.all(16),
-                      ));
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content: Text(e.toString(),
-                            style: const TextStyle(
-                                fontFamily: 'Cairo', fontSize: 11)),
-                        backgroundColor: Colors.red,
-                        behavior: SnackBarBehavior.floating,
-                        shape: const StadiumBorder(),
-                        margin: EdgeInsets.all(16),
-                      ));
-                    }
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                },
-              ),
-            ],
             if (order.status == 'delivered')
               _ActionBtn(
                   label: 'تسجيل ارجاع',
@@ -24315,6 +24213,7 @@ class _ThermalPrintPreviewSheetState extends State<ThermalPrintPreviewSheet> {
       );
       return;
     }
+    setState(() => _isProcessing = true);
     final bytes = await ThermalPrinterService.capturePngFromKey(_receiptKey);
     if (!mounted) return;
     setState(() => _isProcessing = false);
@@ -26023,7 +25922,7 @@ class AuthService {
   // ══════════════════════════════════════════
   // حفظ بيانات المستخدم محلياً
   // ══════════════════════════════════════════
-  /// مصدر الحقيقة الموحد للتحقق التشفيري من الرتبة عبر Custom Claims لجميع المستخدمين بدون أي استثناءات
+  /// مصدر الحقيقة الموحد للتحقق التشفيري من الرتبة مع اعتماد تعديلات الإدارة المباشرة
   static String resolveVerifiedRole({
     required String docRole,
     required String? claimsRole,
@@ -26038,12 +25937,16 @@ class AuthService {
       'driver',
     };
 
-    if (privilegedRoles.contains(cleanDocRole) ||
-        (cleanClaimRole != null && privilegedRoles.contains(cleanClaimRole))) {
-      if (cleanClaimRole != null && cleanClaimRole == cleanDocRole) {
+    // تطابق تام بين التوكن وقاعدة البيانات
+    if (cleanClaimRole != null && cleanClaimRole == cleanDocRole) {
+      return cleanDocRole;
+    }
+
+    // اعتماد الرتبة الإدارية المعدلة في Firestore تلقائياً لمزامنتها
+    if (privilegedRoles.contains(cleanDocRole)) {
+      if (cleanClaimRole == null || cleanClaimRole == 'merchant') {
         return cleanDocRole;
       }
-      return 'merchant';
     }
 
     if (cleanClaimRole != null && cleanClaimRole.isNotEmpty) {
@@ -26101,7 +26004,19 @@ class AuthService {
         idTokenResult = null;
       }
 
-      if (idTokenResult?.claims?['role'] == null && firebaseUser != null) {
+      final currentDocRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      final currentClaimRole =
+          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+
+      final docRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      var claimsRole =
+          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+
+      // مزامنة فورية في خادم الأمان إذا اختلفت رتبة قاعدة البيانات عن التوكن
+      if ((claimsRole == null || claimsRole != docRole) &&
+          firebaseUser != null) {
         try {
           final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
@@ -26112,6 +26027,8 @@ class AuthService {
           idTokenResult = await firebaseUser
               .getIdTokenResult(true)
               .timeout(const Duration(seconds: 5));
+          claimsRole =
+              (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
 
@@ -26119,10 +26036,6 @@ class AuthService {
         throw StateError('User account is inactive or banned');
       }
 
-      final claimsRole =
-          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-      final docRole =
-          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
       final role = resolveVerifiedRole(
         docRole: docRole,
         claimsRole: claimsRole,
@@ -26318,6 +26231,7 @@ class AuthService {
 import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 class OtpVerificationRejected implements Exception {
   final String message;
@@ -26329,6 +26243,7 @@ class OtpVerificationRejected implements Exception {
 
 class QuickConnectOtpService {
   QuickConnectOtpService._();
+  static ConfirmationResult? _webConfirmationResult;
   static final FirebaseFunctions functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
   // ════════════════════════════════════════════════════════════
@@ -26427,10 +26342,24 @@ class QuickConnectOtpService {
     final cleanPhone = phone.trim();
     if (cleanPhone.isEmpty) {
       throw StateError('رقم الهاتف غير صحيح');
-    }
-
-    // ── 1. إذا كان رقم اختبار تجريبي معتمد: استخدم Firebase مباشرة في وضع الإنتاج والتطوير لمراجعي المتاجر ──
+    } // ── 1. إذا كان رقم اختبار تجريبي معتمد: استخدم Firebase مباشرة مع دعم بيئة الويب ──
     if (isFirebaseTestPhone(cleanPhone)) {
+      if (kIsWeb) {
+        try {
+          _webConfirmationResult =
+              await FirebaseAuth.instance.signInWithPhoneNumber(cleanPhone);
+          return 'fb_test_web';
+        } catch (e) {
+          final errStr = e.toString().toLowerCase();
+          if (errStr.contains('api-key-expired') ||
+              errStr.contains('invalid-api-key')) {
+            throw StateError(
+                'مفتاح Web API منتهي الصلاحية في Google Cloud. يرجى تجديده من الكونسول.');
+          }
+          throw StateError('تعذر إرسال رمز الاختبار على الويب: $e');
+        }
+      }
+
       final completer = Completer<String>();
       try {
         await FirebaseAuth.instance.verifyPhoneNumber(
@@ -26465,7 +26394,6 @@ class QuickConnectOtpService {
         throw StateError('تعذر إرسال رمز الاختبار: $e');
       }
     }
-
     // ── 2. للأرقام الحقيقية لجميع التجار: إرسال فوري إلى الواتساب عبر Green-API ──
     try {
       final callable = functions.httpsCallable(
@@ -26506,11 +26434,26 @@ class QuickConnectOtpService {
     if (!RegExp(r'^\d{6}$').hasMatch(cleanCode)) {
       throw const OtpVerificationRejected('أدخل رمز التحقق المكوّن من 6 أرقام');
     }
-
-    // ── 1. إذا كان التوثيق عبر رقم تجريبي لفايربيز ──
+// ── 1. إذا كان التوثيق عبر رقم تجريبي لفايربيز ──
     if (verificationId.startsWith('fb_test_')) {
       if (verificationId == 'fb_test_auto_verified') {
         return 'firebase_phone_verified';
+      }
+      if (verificationId == 'fb_test_web') {
+        if (_webConfirmationResult != null) {
+          try {
+            await _webConfirmationResult!.confirm(cleanCode);
+            return 'firebase_phone_verified';
+          } on FirebaseAuthException catch (e) {
+            if (e.code == 'invalid-verification-code') {
+              throw const OtpVerificationRejected(
+                  'رمز التحقق التجريبي غير صحيح');
+            }
+            throw OtpVerificationRejected(e.message ?? 'فشل التحقق التجريبي');
+          } catch (e) {
+            throw OtpVerificationRejected('خطأ في التحقق: $e');
+          }
+        }
       }
       final actualVerificationId = verificationId.replaceFirst('fb_test_', '');
       try {
@@ -33405,9 +33348,18 @@ class CartItem {
     return '${product.id}$variantPart$unitPart';
   }
 
-  String get displayName => selectedVariant != null
-      ? '${product.name} - ${selectedVariant!.label}'
-      : product.name;
+  String get displayName {
+    final buffer = StringBuffer(product.name);
+    if (selectedVariant != null && selectedVariant!.label.trim().isNotEmpty) {
+      buffer.write(' (${selectedVariant!.label.trim()})');
+    }
+    if (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty) {
+      buffer.write(' - ${selectedUnit!.label.trim()}');
+    } else {
+      buffer.write(' - كرتون');
+    }
+    return buffer.toString();
+  }
 
   double get unitPrice =>
       selectedUnit?.price ?? selectedVariant?.price ?? product.price;
@@ -36035,8 +35987,8 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                     children: [
                       Text(
                         activeVariant != null
-                            ? '${resolvedProduct.name} - ${activeVariant.label}'
-                            : resolvedProduct.name,
+                            ? '${resolvedProduct.name} (${activeVariant.label}) - $currentLabel'
+                            : '${resolvedProduct.name} - $currentLabel',
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,
@@ -36747,17 +36699,17 @@ class _QuickAddSheetState extends ConsumerState<QuickAddSheet> {
 // ════════════════════════════════════════
 // صف المنتج
 // ════════════════════════════════════════
-class _ProductTile extends StatefulWidget {
+class _ProductTile extends ConsumerStatefulWidget {
   final ProductModel product;
   final void Function(int qty, ProductUnit? unit, ProductVariant? variant)
       onAdd;
   const _ProductTile({super.key, required this.product, required this.onAdd});
 
   @override
-  State<_ProductTile> createState() => _ProductTileState();
+  ConsumerState<_ProductTile> createState() => _ProductTileState();
 }
 
-class _ProductTileState extends State<_ProductTile> {
+class _ProductTileState extends ConsumerState<_ProductTile> {
   int _qty = 1;
   bool _added = false;
   ProductVariant? _selectedVariant;
@@ -36782,9 +36734,10 @@ class _ProductTileState extends State<_ProductTile> {
     _selectedVariant = widget.product.hasVariants
         ? widget.product.allVariantsWithBase.first
         : null;
-    final units = _selectedVariant != null
-        ? _selectedVariant!.units
-        : widget.product.units;
+    final units =
+        (_selectedVariant != null && _selectedVariant!.units.isNotEmpty)
+            ? _selectedVariant!.units
+            : widget.product.units;
     _selectedUnit = units.isNotEmpty ? units.first : null;
   }
 
@@ -36821,8 +36774,7 @@ class _ProductTileState extends State<_ProductTile> {
             .clamp(1, 9999);
     final unitQty = (_selectedUnit?.qty ?? cartonCap).clamp(1, 9999);
 
-    final container = ProviderScope.containerOf(context);
-    final cart = container.read(cartProvider);
+    final cart = ref.read(cartProvider);
     final targetVarId =
         (_selectedVariant == null || _selectedVariant!.id == 'base_default')
             ? ''
@@ -36873,9 +36825,10 @@ class _ProductTileState extends State<_ProductTile> {
   @override
   Widget build(BuildContext context) {
     final activeStock = _selectedVariant?.stock ?? widget.product.baseStock;
-    final activeUnits = _selectedVariant != null
-        ? _selectedVariant!.units
-        : widget.product.units;
+    final activeUnits =
+        (_selectedVariant != null && _selectedVariant!.units.isNotEmpty)
+            ? _selectedVariant!.units
+            : widget.product.units;
     final activePrice =
         _selectedUnit?.price ?? _selectedVariant?.price ?? widget.product.price;
 
@@ -48141,7 +48094,7 @@ class ProductModel {
     final sanitizedVariants = rawVariants is List
         ? rawVariants.whereType<Map>().map((rawV) {
             final v = ProductVariant.fromMap(Map<String, dynamic>.from(rawV));
-            final vUnits = v.units
+            List<ProductUnit> vUnits = v.units
                 .map((u) => ProductUnit(
                       label: u.label,
                       qty: u.qty,
@@ -48154,38 +48107,60 @@ class ProductModel {
                       barcode: u.barcode,
                     ))
                 .toList();
-            final cIdx = vUnits.indexWhere((u) => u.label.trim() == 'كرتون');
-            if (cIdx == -1) {
-              vUnits.insert(
-                0,
-                ProductUnit(
-                  label: 'كرتون',
-                  qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : 1,
-                  price: v.price,
+
+            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم في حال لم تُحدد له وحدات خاصة
+            final hasCustomSubUnits =
+                vUnits.any((u) => u.label.trim() != 'كرتون');
+            if (!hasCustomSubUnits && sanitizedUnits.length > 1) {
+              final double ratio = basePrice > 0 ? (v.price / basePrice) : 1.0;
+              vUnits = sanitizedUnits.map((pUnit) {
+                if (pUnit.label.trim() == 'كرتون') {
+                  return ProductUnit(
+                    label: 'كرتون',
+                    qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : pUnit.qty,
+                    price: v.price,
+                    costPrice: null,
+                    imageUrl: v.imageUrl ?? imageUrl,
+                    sizeMl: v.sizeMl ?? pUnit.sizeMl,
+                    productionDate: v.productionDate ?? pUnit.productionDate,
+                    expiryDate: v.expiryDate ?? pUnit.expiryDate,
+                    barcode: v.barcode ?? pUnit.barcode,
+                  );
+                }
+                final double scaledPrice =
+                    (pUnit.price * ratio).roundToDouble();
+                return ProductUnit(
+                  label: pUnit.label,
+                  qty: pUnit.qty,
+                  price: scaledPrice > 0 ? scaledPrice : pUnit.price,
                   costPrice: null,
-                  imageUrl: v.imageUrl ?? imageUrl,
-                  sizeMl: v.sizeMl,
-                  productionDate: v.productionDate,
-                  expiryDate: v.expiryDate,
-                  barcode: v.barcode,
-                ),
-              );
+                  imageUrl: v.imageUrl ?? pUnit.imageUrl,
+                  sizeMl: v.sizeMl ?? pUnit.sizeMl,
+                  productionDate: v.productionDate ?? pUnit.productionDate,
+                  expiryDate: v.expiryDate ?? pUnit.expiryDate,
+                  barcode: null,
+                );
+              }).toList();
             } else {
-              final existingC = vUnits[cIdx];
-              vUnits[cIdx] = ProductUnit(
-                label: 'كرتون',
-                qty: existingC.qty > 0
-                    ? existingC.qty
-                    : (v.itemsPerCarton > 0 ? v.itemsPerCarton : 1),
-                price: existingC.price > 0 ? existingC.price : v.price,
-                costPrice: null,
-                imageUrl: existingC.imageUrl ?? v.imageUrl ?? imageUrl,
-                sizeMl: existingC.sizeMl ?? v.sizeMl,
-                productionDate: existingC.productionDate ?? v.productionDate,
-                expiryDate: existingC.expiryDate ?? v.expiryDate,
-                barcode: existingC.barcode ?? v.barcode,
-              );
+              final cIdx = vUnits.indexWhere((u) => u.label.trim() == 'كرتون');
+              if (cIdx == -1) {
+                vUnits.insert(
+                  0,
+                  ProductUnit(
+                    label: 'كرتون',
+                    qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : cartonItems,
+                    price: v.price,
+                    costPrice: null,
+                    imageUrl: v.imageUrl ?? imageUrl,
+                    sizeMl: v.sizeMl ?? sizeMl,
+                    productionDate: v.productionDate,
+                    expiryDate: v.expiryDate,
+                    barcode: v.barcode,
+                  ),
+                );
+              }
             }
+
             return ProductVariant(
               id: v.id,
               label: v.label,
@@ -48488,7 +48463,8 @@ class _ProductCardState extends ConsumerState<ProductCard> {
 
   void _updateSelectedUnit() {
     final v = _activeVariant;
-    final units = v != null ? v.units : widget.product.units;
+    final units =
+        (v != null && v.units.isNotEmpty) ? v.units : widget.product.units;
     _selectedUnit = units.isNotEmpty ? units.first : null;
   }
 
@@ -48597,7 +48573,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
           variant: effectiveVariant,
         );
 
-    final title = !isBaseVariant && v != null
+    final title = !isBaseVariant
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
 
@@ -48670,7 +48646,8 @@ class _ProductCardState extends ConsumerState<ProductCard> {
     final isOutOfStock = _currentStock <= 0;
     final currentPrice = _currentUnitPrice;
     final pageTotal = currentPrice * _qty;
-    final availableUnits = v != null ? v.units : widget.product.units;
+    final availableUnits =
+        (v != null && v.units.isNotEmpty) ? v.units : widget.product.units;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -49249,11 +49226,13 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
 
   ProductVariant? get _currentVariant =>
       _effectiveVariants.isNotEmpty ? _effectiveVariants[_variantIndex] : null;
-
   ProductUnit? _unitForIndex(int idx) {
     if (!widget.product.hasVariants) return _selectedUnit;
-    if (_variantUnits.containsKey(idx)) return _variantUnits[idx];
-    final units = _effectiveVariants[idx].units;
+    if (_variantUnits.containsKey(idx) && _variantUnits[idx] != null) {
+      return _variantUnits[idx];
+    }
+    final v = _effectiveVariants[idx];
+    final units = v.units.isNotEmpty ? v.units : widget.product.units;
     return units.isNotEmpty ? units.first : null;
   }
 
@@ -49417,7 +49396,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
           unit: _selectedUnit,
           variant: effectiveVariant,
         );
-    final title = !isBaseVariant && v != null
+    final title = !isBaseVariant
         ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
     Navigator.pop(context);
@@ -49652,7 +49631,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final currentImage = _imageFor(v, unit: pageUnit);
     final hasImage = currentImage != null && currentImage.isNotEmpty;
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
-    final units = v != null ? v.units : product.units;
+    final units = (v != null && v.units.isNotEmpty) ? v.units : product.units;
     final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
     final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??
@@ -52047,7 +52026,12 @@ class SessionChecker {
       var verifiedRole =
           (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
 
-      if (!doc.exists || verifiedRole == null) {
+      final expectedDocRole =
+          (doc.data()?['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+
+      if (!doc.exists ||
+          verifiedRole == null ||
+          verifiedRole != expectedDocRole) {
         try {
           await FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
@@ -52066,7 +52050,6 @@ class SessionChecker {
               (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
-
       final isBannedClaim = tokenResult.claims?['is_banned'] == true;
       if (isBannedClaim) {
         await FirebaseAuth.instance.signOut();

@@ -22,9 +22,18 @@ class CartItem {
     return '${product.id}$variantPart$unitPart';
   }
 
-  String get displayName => selectedVariant != null
-      ? '${product.name} - ${selectedVariant!.label}'
-      : product.name;
+  String get displayName {
+    final buffer = StringBuffer(product.name);
+    if (selectedVariant != null && selectedVariant!.label.trim().isNotEmpty) {
+      buffer.write(' (${selectedVariant!.label.trim()})');
+    }
+    if (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty) {
+      buffer.write(' - ${selectedUnit!.label.trim()}');
+    } else {
+      buffer.write(' - كرتون');
+    }
+    return buffer.toString();
+  }
 
   double get unitPrice =>
       selectedUnit?.price ?? selectedVariant?.price ?? product.price;

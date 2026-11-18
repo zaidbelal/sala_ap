@@ -94,3 +94,20 @@
 # كتم تحذيرات التوافق الثانوية للمكتبات الخارجية
 -dontwarn okio.**
 -dontwarn javax.annotation.**
+# حماية كود فلاتر ومحرك الرسوم
+-keep class io.flutter.app.** { *; }
+-keep class io.flutter.plugin.**  { *; }
+-keep class io.flutter.util.**  { *; }
+-keep class io.flutter.view.**  { *; }
+-keep class io.flutter.** { *; }
+-keep class io.flutter.plugins.** { *; }
+
+# حماية خدمات فايربيز وقواعد البيانات
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes InnerClasses
+-dontwarn com.google.android.gms.**
+
+# حماية مشغلات الصوت والإشعارات المحلية
+-keep class com.dexterous.flutterlocalnotifications.** { *; }
+-keep class xyz.luan.audioplayers.** { *; }

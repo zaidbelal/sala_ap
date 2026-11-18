@@ -306,9 +306,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
     _selectedVariant = widget.product.hasVariants
         ? widget.product.allVariantsWithBase.first
         : null;
-    final units = _selectedVariant != null
-        ? _selectedVariant!.units
-        : widget.product.units;
+    final units =
+        (_selectedVariant != null && _selectedVariant!.units.isNotEmpty)
+            ? _selectedVariant!.units
+            : widget.product.units;
     _selectedUnit = units.isNotEmpty ? units.first : null;
   }
 
@@ -396,9 +397,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
   @override
   Widget build(BuildContext context) {
     final activeStock = _selectedVariant?.stock ?? widget.product.baseStock;
-    final activeUnits = _selectedVariant != null
-        ? _selectedVariant!.units
-        : widget.product.units;
+    final activeUnits =
+        (_selectedVariant != null && _selectedVariant!.units.isNotEmpty)
+            ? _selectedVariant!.units
+            : widget.product.units;
     final activePrice =
         _selectedUnit?.price ?? _selectedVariant?.price ?? widget.product.price;
 

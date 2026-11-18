@@ -22,7 +22,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // إعدادات الويب
 const webFirebaseOptions = FirebaseOptions(
-  apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
+  apiKey: 'AIzaSyAH7vDwpFainJt7_WLgzojDZxseHL-rAbc',
   appId: '1:846679653389:web:f155633d42da3784902944',
   messagingSenderId: '846679653389',
   projectId: 'app-sala-b42dd',
@@ -124,7 +124,8 @@ void main() async {
       if (errorStr.contains('RenderFlex overflowed')) {
         FlutterError.presentError(details);
         try {
-          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+          FirebaseCrashlytics.instance
+              .recordFlutterError(details, fatal: false);
         } catch (_) {}
         return;
       }
@@ -132,7 +133,8 @@ void main() async {
       FlutterError.presentError(details);
       try {
         if (details.silent) {
-          FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+          FirebaseCrashlytics.instance
+              .recordFlutterError(details, fatal: false);
         } else {
           FirebaseCrashlytics.instance.recordFlutterFatalError(details);
         }

@@ -40,11 +40,13 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
 
   ProductVariant? get _currentVariant =>
       _effectiveVariants.isNotEmpty ? _effectiveVariants[_variantIndex] : null;
-
   ProductUnit? _unitForIndex(int idx) {
     if (!widget.product.hasVariants) return _selectedUnit;
-    if (_variantUnits.containsKey(idx)) return _variantUnits[idx];
-    final units = _effectiveVariants[idx].units;
+    if (_variantUnits.containsKey(idx) && _variantUnits[idx] != null) {
+      return _variantUnits[idx];
+    }
+    final v = _effectiveVariants[idx];
+    final units = v.units.isNotEmpty ? v.units : widget.product.units;
     return units.isNotEmpty ? units.first : null;
   }
 
@@ -443,7 +445,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final currentImage = _imageFor(v, unit: pageUnit);
     final hasImage = currentImage != null && currentImage.isNotEmpty;
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
-    final units = v != null ? v.units : product.units;
+    final units = (v != null && v.units.isNotEmpty) ? v.units : product.units;
     final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
     final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??

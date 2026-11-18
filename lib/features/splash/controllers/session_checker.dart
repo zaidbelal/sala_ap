@@ -91,7 +91,12 @@ class SessionChecker {
       var verifiedRole =
           (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
 
-      if (!doc.exists || verifiedRole == null) {
+      final expectedDocRole =
+          (doc.data()?['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+
+      if (!doc.exists ||
+          verifiedRole == null ||
+          verifiedRole != expectedDocRole) {
         try {
           await FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
@@ -110,7 +115,6 @@ class SessionChecker {
               (tokenResult.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
-
       final isBannedClaim = tokenResult.claims?['is_banned'] == true;
       if (isBannedClaim) {
         await FirebaseAuth.instance.signOut();

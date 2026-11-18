@@ -53,7 +53,8 @@ class _ProductCardState extends ConsumerState<ProductCard> {
 
   void _updateSelectedUnit() {
     final v = _activeVariant;
-    final units = v != null ? v.units : widget.product.units;
+    final units =
+        (v != null && v.units.isNotEmpty) ? v.units : widget.product.units;
     _selectedUnit = units.isNotEmpty ? units.first : null;
   }
 
@@ -235,7 +236,8 @@ class _ProductCardState extends ConsumerState<ProductCard> {
     final isOutOfStock = _currentStock <= 0;
     final currentPrice = _currentUnitPrice;
     final pageTotal = currentPrice * _qty;
-    final availableUnits = v != null ? v.units : widget.product.units;
+    final availableUnits =
+        (v != null && v.units.isNotEmpty) ? v.units : widget.product.units;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),

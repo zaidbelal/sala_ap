@@ -209,8 +209,8 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                     children: [
                       Text(
                         activeVariant != null
-                            ? '${resolvedProduct.name} - ${activeVariant.label}'
-                            : resolvedProduct.name,
+                            ? '${resolvedProduct.name} (${activeVariant.label}) - $currentLabel'
+                            : '${resolvedProduct.name} - $currentLabel',
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 15,

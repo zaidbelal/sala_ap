@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.sala</string>
+	<string>com.zaidsalaapp.sala</string>
 	<key>PROJECT_ID</key>
 	<string>app-sala-b42dd</string>
 	<key>STORAGE_BUCKET</key>

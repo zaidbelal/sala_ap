@@ -76,290 +76,293 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
         status == 'confirmed' || status == 'preparing' || status == 'pending';
 
     return Scaffold(
-      backgroundColor: context.bgPage,
-      appBar: AppBar(
-        backgroundColor: context.bgHeader,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_rounded,
-              color: context.textPrimary, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          children: [
-            Text(
-              'تفاصيل الطلب',
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: context.textPrimary),
-            ),
-            if (orderNum.isNotEmpty)
+        backgroundColor: context.bgPage,
+        appBar: AppBar(
+          backgroundColor: context.bgHeader,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_rounded,
+                color: context.textPrimary, size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Column(
+            children: [
               Text(
-                '#$orderNum',
-                style: const TextStyle(
-                    fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
-              ),
-          ],
-        ),
-        actions: [
-          if (orderNum.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.copy_rounded,
-                  color: AppColors.primary, size: 20),
-              tooltip: 'نسخ رقم الطلب',
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: orderNum.toString()));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('تم نسخ رقم الطلب',
-                        style: TextStyle(fontFamily: 'Cairo')),
-                    duration: Duration(seconds: 1),
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── بطاقة الحالة ──
-            _StatusBanner(isConfirmed: isConfirmed),
-
-            const SizedBox(height: 16),
-
-            // ── بطاقة العميل ──
-            _InfoCard(
-              title: 'معلومات العميل',
-              icon: Icons.store_rounded,
-              iconColor: AppColors.primary,
-              children: [
-                _InfoRow(label: 'الاسم', value: merchantName),
-                if (storeName != null)
-                  _InfoRow(label: 'المتجر', value: storeName),
-                if (phone != null)
-                  _InfoRow(
-                    label: 'الهاتف',
-                    value: phone,
-                    trailing: GestureDetector(
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: phone));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('تم نسخ الرقم',
-                                style: TextStyle(fontFamily: 'Cairo')),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.copy_rounded,
-                                size: 12, color: AppColors.primary),
-                            SizedBox(width: 3),
-                            Text('نسخ',
-                                style: TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontSize: 10,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w700)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── بطاقة التوصيل ──
-            _InfoCard(
-              title: 'معلومات التوصيل',
-              icon: Icons.location_on_rounded,
-              iconColor: Colors.orange,
-              children: [
-                if (address != null || (lat != null && lng != null))
-                  _MapButton(
-                    address: address,
-                    lat: lat,
-                    lng: lng,
-                    merchantName: storeName ?? merchantName,
-                  ),
-                _InfoRow(
-                  label: 'طريقة الدفع',
-                  value: switch (paymentMethod) {
-                    'cash' => '💵 كاش عند الاستلام',
-                    'credit' || 'deferred' => '⏳ دفع آجل (على الحساب)',
-                    'transfer' => '💳 تحويل بنكي',
-                    _ => paymentMethod,
-                  },
-                ),
-                _InfoRow(
-                  label: 'إجمالي الطلب',
-                  value: '${total.toStringAsFixed(0)} ر.ي',
-                  valueStyle: const TextStyle(
+                'تفاصيل الطلب',
+                style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-
-            // ── ملاحظات ──
-            if (notes != null && notes.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(16),
-                  border:
-                      Border.all(color: Colors.amber.withValues(alpha: 0.35)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.sticky_note_2_rounded,
-                        color: Colors.amber, size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('ملاحظات العميل',
-                              style: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFFD97706))),
-                          const SizedBox(height: 4),
-                          Text(notes,
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 13,
-                                  color: Color(0xFF92400E),
-                                  height: 1.5)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                    fontWeight: FontWeight.w800,
+                    color: context.textPrimary),
               ),
+              if (orderNum.isNotEmpty)
+                Text(
+                  '#$orderNum',
+                  style: const TextStyle(
+                      fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
+                ),
             ],
-
-            const SizedBox(height: 16),
-
-            // ── قائمة الأصناف ──
-            _InfoCard(
-              title: 'الأصناف المطلوبة',
-              icon: Icons.inventory_2_rounded,
-              iconColor: Colors.blue,
-              children: _loadingItems
-                  ? [
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: CircularProgressIndicator(
-                              color: AppColors.primary, strokeWidth: 2),
-                        ),
-                      )
-                    ]
-                  : _items.isEmpty
-                      ? [
-                          const _InfoRow(
-                              label: 'الأصناف', value: 'لا توجد بيانات')
-                        ]
-                      : _items.map((item) => _ItemRow(item: item)).toList(),
-            ),
+          ),
+          actions: [
+            if (orderNum.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.copy_rounded,
+                    color: AppColors.primary, size: 20),
+                tooltip: 'نسخ رقم الطلب',
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: orderNum.toString()));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم نسخ رقم الطلب',
+                          style: TextStyle(fontFamily: 'Cairo')),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
           ],
         ),
-      ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── بطاقة الحالة ──
+              _StatusBanner(isConfirmed: isConfirmed),
 
-      // ── زر الإجراء الثابت ──
-      bottomNavigationBar: (status == 'delivered' ||
-              status == 'cancelled' ||
-              status == 'rejected' ||
-              status == 'returned' ||
-              status == 'return_requested')
-          ? null
-          : Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              decoration: BoxDecoration(
-                color: context.bgCard,
-                boxShadow: [
-                  BoxShadow(
-                    color: context.shadowColor,
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
+              const SizedBox(height: 16),
+
+              // ── بطاقة العميل ──
+              _InfoCard(
+                title: 'معلومات العميل',
+                icon: Icons.store_rounded,
+                iconColor: AppColors.primary,
+                children: [
+                  _InfoRow(label: 'الاسم', value: merchantName),
+                  if (storeName != null)
+                    _InfoRow(label: 'المتجر', value: storeName),
+                  if (phone != null)
+                    _InfoRow(
+                      label: 'الهاتف',
+                      value: phone,
+                      trailing: GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: phone));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم نسخ الرقم',
+                                  style: TextStyle(fontFamily: 'Cairo')),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.copy_rounded,
+                                  size: 12, color: AppColors.primary),
+                              SizedBox(width: 3),
+                              Text('نسخ',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 10,
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // ── بطاقة التوصيل ──
+              _InfoCard(
+                title: 'معلومات التوصيل',
+                icon: Icons.location_on_rounded,
+                iconColor: Colors.orange,
+                children: [
+                  if (address != null || (lat != null && lng != null))
+                    _MapButton(
+                      address: address,
+                      lat: lat,
+                      lng: lng,
+                      merchantName: storeName ?? merchantName,
+                    ),
+                  _InfoRow(
+                    label: 'طريقة الدفع',
+                    value: switch (paymentMethod) {
+                      'cash' => '💵 كاش عند الاستلام',
+                      'credit' || 'deferred' => '⏳ دفع آجل (على الحساب)',
+                      'transfer' => '💳 تحويل بنكي',
+                      _ => paymentMethod,
+                    },
+                  ),
+                  _InfoRow(
+                    label: 'إجمالي الطلب',
+                    value: '${total.toStringAsFixed(0)} ر.ي',
+                    valueStyle: const TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.primary,
+                    ),
                   ),
                 ],
               ),
-              child: SizedBox(
-                height: 54,
-                child: ElevatedButton.icon(
-                  onPressed: _isSubmittingAction
-                      ? null
-                      : () async {
-                          setState(() => _isSubmittingAction = true);
-                          try {
-                            final success = await widget.onAction(
-                              widget.orderId,
-                              isConfirmed ? 'pick_up' : 'deliver',
-                              merchantName,
-                            );
-                            if (success && context.mounted) {
-                              Navigator.pop(context);
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() => _isSubmittingAction = false);
-                            }
-                          }
-                        },
-                  icon: Icon(
-                    isConfirmed
-                        ? Icons.inventory_rounded
-                        : Icons.check_circle_rounded,
-                    size: 20,
+
+              // ── ملاحظات ──
+              if (notes != null && notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border:
+                        Border.all(color: Colors.amber.withValues(alpha: 0.35)),
                   ),
-                  label: Text(
-                    isConfirmed
-                        ? 'استلمت من المستودع 📦'
-                        : 'تم التسليم للعميل ✅',
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        isConfirmed ? Colors.blue : AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                    elevation: 0,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.sticky_note_2_rounded,
+                          color: Colors.amber, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ملاحظات العميل',
+                                style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFD97706))),
+                            const SizedBox(height: 4),
+                            Text(notes,
+                                style: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 13,
+                                    color: Color(0xFF92400E),
+                                    height: 1.5)),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ],
+
+              const SizedBox(height: 16),
+
+              // ── قائمة الأصناف ──
+              _InfoCard(
+                title: 'الأصناف المطلوبة',
+                icon: Icons.inventory_2_rounded,
+                iconColor: Colors.blue,
+                children: _loadingItems
+                    ? [
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(
+                                color: AppColors.primary, strokeWidth: 2),
+                          ),
+                        )
+                      ]
+                    : _items.isEmpty
+                        ? [
+                            const _InfoRow(
+                                label: 'الأصناف', value: 'لا توجد بيانات')
+                          ]
+                        : _items.map((item) => _ItemRow(item: item)).toList(),
               ),
-            ),
-    );
+            ],
+          ),
+        ),
+
+        // ── زر الإجراء الثابت ──
+        bottomNavigationBar: (status == 'delivered' ||
+                status == 'cancelled' ||
+                status == 'rejected' ||
+                status == 'returned' ||
+                status == 'return_requested')
+            ? null
+            : SafeArea(
+                top: false,
+                maintainBottomViewPadding: true,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                  decoration: BoxDecoration(
+                    color: context.bgCard,
+                    boxShadow: [
+                      BoxShadow(
+                        color: context.shadowColor,
+                        blurRadius: 16,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    height: 54,
+                    child: ElevatedButton.icon(
+                      onPressed: _isSubmittingAction
+                          ? null
+                          : () async {
+                              setState(() => _isSubmittingAction = true);
+                              try {
+                                final success = await widget.onAction(
+                                  widget.orderId,
+                                  isConfirmed ? 'pick_up' : 'deliver',
+                                  merchantName,
+                                );
+                                if (success && context.mounted) {
+                                  Navigator.pop(context);
+                                }
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _isSubmittingAction = false);
+                                }
+                              }
+                            },
+                      icon: Icon(
+                        isConfirmed
+                            ? Icons.inventory_rounded
+                            : Icons.check_circle_rounded,
+                        size: 20,
+                      ),
+                      label: Text(
+                        isConfirmed
+                            ? 'استلمت من المستودع 📦'
+                            : 'تم التسليم للعميل ✅',
+                        style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            isConfirmed ? Colors.blue : AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ));
   }
 }
 

@@ -200,7 +200,7 @@ class ProductModel {
     final sanitizedVariants = rawVariants is List
         ? rawVariants.whereType<Map>().map((rawV) {
             final v = ProductVariant.fromMap(Map<String, dynamic>.from(rawV));
-            final vUnits = v.units
+            List<ProductUnit> vUnits = v.units
                 .map((u) => ProductUnit(
                       label: u.label,
                       qty: u.qty,
@@ -213,38 +213,60 @@ class ProductModel {
                       barcode: u.barcode,
                     ))
                 .toList();
-            final cIdx = vUnits.indexWhere((u) => u.label.trim() == 'كرتون');
-            if (cIdx == -1) {
-              vUnits.insert(
-                0,
-                ProductUnit(
-                  label: 'كرتون',
-                  qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : 1,
-                  price: v.price,
+
+            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم في حال لم تُحدد له وحدات خاصة
+            final hasCustomSubUnits =
+                vUnits.any((u) => u.label.trim() != 'كرتون');
+            if (!hasCustomSubUnits && sanitizedUnits.length > 1) {
+              final double ratio = basePrice > 0 ? (v.price / basePrice) : 1.0;
+              vUnits = sanitizedUnits.map((pUnit) {
+                if (pUnit.label.trim() == 'كرتون') {
+                  return ProductUnit(
+                    label: 'كرتون',
+                    qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : pUnit.qty,
+                    price: v.price,
+                    costPrice: null,
+                    imageUrl: v.imageUrl ?? imageUrl,
+                    sizeMl: v.sizeMl ?? pUnit.sizeMl,
+                    productionDate: v.productionDate ?? pUnit.productionDate,
+                    expiryDate: v.expiryDate ?? pUnit.expiryDate,
+                    barcode: v.barcode ?? pUnit.barcode,
+                  );
+                }
+                final double scaledPrice =
+                    (pUnit.price * ratio).roundToDouble();
+                return ProductUnit(
+                  label: pUnit.label,
+                  qty: pUnit.qty,
+                  price: scaledPrice > 0 ? scaledPrice : pUnit.price,
                   costPrice: null,
-                  imageUrl: v.imageUrl ?? imageUrl,
-                  sizeMl: v.sizeMl,
-                  productionDate: v.productionDate,
-                  expiryDate: v.expiryDate,
-                  barcode: v.barcode,
-                ),
-              );
+                  imageUrl: v.imageUrl ?? pUnit.imageUrl,
+                  sizeMl: v.sizeMl ?? pUnit.sizeMl,
+                  productionDate: v.productionDate ?? pUnit.productionDate,
+                  expiryDate: v.expiryDate ?? pUnit.expiryDate,
+                  barcode: null,
+                );
+              }).toList();
             } else {
-              final existingC = vUnits[cIdx];
-              vUnits[cIdx] = ProductUnit(
-                label: 'كرتون',
-                qty: existingC.qty > 0
-                    ? existingC.qty
-                    : (v.itemsPerCarton > 0 ? v.itemsPerCarton : 1),
-                price: existingC.price > 0 ? existingC.price : v.price,
-                costPrice: null,
-                imageUrl: existingC.imageUrl ?? v.imageUrl ?? imageUrl,
-                sizeMl: existingC.sizeMl ?? v.sizeMl,
-                productionDate: existingC.productionDate ?? v.productionDate,
-                expiryDate: existingC.expiryDate ?? v.expiryDate,
-                barcode: existingC.barcode ?? v.barcode,
-              );
+              final cIdx = vUnits.indexWhere((u) => u.label.trim() == 'كرتون');
+              if (cIdx == -1) {
+                vUnits.insert(
+                  0,
+                  ProductUnit(
+                    label: 'كرتون',
+                    qty: v.itemsPerCarton > 0 ? v.itemsPerCarton : cartonItems,
+                    price: v.price,
+                    costPrice: null,
+                    imageUrl: v.imageUrl ?? imageUrl,
+                    sizeMl: v.sizeMl ?? sizeMl,
+                    productionDate: v.productionDate,
+                    expiryDate: v.expiryDate,
+                    barcode: v.barcode,
+                  ),
+                );
+              }
             }
+
             return ProductVariant(
               id: v.id,
               label: v.label,

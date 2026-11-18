@@ -1,0 +1,38 @@
+workflows:
+  ios-release-ipa:
+    name: Build Unsigned iOS IPA
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.24.5 # أو النسخة المستقرة المعتمدة لديك
+      xcode: 16.0
+      cocoapods: default
+    scripts:
+      - name: Set up dependencies
+        script: |
+          flutter packages pub get
+          cd ios && pod install --repo-update && cd ..
+
+      - name: Build Flutter iOS App without Code Signing
+        script: |
+          flutter build ios --release --no-codesign
+
+      - name: Package Runner.app into installable IPA
+        script: |
+          # تجهيز هيكلية مجلد Payload القياسية للآيفون
+          mkdir -p build/ios/iphoneos/Payload
+          cp -r build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos
+          zip -r -9 Wissal_App.ipa Payload
+          cd ../../..
+
+    artifacts:
+      - build/ios/iphoneos/Wissal_App.ipa
+
+    publishing:
+      email:
+        recipients:
+          - your-email@gmail.com # اكتب بريدك هنا ليصلك إشعار بالملف عند اكتماله
+        notify:
+          success: true
+          failure: true

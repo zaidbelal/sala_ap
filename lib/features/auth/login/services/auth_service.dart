@@ -207,7 +207,7 @@ class AuthService {
   // ══════════════════════════════════════════
   // حفظ بيانات المستخدم محلياً
   // ══════════════════════════════════════════
-  /// مصدر الحقيقة الموحد للتحقق التشفيري من الرتبة عبر Custom Claims لجميع المستخدمين بدون أي استثناءات
+  /// مصدر الحقيقة الموحد للتحقق التشفيري من الرتبة مع اعتماد تعديلات الإدارة المباشرة
   static String resolveVerifiedRole({
     required String docRole,
     required String? claimsRole,
@@ -222,12 +222,16 @@ class AuthService {
       'driver',
     };
 
-    if (privilegedRoles.contains(cleanDocRole) ||
-        (cleanClaimRole != null && privilegedRoles.contains(cleanClaimRole))) {
-      if (cleanClaimRole != null && cleanClaimRole == cleanDocRole) {
+    // تطابق تام بين التوكن وقاعدة البيانات
+    if (cleanClaimRole != null && cleanClaimRole == cleanDocRole) {
+      return cleanDocRole;
+    }
+
+    // اعتماد الرتبة الإدارية المعدلة في Firestore تلقائياً لمزامنتها
+    if (privilegedRoles.contains(cleanDocRole)) {
+      if (cleanClaimRole == null || cleanClaimRole == 'merchant') {
         return cleanDocRole;
       }
-      return 'merchant';
     }
 
     if (cleanClaimRole != null && cleanClaimRole.isNotEmpty) {
@@ -285,7 +289,19 @@ class AuthService {
         idTokenResult = null;
       }
 
-      if (idTokenResult?.claims?['role'] == null && firebaseUser != null) {
+      final currentDocRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      final currentClaimRole =
+          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+
+      final docRole =
+          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
+      var claimsRole =
+          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+
+      // مزامنة فورية في خادم الأمان إذا اختلفت رتبة قاعدة البيانات عن التوكن
+      if ((claimsRole == null || claimsRole != docRole) &&
+          firebaseUser != null) {
         try {
           final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
@@ -296,6 +312,8 @@ class AuthService {
           idTokenResult = await firebaseUser
               .getIdTokenResult(true)
               .timeout(const Duration(seconds: 5));
+          claimsRole =
+              (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
 
@@ -303,10 +321,6 @@ class AuthService {
         throw StateError('User account is inactive or banned');
       }
 
-      final claimsRole =
-          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-      final docRole =
-          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
       final role = resolveVerifiedRole(
         docRole: docRole,
         claimsRole: claimsRole,

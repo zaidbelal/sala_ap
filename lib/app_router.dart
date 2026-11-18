@@ -21,6 +21,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'features/auth/login/services/auth_service.dart';
 import 'features/merchant/cart/providers/cart_provider.dart';
 import 'dart:async';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class AppRoutes {
   static const splash = '/';
@@ -383,9 +384,8 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
         if (mounted) context.go(AppRoutes.login);
         return;
       }
-
       if (isActive) {
-        final tokenResult = await firebaseUser
+        var tokenResult = await firebaseUser
             .getIdTokenResult(true)
             .timeout(const Duration(seconds: 5));
 
@@ -399,11 +399,23 @@ class _PendingActivationScreenState extends State<_PendingActivationScreen>
           return;
         }
 
+        var claimsRole =
+            tokenResult.claims?['role']?.toString().trim().toLowerCase();
+        if (claimsRole != docRole) {
+          try {
+            await FirebaseFunctions.instanceFor(region: 'us-central1')
+                .httpsCallable('syncPhoneAuthProfile')
+                .call();
+            tokenResult = await firebaseUser.getIdTokenResult(true);
+            claimsRole =
+                tokenResult.claims?['role']?.toString().trim().toLowerCase();
+          } catch (_) {}
+        }
+
         final verifiedRole = AuthService.resolveVerifiedRole(
           docRole: docRole,
-          claimsRole: tokenResult.claims?['role']?.toString(),
+          claimsRole: claimsRole,
         );
-
         await AppStorage.setIsActive(true);
         await AppStorage.saveUserData(
           userId: uid,
