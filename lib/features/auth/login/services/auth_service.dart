@@ -289,11 +289,6 @@ class AuthService {
         idTokenResult = null;
       }
 
-      final currentDocRole =
-          (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
-      final currentClaimRole =
-          (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
-
       final docRole =
           (data['role'] as String?)?.trim().toLowerCase() ?? 'merchant';
       var claimsRole =
