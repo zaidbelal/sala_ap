@@ -164,7 +164,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
         );
 
     final title = !isBaseVariant
-        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        ? '${v.label} - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
 
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -205,9 +205,10 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       builder: (ctx) => _ManualQtyDialog(
         initialQty: _qty,
         unitLabel: _currentUnitLabel,
-        productName: _activeVariant != null
-            ? '${widget.product.name} (${_activeVariant!.label})'
-            : widget.product.name,
+        productName:
+            (_activeVariant != null && _activeVariant!.id != 'base_default')
+                ? _activeVariant!.label
+                : widget.product.name,
       ),
     );
 
@@ -263,7 +264,9 @@ class _ProductCardState extends ConsumerState<ProductCard> {
             GestureDetector(
               onTap: _openSheet,
               child: Text(
-                widget.product.name,
+                (v != null && v.id != 'base_default')
+                    ? v.label
+                    : widget.product.name,
                 style: TextStyle(
                   fontFamily: 'Cairo',
                   fontSize: 15.5,

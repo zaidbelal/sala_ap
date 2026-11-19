@@ -29,16 +29,15 @@ const webFirebaseOptions = FirebaseOptions(
   authDomain: 'app-sala-b42dd.firebaseapp.com',
   storageBucket: 'app-sala-b42dd.firebasestorage.app',
 );
-// ✅ إعدادات الآيفون مأخوذة مباشرة من ملفك لحل مشكلة عدم الربط في Xcode
+// ✅ إعدادات الآيفون المحدثة المطابقة لـ GoogleService-Info.plist
 const iosFirebaseOptions = FirebaseOptions(
-  apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
-  appId: '1:846679653389:ios:362d95f5793128e5902944',
+  apiKey: 'AIzaSyDh3p5a_v-MwC1-vpbW14MRrM4ay7ibFcE',
+  appId: '1:846679653389:ios:5df3584bdbe27e2f902944',
   messagingSenderId: '846679653389',
   projectId: 'app-sala-b42dd',
   storageBucket: 'app-sala-b42dd.firebasestorage.app',
   iosBundleId: 'com.zaidsalaapp.sala',
 );
-
 // تحديد الإعداد المناسب لكل منصة
 FirebaseOptions? get platformFirebaseOptions {
   if (kIsWeb) return webFirebaseOptions;

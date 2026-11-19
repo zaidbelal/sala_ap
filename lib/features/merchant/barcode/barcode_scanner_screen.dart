@@ -404,7 +404,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (!mounted) return;
 
     if (result.status == _LookupStatus.found && result.product != null) {
-      final product = _attachMatchedMeta(result.product!, code);
+      final product = Map<String, dynamic>.from(result.product!);
       SupermarketSoundHelper.playSupermarketBeep();
       _unmatchedCodesCooldown.clear();
 
@@ -456,46 +456,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         setState(() => _statusBannerText = null);
       }
     });
-  }
-
-  Map<String, dynamic> _attachMatchedMeta(
-      Map<String, dynamic> raw, String scannedCode) {
-    final cleanScanned = BarcodeScannerScreen.cleanBarcode(scannedCode);
-    final variantsToMatch = BarcodeTools.variants(cleanScanned).toSet();
-    final copy = Map<String, dynamic>.from(raw);
-
-    bool matchesCode(dynamic val) {
-      if (val == null) return false;
-      final c = BarcodeScannerScreen.cleanBarcode(val.toString());
-      return c.isNotEmpty && variantsToMatch.contains(c);
-    }
-
-    if (raw['units'] is List) {
-      for (final u in (raw['units'] as List).whereType<Map>()) {
-        if (matchesCode(u['barcode'])) {
-          copy['_matched_unit_label'] = u['label']?.toString();
-          return copy;
-        }
-      }
-    }
-    if (raw['variants'] is List) {
-      for (final v in (raw['variants'] as List).whereType<Map>()) {
-        if (matchesCode(v['barcode'])) {
-          copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
-          return copy;
-        }
-        if (v['units'] is List) {
-          for (final u in (v['units'] as List).whereType<Map>()) {
-            if (matchesCode(u['barcode'])) {
-              copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
-              copy['_matched_unit_label'] = u['label']?.toString();
-              return copy;
-            }
-          }
-        }
-      }
-    }
-    return copy;
   }
 
   Future<_LookupResult> _lookup(String code) async {
@@ -1038,29 +998,6 @@ class BarcodeIndexManager {
     if (product['all_barcodes'] is List) {
       for (final b in product['all_barcodes']) {
         if (b != null) addVar(b.toString());
-      }
-    }
-
-    if (product['units'] is List) {
-      for (final u in product['units']) {
-        if (u is Map && u['barcode'] != null) {
-          addVar(u['barcode'].toString());
-        }
-      }
-    }
-
-    if (product['variants'] is List) {
-      for (final v in product['variants']) {
-        if (v is Map) {
-          if (v['barcode'] != null) addVar(v['barcode'].toString());
-          if (v['units'] is List) {
-            for (final u in v['units']) {
-              if (u is Map && u['barcode'] != null) {
-                addVar(u['barcode'].toString());
-              }
-            }
-          }
-        }
       }
     }
   }

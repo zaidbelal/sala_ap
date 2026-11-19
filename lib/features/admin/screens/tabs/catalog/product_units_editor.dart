@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:wissal/core/utils/arabic_normalizer.dart';
-import '../../../../merchant/barcode/barcode_scanner_screen.dart';
 import 'catalog_helpers.dart';
 import 'products_tab.dart' show DateInputFormatter;
 
@@ -322,10 +321,8 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   late final TextEditingController _costCtrl;
   late final TextEditingController _qtyCtrl;
   late final TextEditingController _sizeCtrl;
-  late final TextEditingController _barcodeCtrl;
   late final TextEditingController _prodDateCtrl;
   late final TextEditingController _expDateCtrl;
-
   XFile? _selectedImage;
   Uint8List? _selectedImageBytes;
   bool _removeOldImage = false;
@@ -343,7 +340,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _qtyCtrl = TextEditingController(text: ex != null ? '${ex.qty}' : '1');
     _sizeCtrl = TextEditingController(
         text: ex?.sizeMl != null ? ex!.sizeMl!.toStringAsFixed(0) : '');
-    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -357,7 +353,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _costCtrl.dispose();
     _qtyCtrl.dispose();
     _sizeCtrl.dispose();
-    _barcodeCtrl.dispose();
     _prodDateCtrl.dispose();
     _expDateCtrl.dispose();
     super.dispose();
@@ -455,9 +450,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
           expiryDate: _expDateCtrl.text.trim().isEmpty
               ? null
               : DateTime.tryParse(_expDateCtrl.text.trim()),
-          barcode: _barcodeCtrl.text.trim().isEmpty
-              ? null
-              : _barcodeCtrl.text.trim(),
         ),
       );
     } catch (e) {
@@ -602,124 +594,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                         validator: (v) => (v == null || v.trim().isEmpty)
                             ? 'اسم الكمية مطلوب'
                             : null,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _priceCtrl,
-                              textDirection: TextDirection.rtl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              inputFormatters: const [
-                                ArabicDigitsInputFormatter()
-                              ],
-                              decoration: _dec('سعر البيع ر.ي *'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                              validator: (v) {
-                                final p = double.tryParse(
-                                    ArabicNormalizer.normalizeDigits(v ?? '')
-                                        .trim());
-                                return (p == null || p < 0)
-                                    ? 'أدخل سعراً صحيحاً'
-                                    : null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _costCtrl,
-                              textDirection: TextDirection.rtl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              inputFormatters: const [
-                                ArabicDigitsInputFormatter()
-                              ],
-                              decoration: _dec('سعر الشراء 🔒'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _qtyCtrl,
-                              textDirection: TextDirection.rtl,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: const [
-                                ArabicDigitsInputFormatter(allowDecimal: false)
-                              ],
-                              decoration: _dec('عدد الحبات الأساسية *'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                              validator: (v) {
-                                final q = int.tryParse(
-                                    ArabicNormalizer.normalizeDigits(v ?? '')
-                                        .trim());
-                                return (q == null || q <= 0)
-                                    ? 'أدخل عدد الحبات'
-                                    : null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _sizeCtrl,
-                              textDirection: TextDirection.rtl,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                              decoration: _dec('الحجم بالمل'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _barcodeCtrl,
-                              textDirection: TextDirection.ltr,
-                              decoration:
-                                  _dec('باركود الوحدة (أدخل يدوياً أو امسحه)'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () async {
-                              final scanned =
-                                  await BarcodeScannerScreen.scan(context);
-                              if (scanned != null && scanned.isNotEmpty) {
-                                setState(() => _barcodeCtrl.text = scanned);
-                              }
-                            },
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.qr_code_scanner_rounded,
-                                  color: Colors.white, size: 22),
-                            ),
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 10),
                       Row(
@@ -1189,7 +1063,6 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
         TextEditingController(text: ex != null ? '${ex.itemsPerCarton}' : '1');
     _sizeCtrl = TextEditingController(
         text: ex?.sizeText ?? (ex?.sizeMl != null ? '${ex!.sizeMl} مل' : ''));
-    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -1299,9 +1172,6 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
         sizeText: customSize.isNotEmpty ? customSize : null,
         sizeMl: numericSize,
         imageUrl: imageUrl,
-        barcode: _barcodeCtrl.text.trim().isNotEmpty
-            ? _barcodeCtrl.text.trim()
-            : null,
         productionDate: prodDate,
         expiryDate: expDate,
         units: _subUnits,
@@ -1547,7 +1417,7 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                       ),
                       const SizedBox(height: 8),
 
-                      // الحجم والباركود
+                      // الحجم / الوزن
                       TextFormField(
                         controller: _sizeCtrl,
                         textDirection: TextDirection.rtl,
@@ -1555,41 +1425,6 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                             _dec('وصف الحجم أو الوزن (مثال: 1.5 لتر ، 250 مل)'),
                         style:
                             const TextStyle(fontFamily: 'Cairo', fontSize: 13),
-                      ),
-                      const SizedBox(height: 8),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _barcodeCtrl,
-                              textDirection: TextDirection.ltr,
-                              decoration: _dec('باركود كرتون هذا الحجم'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () async {
-                              final scanned =
-                                  await BarcodeScannerScreen.scan(context);
-                              if (scanned != null && scanned.isNotEmpty) {
-                                setState(() => _barcodeCtrl.text = scanned);
-                              }
-                            },
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Colors.deepPurple,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.qr_code_scanner_rounded,
-                                  color: Colors.white, size: 22),
-                            ),
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 8),
 

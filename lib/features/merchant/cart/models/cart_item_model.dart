@@ -23,16 +23,16 @@ class CartItem {
   }
 
   String get displayName {
-    final buffer = StringBuffer(product.name);
-    if (selectedVariant != null && selectedVariant!.label.trim().isNotEmpty) {
-      buffer.write(' (${selectedVariant!.label.trim()})');
-    }
-    if (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty) {
-      buffer.write(' - ${selectedUnit!.label.trim()}');
-    } else {
-      buffer.write(' - كرتون');
-    }
-    return buffer.toString();
+    final isCustomVariant = selectedVariant != null &&
+        selectedVariant!.id != 'base_default' &&
+        selectedVariant!.label.trim().isNotEmpty;
+    final baseTitle =
+        isCustomVariant ? selectedVariant!.label.trim() : product.name;
+    final unitName =
+        (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty)
+            ? selectedUnit!.label.trim()
+            : 'كرتون';
+    return '$baseTitle - $unitName';
   }
 
   double get unitPrice =>

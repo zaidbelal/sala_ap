@@ -51,7 +51,6 @@ class ProductUnit {
       barcode: m['barcode']?.toString().trim(),
     );
   }
-
   Map<String, dynamic> toMap() => {
         'label': label,
         'qty': qty,
@@ -62,7 +61,6 @@ class ProductUnit {
         if (productionDate != null)
           'production_date': Timestamp.fromDate(productionDate!),
         if (expiryDate != null) 'expiry_date': Timestamp.fromDate(expiryDate!),
-        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
 
   Map<String, dynamic> toJson() => {
@@ -75,7 +73,6 @@ class ProductUnit {
         if (productionDate != null)
           'production_date': productionDate!.toIso8601String(),
         if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
-        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
 }
 
@@ -163,7 +160,6 @@ class ProductVariant {
         if (sizeText != null && sizeText!.isNotEmpty) 'size_text': sizeText,
         if (sizeMl != null) 'size_ml': sizeMl,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
-        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': productionDate!.toIso8601String(),
         if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),

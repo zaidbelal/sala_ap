@@ -156,7 +156,7 @@ class ProductModel {
               sizeMl: u.sizeMl,
               productionDate: u.productionDate,
               expiryDate: u.expiryDate,
-              barcode: u.barcode,
+              barcode: null,
             ))
         .toList();
 
@@ -210,7 +210,7 @@ class ProductModel {
                       sizeMl: u.sizeMl,
                       productionDate: u.productionDate,
                       expiryDate: u.expiryDate,
-                      barcode: u.barcode,
+                      barcode: null,
                     ))
                 .toList();
 
@@ -230,7 +230,7 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? pUnit.sizeMl,
                     productionDate: v.productionDate ?? pUnit.productionDate,
                     expiryDate: v.expiryDate ?? pUnit.expiryDate,
-                    barcode: v.barcode ?? pUnit.barcode,
+                    barcode: null,
                   );
                 }
                 final double scaledPrice =
@@ -261,7 +261,7 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? sizeMl,
                     productionDate: v.productionDate,
                     expiryDate: v.expiryDate,
-                    barcode: v.barcode,
+                    barcode: null,
                   ),
                 );
               }
@@ -277,7 +277,7 @@ class ProductModel {
               sizeText: v.sizeText,
               sizeMl: v.sizeMl,
               imageUrl: v.imageUrl ?? imageUrl,
-              barcode: v.barcode,
+              barcode: null,
               productionDate: v.productionDate,
               expiryDate: v.expiryDate,
               units: vUnits,

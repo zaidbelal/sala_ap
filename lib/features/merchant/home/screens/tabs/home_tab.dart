@@ -301,39 +301,15 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                     findProductMode: true),
                               ),
                             );
-
                             if (matchedProductMap != null && context.mounted) {
                               final productModel =
                                   ProductModel.fromMap(matchedProductMap);
-                              final matchedVariantId =
-                                  matchedProductMap['_matched_variant_id']
-                                      ?.toString();
-                              final matchedUnitLabel =
-                                  matchedProductMap['_matched_unit_label']
-                                      ?.toString();
-                              final initialVariant = matchedVariantId != null
-                                  ? productModel.variants
-                                      .where((v) =>
-                                          v.id == matchedVariantId ||
-                                          v.label == matchedVariantId)
-                                      .firstOrNull
-                                  : null;
-                              final unitPool = initialVariant != null
-                                  ? initialVariant.units
-                                  : productModel.units;
-                              final initialUnit = matchedUnitLabel != null
-                                  ? unitPool
-                                      .where((u) => u.label == matchedUnitLabel)
-                                      .firstOrNull
-                                  : null;
                               showModalBottomSheet(
                                 context: context,
                                 isScrollControlled: true,
                                 backgroundColor: Colors.transparent,
                                 builder: (_) => ProductDetailsSheet(
                                   product: productModel,
-                                  initialVariant: initialVariant,
-                                  initialUnit: initialUnit,
                                 ),
                               );
                             }

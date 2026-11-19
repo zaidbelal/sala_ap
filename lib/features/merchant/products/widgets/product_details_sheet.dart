@@ -70,7 +70,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
       }
       _pageController = PageController(initialPage: _variantIndex);
       for (var i = 0; i < allVars.length; i++) {
-        final units = allVars[i].units;
+        final units = allVars[i].units.isNotEmpty
+            ? allVars[i].units
+            : widget.product.units;
         _variantUnits[i] = (i == _variantIndex && widget.initialUnit != null)
             ? (units
                     .where((u) =>
@@ -211,7 +213,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
           variant: effectiveVariant,
         );
     final title = !isBaseVariant
-        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        ? '${v.label} - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
     Navigator.pop(context);
 
@@ -446,7 +448,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final hasImage = currentImage != null && currentImage.isNotEmpty;
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
     final units = (v != null && v.units.isNotEmpty) ? v.units : product.units;
-    final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
+    final currentBarcode = product.barcode;
     final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??
         v?.productionDate ??
@@ -456,8 +458,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         DateTime.tryParse(product.expiryDate ?? '');
     final isExpiringSoon = currentExpiry != null &&
         currentExpiry.isBefore(DateTime.now().add(const Duration(days: 30)));
-    final titleText = v != null
-        ? '${product.name} (${v.label}) - $pageUnitLabel'
+    final isCustomVariant = v != null && v.id != 'base_default';
+    final titleText = isCustomVariant
+        ? '${v.label} - $pageUnitLabel'
         : '${product.name} - $pageUnitLabel';
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -628,7 +631,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                 if (currentBarcode != null && currentBarcode.isNotEmpty) ...[
                   _InfoTile(
                     icon: Icons.qr_code_2_rounded,
-                    label: 'الباركود الدولي',
+                    label: 'الباركود الموحد',
                     value: currentBarcode,
                     valueColor: AppColors.primary,
                   ),

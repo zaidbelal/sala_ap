@@ -467,12 +467,17 @@ class _StatCard extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: color),
           const SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: color)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(value,
+                maxLines: 1,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: color)),
+          ),
           Text(label,
               style: TextStyle(
                   fontFamily: 'Cairo',
@@ -658,7 +663,7 @@ class _ReturnInvoiceCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'فاتورة إرجاع #$displayReturnId',
+                          'فاتورة إرجاع',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -687,38 +692,48 @@ class _ReturnInvoiceCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '#$displayReturnId',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: context.textSecondary,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${returnItem.productName} • ${returnItem.quantity} ${returnItem.unitLabel}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isRejected
-                                  ? Colors.red
-                                  : const Color(0xFFEA580C)),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    '${returnItem.productName} • ${returnItem.quantity} ${returnItem.unitLabel}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color:
+                            isRejected ? Colors.red : const Color(0xFFEA580C)),
                   ),
                   if (isRejected &&
                       returnItem.rejectionReason != null &&
                       returnItem.rejectionReason!.trim().isNotEmpty) ...[
                     const SizedBox(height: 3),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.info_outline_rounded,
-                            size: 13, color: Colors.red),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(Icons.info_outline_rounded,
+                              size: 13, color: Colors.red),
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             'سبب الرفض: ${returnItem.rejectionReason}',
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontFamily: 'Cairo',
@@ -731,22 +746,29 @@ class _ReturnInvoiceCard extends StatelessWidget {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       Icon(Icons.access_time_rounded,
                           size: 12, color: context.iconSecondary),
-                      const SizedBox(width: 3),
-                      Text('$time • $date',
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '$time • $date',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontFamily: 'Cairo',
                               fontSize: 11,
-                              color: context.textSecondary)),
-                      const Spacer(),
+                              color: context.textSecondary),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         isRejected
                             ? 'مرفوض'
                             : '-${returnItem.refundAmount.toStringAsFixed(0)} ر.ي',
+                        textDirection: TextDirection.rtl,
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 14,
@@ -858,7 +880,7 @@ class _OrderCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'فاتورة طلب #$shortOrderId',
+                          'فاتورة طلب',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -888,6 +910,19 @@ class _OrderCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '#$shortOrderId',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: context.textSecondary,
+                    ),
                   ),
                   if (order.storeName != null &&
                       order.storeName!.isNotEmpty) ...[

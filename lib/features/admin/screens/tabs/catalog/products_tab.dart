@@ -1470,7 +1470,7 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
                                   child: CatalogSmallField(
                                     ctrl: _barcodeCtrl,
                                     hint:
-                                        'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
+                                        'الباركود الموحد للمنتج (أدخل يدوياً أو امسح بالكاميرا)',
                                     type: TextInputType.text,
                                   ),
                                 ),
@@ -2154,7 +2154,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                               child: CatalogEditField(
                                 ctrl: barcodeCtrl,
                                 hint:
-                                    'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
+                                    'الباركود الموحد للمنتج (أدخل يدوياً أو امسح بالكاميرا)',
                                 icon: Icons.qr_code_2_rounded,
                                 type: TextInputType.text,
                               ),

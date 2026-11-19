@@ -327,9 +327,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
       context: context,
       builder: (_) => _QuickAddQtyDialog(
         initialQty: _qty,
-        productName: _selectedVariant != null
-            ? '${widget.product.name} - ${_selectedVariant!.label}'
-            : widget.product.name,
+        productName:
+            (_selectedVariant != null && _selectedVariant!.id != 'base_default')
+                ? _selectedVariant!.label
+                : widget.product.name,
         unitLabel: _selectedUnit?.label ?? 'كرتون',
       ),
     );
@@ -461,7 +462,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.product.name,
+                  (_selectedVariant != null &&
+                          _selectedVariant!.id != 'base_default')
+                      ? _selectedVariant!.label
+                      : widget.product.name,
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 13,

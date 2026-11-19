@@ -208,8 +208,9 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        activeVariant != null
-                            ? '${resolvedProduct.name} (${activeVariant.label}) - $currentLabel'
+                        (activeVariant != null &&
+                                activeVariant.id != 'base_default')
+                            ? '${activeVariant.label} - $currentLabel'
                             : '${resolvedProduct.name} - $currentLabel',
                         style: TextStyle(
                           fontFamily: 'Cairo',
