@@ -308,7 +308,7 @@ class AuthService {
               .getIdTokenResult(true)
               .timeout(const Duration(seconds: 5));
           claimsRole =
-              (idTokenResult?.claims?['role'] as String?)?.trim().toLowerCase();
+              (idTokenResult.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
 
