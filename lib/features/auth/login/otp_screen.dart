@@ -212,13 +212,21 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
           }
           await FirebaseAuth.instance
               .signInWithCustomToken(customToken)
-              .timeout(const Duration(seconds: 10));
+              .timeout(const Duration(seconds: 25));
         }
+      } on FirebaseAuthException catch (e) {
+        setState(() {
+          _isVerifying = false;
+          _isError = true;
+          _errorMsg = 'خطأ المصادقة (${e.code}): ${e.message ?? ""}';
+        });
+        _shakeController.forward(from: 0);
+        return;
       } catch (e) {
         setState(() {
           _isVerifying = false;
           _isError = true;
-          _errorMsg = 'فشل التحقق، يرجى التأكد من اتصالك بالإنترنت';
+          _errorMsg = 'فشل التحقق ($e)';
         });
         _shakeController.forward(from: 0);
         return;
@@ -263,18 +271,25 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
           customToken != 'firebase_phone_verified') {
         await FirebaseAuth.instance
             .signInWithCustomToken(customToken)
-            .timeout(const Duration(seconds: 10));
+            .timeout(const Duration(seconds: 25));
       }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _isVerifying = false;
+        _isError = true;
+        _errorMsg = 'خطأ المصادقة (${e.code}): ${e.message ?? ""}';
+      });
+      _shakeController.forward(from: 0);
+      return;
     } catch (e) {
       setState(() {
         _isVerifying = false;
         _isError = true;
-        _errorMsg = 'فشل تسجيل الدخول لدى خادم الأمان، يرجى التحقق من اتصالك';
+        _errorMsg = 'فشل تسجيل الدخول ($e)';
       });
       _shakeController.forward(from: 0);
       return;
     }
-
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
       setState(() {
@@ -308,7 +323,6 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
       return;
     } catch (e) {
       if (!mounted) return;
-      // تنظيف أي بيانات مؤقتة لعدم تثبيت حالة "معلق" خاطئة محلياً عند خطأ الشبكة المؤقت
       try {
         await AppStorage.clearUserData();
       } catch (_) {}
@@ -316,8 +330,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
       setState(() {
         _isVerifying = false;
         _isError = true;
-        _errorMsg =
-            'تعذر التحقق من حالة الحساب من الخادم. يرجى التأكد من اتصالك بالإنترنت وإعادة المحاولة.';
+        _errorMsg = 'تعذر التحقق من حالة الحساب: $e';
       });
       _shakeController.forward(from: 0);
       return;

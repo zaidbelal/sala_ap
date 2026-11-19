@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -249,26 +250,25 @@ class AuthService {
       if (currentAuthUid.isEmpty) {
         throw StateError('Missing authenticated user ID');
       }
-
       var document = await _db
           .collection('profiles')
           .doc(currentAuthUid)
           .get()
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 20));
 
       if (!document.exists) {
         try {
           final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
             'syncPhoneAuthProfile',
-            options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
           );
           await callable.call();
           document = await _db
               .collection('profiles')
               .doc(currentAuthUid)
               .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 8));
+              .timeout(const Duration(seconds: 15));
         } catch (_) {}
       }
 
@@ -284,7 +284,7 @@ class AuthService {
       try {
         idTokenResult = await firebaseUser
             ?.getIdTokenResult(true)
-            .timeout(const Duration(seconds: 5));
+            .timeout(const Duration(seconds: 15));
       } catch (_) {
         idTokenResult = null;
       }
@@ -301,17 +301,16 @@ class AuthService {
           final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable(
             'syncPhoneAuthProfile',
-            options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
           );
           await callable.call();
           idTokenResult = await firebaseUser
               .getIdTokenResult(true)
-              .timeout(const Duration(seconds: 5));
+              .timeout(const Duration(seconds: 15));
           claimsRole =
               (idTokenResult.claims?['role'] as String?)?.trim().toLowerCase();
         } catch (_) {}
       }
-
       if (idTokenResult?.claims?['is_banned'] == true) {
         throw StateError('User account is inactive or banned');
       }
@@ -340,7 +339,9 @@ class AuthService {
         storeName: data['store_name'] as String?,
         phone: data['phone_number'] as String?,
       );
-      await NotificationService.instance.saveTokenToFirestore(currentAuthUid);
+      unawaited(
+        NotificationService.instance.saveTokenToFirestore(currentAuthUid),
+      );
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(
