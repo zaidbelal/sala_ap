@@ -8,6 +8,7 @@ import '../../../../auth/login/services/auth_service.dart';
 import '../../../cart/providers/cart_provider.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'package:wissal/core/constants/app_theme.dart';
+import '../../../ledger/screens/ledger_home_screen.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -311,6 +312,39 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
 
             const SizedBox(height: 20),
 
+            // ── خدمات وأدوات المتجر ──
+            Text(
+              'أدوات المتجر والمبيعات',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: context.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            _buildTile(
+              context: context,
+              icon: Icons.menu_book_rounded,
+              title: 'دفتر الديون وسجل الحسابات',
+              value: 'إدارة ديون الزبائن، سداد كاش، كشوفات PDF',
+              trailing: const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: AppColors.primary,
+              ),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LedgerHomeScreen()),
+                );
+              },
+            ),
+
+            const SizedBox(height: 20),
+
             // ── إعدادات وتفضيلات التطبيق ──
             Text(
               'التفضيلات والخصوصية',
@@ -432,8 +466,9 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
     required String title,
     required String value,
     Widget? trailing,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final tile = Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -495,6 +530,15 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: tile,
+      );
+    }
+    return tile;
   }
 }
 

@@ -11,6 +11,7 @@ import 'package:wissal/core/services/local_storage.dart';
 import 'package:wissal/core/services/notification_service.dart';
 import 'package:wissal/core/services/realtime_hub.dart';
 import 'features/merchant/home/screens/merchant_home_screen.dart';
+import 'features/merchant/ledger/screens/ledger_home_screen.dart';
 import 'features/admin/screens/admin_home_screen.dart';
 import 'features/merchant/notifications/notifications_screen.dart';
 import 'features/merchant/home/screens/delete_account_screen.dart';
@@ -30,6 +31,7 @@ class AppRoutes {
   static const otp = '/otp';
   static const signupDetails = '/signup-details';
   static const merchantHome = '/merchant';
+  static const merchantLedger = '/merchant/ledger';
   static const driverHome = '/driver';
   static const adminHome = '/admin';
   static const pending = '/pending';
@@ -41,6 +43,7 @@ class AppRoutes {
 /// المسارات المحمية حسب الدور
 const _protectedMerchantRoutes = [
   AppRoutes.merchantHome,
+  AppRoutes.merchantLedger,
 ];
 const _protectedAdminRoutes = [AppRoutes.adminHome];
 const _protectedDriverRoutes = [AppRoutes.driverHome];
@@ -282,6 +285,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.merchantHome,
         builder: (_, __) => const MerchantHomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.merchantLedger,
+        builder: (_, __) => const LedgerHomeScreen(),
       ),
       GoRoute(
         path: AppRoutes.driverHome,

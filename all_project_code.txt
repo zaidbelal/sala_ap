@@ -16,6 +16,7 @@ import 'package:wissal/core/services/local_storage.dart';
 import 'package:wissal/core/services/notification_service.dart';
 import 'package:wissal/core/services/realtime_hub.dart';
 import 'features/merchant/home/screens/merchant_home_screen.dart';
+import 'features/merchant/ledger/screens/ledger_home_screen.dart';
 import 'features/admin/screens/admin_home_screen.dart';
 import 'features/merchant/notifications/notifications_screen.dart';
 import 'features/merchant/home/screens/delete_account_screen.dart';
@@ -35,6 +36,7 @@ class AppRoutes {
   static const otp = '/otp';
   static const signupDetails = '/signup-details';
   static const merchantHome = '/merchant';
+  static const merchantLedger = '/merchant/ledger';
   static const driverHome = '/driver';
   static const adminHome = '/admin';
   static const pending = '/pending';
@@ -46,6 +48,7 @@ class AppRoutes {
 /// المسارات المحمية حسب الدور
 const _protectedMerchantRoutes = [
   AppRoutes.merchantHome,
+  AppRoutes.merchantLedger,
 ];
 const _protectedAdminRoutes = [AppRoutes.adminHome];
 const _protectedDriverRoutes = [AppRoutes.driverHome];
@@ -287,6 +290,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.merchantHome,
         builder: (_, __) => const MerchantHomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.merchantLedger,
+        builder: (_, __) => const LedgerHomeScreen(),
       ),
       GoRoute(
         path: AppRoutes.driverHome,
@@ -1805,8 +1812,6 @@ import 'package:wissal/core/services/local_storage.dart';
 import 'app_colors.dart';
 import 'app_radius.dart';
 import 'app_text_styles.dart';
-import 'package:flutter/cupertino.dart'
-    show CupertinoPageTransitionsBuilder; // 👈 أضف هذا السطر فقط
 
 // مزود إدارة مظهر التطبيق (داكن/فاتح)
 final themeProvider = StateProvider<ThemeMode>((ref) {
@@ -39185,6 +39190,7 @@ import '../../../../../core/models/product_unit.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/screens/products_screen.dart';
 import '../../../products/widgets/product_details_sheet.dart';
+import '../../../ledger/screens/ledger_home_screen.dart';
 
 final _searchQueryProvider = StateProvider<String>((ref) => '');
 
@@ -39547,6 +39553,90 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                         ),
                       )
                     else ...[
+                      // ══ كارت دفتر الديون وسجل الحسابات ══
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () {
+                                HapticFeedback.mediumImpact();
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const LedgerHomeScreen()),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                                    begin: Alignment.topRight,
+                                    end: Alignment.bottomLeft,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF1E3C72).withValues(alpha: 0.25),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.15),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.menu_book_rounded,
+                                        color: Colors.white,
+                                        size: 26,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    const Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'دفتر الديون وسجل الزبائن 📒',
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 15,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          SizedBox(height: 2),
+                                          Text(
+                                            'تسجيل بالباركود والحبة • سداد كاش • كشف PDF',
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 11,
+                                              color: Colors.white70,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      color: Colors.white70,
+                                      size: 14,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       // عنوان الأصناف
                       SliverToBoxAdapter(
                         child: Padding(
@@ -40242,6 +40332,7 @@ import '../../../../auth/login/services/auth_service.dart';
 import '../../../cart/providers/cart_provider.dart';
 import 'package:wissal/core/constants/app_adaptive_colors.dart';
 import 'package:wissal/core/constants/app_theme.dart';
+import '../../../ledger/screens/ledger_home_screen.dart';
 
 class ProfileTab extends ConsumerStatefulWidget {
   const ProfileTab({super.key});
@@ -40545,6 +40636,39 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
 
             const SizedBox(height: 20),
 
+            // ── خدمات وأدوات المتجر ──
+            Text(
+              'أدوات المتجر والمبيعات',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: context.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            _buildTile(
+              context: context,
+              icon: Icons.menu_book_rounded,
+              title: 'دفتر الديون وسجل الحسابات',
+              value: 'إدارة ديون الزبائن، سداد كاش، كشوفات PDF',
+              trailing: const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: AppColors.primary,
+              ),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LedgerHomeScreen()),
+                );
+              },
+            ),
+
+            const SizedBox(height: 20),
+
             // ── إعدادات وتفضيلات التطبيق ──
             Text(
               'التفضيلات والخصوصية',
@@ -40666,8 +40790,9 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
     required String title,
     required String value,
     Widget? trailing,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final tile = Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -40729,6 +40854,15 @@ class _ProfileTabState extends ConsumerState<ProfileTab> {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: tile,
+      );
+    }
+    return tile;
   }
 }
 
@@ -42911,6 +43045,3905 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\models\ledger_customer.dart
+// ==================================================
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class LedgerCustomer {
+  final String id;
+  final String merchantId;
+  final String name;
+  final String phone;
+  final double creditLimit;
+  final double currentBalance;
+  final String notes;
+  final bool isDeleted;
+  final DateTime? lastTransactionAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const LedgerCustomer({
+    required this.id,
+    required this.merchantId,
+    required this.name,
+    this.phone = '',
+    this.creditLimit = 0.0,
+    this.currentBalance = 0.0,
+    this.notes = '',
+    this.isDeleted = false,
+    this.lastTransactionAt,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  /// الرصيد المتبقي من سقف الائتمان (إذا كان السقف محدداً)
+  double get remainingCredit {
+    if (creditLimit <= 0) return 0.0;
+    final rem = creditLimit - currentBalance;
+    return rem > 0 ? rem : 0.0;
+  }
+
+  /// هل تجاوز العميل سقف الدين المسموح؟
+  bool get isOverLimit => creditLimit > 0 && currentBalance > creditLimit;
+
+  /// نسبة استهلاك سقف الدين (بين 0.0 و 1.0 أو أكثر)
+  double get creditUsageRatio {
+    if (creditLimit <= 0) return 0.0;
+    return (currentBalance / creditLimit).clamp(0.0, 2.0);
+  }
+
+  factory LedgerCustomer.fromMap(String id, Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
+    return LedgerCustomer(
+      id: id,
+      merchantId: (map['merchant_id'] ?? '').toString(),
+      name: (map['name'] ?? '').toString(),
+      phone: (map['phone'] ?? '').toString(),
+      creditLimit: (map['credit_limit'] as num?)?.toDouble() ?? 0.0,
+      currentBalance: (map['current_balance'] as num?)?.toDouble() ?? 0.0,
+      notes: (map['notes'] ?? '').toString(),
+      isDeleted: map['is_deleted'] == true,
+      lastTransactionAt: parseDate(map['last_transaction_at']),
+      createdAt: parseDate(map['created_at']),
+      updatedAt: parseDate(map['updated_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'merchant_id': merchantId,
+      'name': name,
+      'phone': phone,
+      'credit_limit': creditLimit,
+      'current_balance': currentBalance,
+      'notes': notes,
+      'is_deleted': isDeleted,
+      'last_transaction_at': lastTransactionAt != null ? Timestamp.fromDate(lastTransactionAt!) : null,
+      'created_at': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
+      'updated_at': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
+    };
+  }
+
+  LedgerCustomer copyWith({
+    String? name,
+    String? phone,
+    double? creditLimit,
+    double? currentBalance,
+    String? notes,
+    bool? isDeleted,
+    DateTime? lastTransactionAt,
+  }) {
+    return LedgerCustomer(
+      id: id,
+      merchantId: merchantId,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      creditLimit: creditLimit ?? this.creditLimit,
+      currentBalance: currentBalance ?? this.currentBalance,
+      notes: notes ?? this.notes,
+      isDeleted: isDeleted ?? this.isDeleted,
+      lastTransactionAt: lastTransactionAt ?? this.lastTransactionAt,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\models\ledger_entry.dart
+// ==================================================
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'ledger_item.dart';
+
+class LedgerEntry {
+  final String id;
+  final String merchantId;
+  final String customerId;
+  final String type; // 'debt' or 'payment'
+  final double amount;
+  final String notes;
+  final List<LedgerItem> items;
+  final double balanceAfter;
+  final bool isVoided;
+  final DateTime? voidedAt;
+  final DateTime? createdAt;
+
+  const LedgerEntry({
+    required this.id,
+    required this.merchantId,
+    required this.customerId,
+    required this.type,
+    required this.amount,
+    this.notes = '',
+    this.items = const [],
+    required this.balanceAfter,
+    this.isVoided = false,
+    this.voidedAt,
+    this.createdAt,
+  });
+
+  bool get isDebt => type == 'debt';
+  bool get isPayment => type == 'payment';
+
+  String get typeLabel => isDebt ? 'دين مشتريات' : 'سداد نقدي (كاش)';
+
+  factory LedgerEntry.fromMap(String id, Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
+    final rawItems = map['items'];
+    List<LedgerItem> parsedItems = [];
+    if (rawItems is List) {
+      parsedItems = rawItems
+          .whereType<Map<String, dynamic>>()
+          .map((m) => LedgerItem.fromMap(m))
+          .toList();
+    }
+
+    return LedgerEntry(
+      id: id,
+      merchantId: (map['merchant_id'] ?? '').toString(),
+      customerId: (map['customer_id'] ?? '').toString(),
+      type: (map['type'] ?? 'debt').toString().toLowerCase(),
+      amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+      notes: (map['notes'] ?? '').toString(),
+      items: parsedItems,
+      balanceAfter: (map['balance_after'] as num?)?.toDouble() ?? 0.0,
+      isVoided: map['is_voided'] == true,
+      voidedAt: parseDate(map['voided_at']),
+      createdAt: parseDate(map['created_at']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'merchant_id': merchantId,
+      'customer_id': customerId,
+      'type': type,
+      'amount': amount,
+      'notes': notes,
+      'items': items.map((i) => i.toMap()).toList(),
+      'balance_after': balanceAfter,
+      'is_voided': isVoided,
+      'voided_at': voidedAt != null ? Timestamp.fromDate(voidedAt!) : null,
+      'created_at': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
+    };
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\models\ledger_item.dart
+// ==================================================
+
+class LedgerItem {
+  final String productId;
+  final String name;
+  final double quantity;
+  final String unitLabel;
+  final double unitPrice;
+  final double subtotal;
+  final int cartonCapacity;
+  final String? barcode;
+
+  const LedgerItem({
+    required this.productId,
+    required this.name,
+    required this.quantity,
+    this.unitLabel = 'حبة',
+    required this.unitPrice,
+    required this.subtotal,
+    this.cartonCapacity = 1,
+    this.barcode,
+  });
+
+  factory LedgerItem.fromMap(Map<String, dynamic> map) {
+    return LedgerItem(
+      productId: (map['product_id'] ?? '').toString(),
+      name: (map['name'] ?? '').toString(),
+      quantity: (map['quantity'] as num?)?.toDouble() ?? 1.0,
+      unitLabel: (map['unit_label'] ?? 'حبة').toString(),
+      unitPrice: (map['unit_price'] as num?)?.toDouble() ?? 0.0,
+      subtotal: (map['subtotal'] as num?)?.toDouble() ?? 0.0,
+      cartonCapacity: (map['carton_capacity'] as num?)?.toInt() ?? 1,
+      barcode: map['barcode']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'product_id': productId,
+      'name': name,
+      'quantity': quantity,
+      'unit_label': unitLabel,
+      'unit_price': unitPrice,
+      'subtotal': subtotal,
+      'carton_capacity': cartonCapacity,
+      if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
+    };
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\models\ledger_summary.dart
+// ==================================================
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class LedgerSummary {
+  final String merchantId;
+  final double totalMarketDebt;
+  final int debtorsCount;
+  final DateTime? updatedAt;
+
+  const LedgerSummary({
+    required this.merchantId,
+    this.totalMarketDebt = 0.0,
+    this.debtorsCount = 0,
+    this.updatedAt,
+  });
+
+  factory LedgerSummary.fromMap(String merchantId, Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val);
+      return null;
+    }
+
+    return LedgerSummary(
+      merchantId: merchantId,
+      totalMarketDebt: (map['total_market_debt'] as num?)?.toDouble() ?? 0.0,
+      debtorsCount: (map['debtors_count'] as num?)?.toInt() ?? 0,
+      updatedAt: parseDate(map['updated_at']),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\screens\ledger_customer_detail_screen.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_adaptive_colors.dart';
+import '../../../../core/services/local_storage.dart';
+import '../models/ledger_customer.dart';
+import '../models/ledger_entry.dart';
+import '../services/ledger_pdf_service.dart';
+import '../services/ledger_service.dart';
+import '../widgets/cash_payment_dialog.dart';
+import '../widgets/credit_limit_indicator.dart';
+import 'ledger_record_entry_screen.dart';
+
+class LedgerCustomerDetailScreen extends StatefulWidget {
+  final LedgerCustomer customer;
+
+  const LedgerCustomerDetailScreen({
+    super.key,
+    required this.customer,
+  });
+
+  @override
+  State<LedgerCustomerDetailScreen> createState() => _LedgerCustomerDetailScreenState();
+}
+
+class _LedgerCustomerDetailScreenState extends State<LedgerCustomerDetailScreen> {
+  late LedgerCustomer _customer;
+  bool _isLoadingPdf = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _customer = widget.customer;
+  }
+
+  void _openRecordEntry({required String type}) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LedgerRecordEntryScreen(
+          customer: _customer,
+          initialType: type,
+        ),
+      ),
+    );
+    if (result == true) {
+      // إعادة المطابقة السريعة للرصيد
+      _reconcileBalance();
+    }
+  }
+
+  void _openCashPayment() {
+    CashPaymentDialog.show(
+      context,
+      customer: _customer,
+      onPaymentSuccess: _reconcileBalance,
+    );
+  }
+
+  Future<void> _exportPdf(List<LedgerEntry> entries) async {
+    setState(() => _isLoadingPdf = true);
+    try {
+      HapticFeedback.lightImpact();
+      await LedgerPdfService.printOrShareStatement(
+        customer: _customer,
+        entries: entries,
+        storeName: AppStorage.userName,
+        storePhone: AppStorage.userPhone,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('حدث خطأ أثناء إصدار الـ PDF: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingPdf = false);
+    }
+  }
+
+  Future<void> _sendWhatsAppReminder() async {
+    if (_customer.phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('العميل ليس لديه رقم هاتف مسجل', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final storeName = AppStorage.userName ?? 'المتجر';
+    final now = DateTime.now();
+    final dateStr = LedgerPdfService.formatFullDateTime(now);
+
+    final message = '''
+السلام عليكم أخي ${_customer.name} 🌸
+تحية طيبة من $storeName،
+
+نود تذكيركم بكشف الحساب الآجل حتى $dateStr:
+▪️ إجمالي المبلغ المستحق: ${_customer.currentBalance.toStringAsFixed(0)} ريال.
+
+شاكرين لكم حسن تعاونكم وتفضلكم بالسداد.
+''';
+
+    final digitsOnly = _customer.phone.replaceAll(RegExp(r'[^\d]'), '');
+    final uri = Uri.parse('https://wa.me/$digitsOnly?text=${Uri.encodeComponent(message)}');
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'تعذر فتح تطبيق واتساب';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ في إرسال الواتساب: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _reconcileBalance() async {
+    try {
+      final newBal = await LedgerService.reconcileCustomer(_customer.id);
+      if (mounted) {
+        setState(() {
+          _customer = _customer.copyWith(currentBalance: newBal);
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _showEditCustomerDialog() {
+    final nameCtrl = TextEditingController(text: _customer.name);
+    final phoneCtrl = TextEditingController(text: _customer.phone);
+    final limitCtrl = TextEditingController(
+      text: _customer.creditLimit > 0 ? _customer.creditLimit.toStringAsFixed(0) : '',
+    );
+    final notesCtrl = TextEditingController(text: _customer.notes);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل بيانات العميل', style: TextStyle(fontFamily: 'Cairo')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'اسم العميل *',
+                  labelStyle: TextStyle(fontFamily: 'Cairo'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'رقم الهاتف',
+                  labelStyle: TextStyle(fontFamily: 'Cairo'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: limitCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'سقف الدين المحدد (ريال)',
+                  labelStyle: TextStyle(fontFamily: 'Cairo'),
+                  hintText: 'اتركه فارغاً إذا كان السقف مفتوحاً',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: notesCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظات إضافية',
+                  labelStyle: TextStyle(fontFamily: 'Cairo'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              final limit = double.tryParse(limitCtrl.text.trim()) ?? 0.0;
+              Navigator.pop(ctx);
+
+              try {
+                await LedgerService.saveCustomer(
+                  customerId: _customer.id,
+                  name: name,
+                  phone: phoneCtrl.text.trim(),
+                  creditLimit: limit,
+                  notes: notesCtrl.text.trim(),
+                );
+                setState(() {
+                  _customer = _customer.copyWith(
+                    name: name,
+                    phone: phoneCtrl.text.trim(),
+                    creditLimit: limit,
+                    notes: notesCtrl.text.trim(),
+                  );
+                });
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('فشل التعديل: $e', style: const TextStyle(fontFamily: 'Cairo')),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('حفظ', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCustomer() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف العميل من الدفتر', style: TextStyle(fontFamily: 'Cairo')),
+        content: Text(
+          'هل أنت متأكد من حذف العميل (${_customer.name})؟ سيتم أرشفة حسابه وتحديث ملخص الديون.',
+          style: const TextStyle(fontFamily: 'Cairo'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await LedgerService.deleteCustomer(_customer.id);
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تم حذف العميل بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+                      backgroundColor: Colors.black,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('فشل الحذف: $e', style: const TextStyle(fontFamily: 'Cairo')),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('تأكيد الحذف', style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmVoidEntry(LedgerEntry entry) {
+    if (entry.isVoided) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إلغاء القيد المالي', style: TextStyle(fontFamily: 'Cairo')),
+        content: Text(
+          'هل تريد إلغاء قيد (${entry.typeLabel}) بمبلغ ${entry.amount.toStringAsFixed(0)} ريال؟ سيتم عكس الرصيد فوراً وبشكل آمن.',
+          style: const TextStyle(fontFamily: 'Cairo'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('تراجع', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await LedgerService.voidTransaction(
+                  customerId: _customer.id,
+                  entryId: entry.id,
+                );
+                _reconcileBalance();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ تم إلغاء القيد وعكس الرصيد بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+                      backgroundColor: Colors.black,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('فشل إلغاء القيد: $e', style: const TextStyle(fontFamily: 'Cairo')),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('تأكيد الإلغاء', style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final merchantId = AppStorage.userId ?? '';
+
+    return Scaffold(
+      backgroundColor: context.bgPage,
+      appBar: AppBar(
+        title: Text(
+          _customer.name,
+          style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: context.bgHeader,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'تدقيق ومطابقة الرصيد',
+            onPressed: _reconcileBalance,
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (val) {
+              if (val == 'edit') _showEditCustomerDialog();
+              if (val == 'delete') _confirmDeleteCustomer();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_rounded, size: 20),
+                    SizedBox(width: 8),
+                    Text('تعديل البيانات والسقف', style: TextStyle(fontFamily: 'Cairo')),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('حذف العميل', style: TextStyle(fontFamily: 'Cairo', color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: StreamBuilder<List<LedgerEntry>>(
+        stream: LedgerService.streamCustomerEntries(merchantId, _customer.id),
+        builder: (context, snapshot) {
+          final entries = snapshot.data ?? [];
+
+          return CustomScrollView(
+            slivers: [
+              // ══ بطاقة رأس العميل والرصيد ══
+              SliverToBoxAdapter(
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: context.bgCard,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'الرصيد المتبقي للدفع',
+                                style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_customer.currentBalance.toStringAsFixed(0)} ريال',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 26,
+                                  color: _customer.isOverLimit
+                                      ? const Color(0xFFC0392B)
+                                      : const Color(0xFFE74C3C),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_customer.phone.isNotEmpty)
+                            IconButton.filledTonal(
+                              icon: const Icon(Icons.phone_rounded, color: AppColors.primary),
+                              onPressed: () {
+                                final uri = Uri.parse('tel:${_customer.phone}');
+                                launchUrl(uri);
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      CreditLimitIndicator(customer: _customer),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ══ أزرار العمليات الأربعة السريعة ══
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 2.3,
+                    children: [
+                      // 1. تسجيل دين بالباركود أو يدوي
+                      _buildQuickActionCard(
+                        icon: Icons.add_shopping_cart_rounded,
+                        title: 'تسجيل دين (+)',
+                        subtitle: 'باركود أو يدوي',
+                        color: const Color(0xFFE74C3C),
+                        onTap: () => _openRecordEntry(type: 'debt'),
+                      ),
+                      // 2. سداد دفعة نقدية
+                      _buildQuickActionCard(
+                        icon: Icons.payments_rounded,
+                        title: 'سداد نقدي (-)',
+                        subtitle: 'قبض كاش فوري',
+                        color: const Color(0xFF27AE60),
+                        onTap: _openCashPayment,
+                      ),
+                      // 3. تصدير كشف حساب PDF
+                      _buildQuickActionCard(
+                        icon: _isLoadingPdf ? Icons.hourglass_top_rounded : Icons.picture_as_pdf_rounded,
+                        title: 'كشف حساب PDF',
+                        subtitle: 'تاريخ ووقت 12 س',
+                        color: const Color(0xFF2980B9),
+                        onTap: _isLoadingPdf ? null : () => _exportPdf(entries),
+                      ),
+                      // 4. تذكير واتساب
+                      _buildQuickActionCard(
+                        icon: Icons.chat_rounded,
+                        title: 'تذكير واتساب',
+                        subtitle: 'رسالة سريعة',
+                        color: const Color(0xFF16A085),
+                        onTap: _sendWhatsAppReminder,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ══ شريط عنوان سجل الحركات ══
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'سجل الحركات المالية:',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        '(${entries.length} حركة)',
+                        style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ══ قائمة الحركات ══
+              if (entries.isEmpty)
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(30),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: context.bgCard,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(Icons.history_rounded, size: 40, color: Colors.grey[400]),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'لا توجد حركات مسجلة لهذا العميل بعد\nابدأ بتسجيل أول دين مشتريات أو سداد نقدي',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontFamily: 'Cairo', color: Colors.grey, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final entry = entries[index];
+                      final dateStr = entry.createdAt != null
+                          ? LedgerPdfService.formatFullDateTime(entry.createdAt!)
+                          : '-';
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: context.bgCard,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: entry.isVoided
+                                ? Colors.grey.withValues(alpha: 0.2)
+                                : (entry.isDebt
+                                    ? const Color(0xFFE74C3C).withValues(alpha: 0.15)
+                                    : const Color(0xFF27AE60).withValues(alpha: 0.15)),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      entry.isDebt ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                                      size: 18,
+                                      color: entry.isVoided
+                                          ? Colors.grey
+                                          : (entry.isDebt ? const Color(0xFFE74C3C) : const Color(0xFF27AE60)),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      entry.typeLabel,
+                                      style: TextStyle(
+                                        fontFamily: 'Cairo',
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: entry.isVoided ? Colors.grey : null,
+                                        decoration: entry.isVoided ? TextDecoration.lineThrough : null,
+                                      ),
+                                    ),
+                                    if (entry.isVoided) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text(
+                                          'ملغي',
+                                          style: TextStyle(fontFamily: 'Cairo', fontSize: 10, color: Colors.red),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                Text(
+                                  '${entry.amount.toStringAsFixed(0)} ريال',
+                                  style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: entry.isVoided
+                                        ? Colors.grey
+                                        : (entry.isDebt ? const Color(0xFFE74C3C) : const Color(0xFF27AE60)),
+                                    decoration: entry.isVoided ? TextDecoration.lineThrough : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // تفاصيل الأصناف المشتراة
+                            if (entry.items.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              ...entry.items.map(
+                                (item) => Text(
+                                  '• ${item.name} (${item.quantity.toStringAsFixed(0)} ${item.unitLabel} × ${item.unitPrice.toStringAsFixed(0)} ريال)',
+                                  style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 11,
+                                    color: entry.isVoided ? Colors.grey[400] : Colors.grey[700],
+                                  ),
+                                ),
+                              ),
+                            ],
+
+                            if (entry.notes.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'ملاحظة: ${entry.notes}',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 11,
+                                  color: Colors.grey[600],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+
+                            const SizedBox(height: 8),
+                            const Divider(height: 1),
+                            const SizedBox(height: 6),
+
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  dateStr,
+                                  style: TextStyle(fontFamily: 'Cairo', fontSize: 10, color: Colors.grey[500]),
+                                ),
+                                if (!entry.isVoided)
+                                  InkWell(
+                                    onTap: () => _confirmVoidEntry(entry),
+                                    child: const Text(
+                                      'إلغاء القيد',
+                                      style: TextStyle(
+                                        fontFamily: 'Cairo',
+                                        fontSize: 11,
+                                        color: Colors.red,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    childCount: entries.length,
+                  ),
+                ),
+
+              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildQuickActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\screens\ledger_home_screen.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_adaptive_colors.dart';
+import '../../../../core/services/local_storage.dart';
+import '../models/ledger_customer.dart';
+import '../models/ledger_summary.dart';
+import '../services/ledger_pdf_service.dart';
+import '../services/ledger_service.dart';
+import '../widgets/credit_limit_indicator.dart';
+import 'ledger_customer_detail_screen.dart';
+
+class LedgerHomeScreen extends StatefulWidget {
+  const LedgerHomeScreen({super.key});
+
+  @override
+  State<LedgerHomeScreen> createState() => _LedgerHomeScreenState();
+}
+
+class _LedgerHomeScreenState extends State<LedgerHomeScreen> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _selectedFilter = 'all'; // 'all', 'with_debt', 'over_limit', 'zero_debt'
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _showAddCustomerDialog() {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final limitCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.person_add_rounded, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text('إضافة عميل جديد للدفتر', style: TextStyle(fontFamily: 'Cairo', fontSize: 16)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'اسم العميل *',
+                    labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: 'رقم الهاتف (اختياري)',
+                    labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                    hintText: 'مثال: 771234567',
+                    prefixIcon: const Icon(Icons.phone_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: limitCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'سقف الدين المحدد (ريال)',
+                    labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                    hintText: 'اتركه فارغاً إذا كان السقف مفتوحاً',
+                    prefixIcon: const Icon(Icons.security_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'ملاحظات (اختياري)',
+                    labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                    prefixIcon: const Icon(Icons.notes_rounded),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final name = nameCtrl.text.trim();
+                      if (name.isEmpty) return;
+                      final limit = double.tryParse(limitCtrl.text.trim()) ?? 0.0;
+
+                      setDialogState(() => isSaving = true);
+                      try {
+                        await LedgerService.saveCustomer(
+                          name: name,
+                          phone: phoneCtrl.text.trim(),
+                          creditLimit: limit,
+                          notes: notesCtrl.text.trim(),
+                        );
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('✅ تمت إضافة العميل ($name) بنجاح',
+                                  style: const TextStyle(fontFamily: 'Cairo')),
+                              backgroundColor: const Color(0xFF27AE60),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSaving = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('فشلت إضافة العميل: $e', style: const TextStyle(fontFamily: 'Cairo')),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('إضافة العميل', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final merchantId = AppStorage.userId ?? '';
+
+    return Scaffold(
+      backgroundColor: context.bgPage,
+      appBar: AppBar(
+        title: const Text(
+          'دفتر الديون وسجل الحسابات',
+          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: context.bgHeader,
+        elevation: 0,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddCustomerDialog,
+        backgroundColor: AppColors.primary,
+        icon: const Icon(Icons.person_add_rounded, color: Colors.white),
+        label: const Text(
+          'إضافة عميل',
+          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      ),
+      body: StreamBuilder<LedgerSummary>(
+        stream: LedgerService.streamSummary(merchantId),
+        builder: (context, summarySnap) {
+          final summary = summarySnap.data ?? LedgerSummary(merchantId: merchantId);
+
+          return StreamBuilder<List<LedgerCustomer>>(
+            stream: LedgerService.streamCustomers(merchantId),
+            builder: (context, customerSnap) {
+              final allCustomers = customerSnap.data ?? [];
+
+              // تطبيق البحث والفلترة
+              final filtered = allCustomers.where((c) {
+                if (_searchQuery.isNotEmpty) {
+                  final q = _searchQuery.toLowerCase();
+                  final matchName = c.name.toLowerCase().contains(q);
+                  final matchPhone = c.phone.contains(q);
+                  if (!matchName && !matchPhone) return false;
+                }
+
+                if (_selectedFilter == 'with_debt') return c.currentBalance > 0;
+                if (_selectedFilter == 'over_limit') return c.isOverLimit;
+                if (_selectedFilter == 'zero_debt') return c.currentBalance <= 0;
+                return true;
+              }).toList();
+
+              return CustomScrollView(
+                slivers: [
+                  // ══ بطاقات الملخص المالي الإجمالي ══
+                  SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1E3C72).withValues(alpha: 0.3),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'إجمالي ديون السوق الآجلة',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '${summary.debtorsCount} مدين',
+                                  style: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: 11,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${summary.totalMarketDebt.toStringAsFixed(0)} ريال',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.w900,
+                              fontSize: 28,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Divider(color: Colors.white24, height: 1),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'إجمالي العملاء المسجلين: ${allCustomers.length}',
+                                style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.white70),
+                              ),
+                              Text(
+                                'متجاوزو السقف: ${allCustomers.where((c) => c.isOverLimit).length}',
+                                style: const TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 11,
+                                  color: Color(0xFFFFB4A2),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ══ خانة البحث ══
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                        decoration: InputDecoration(
+                          hintText: 'ابحث باسم العميل أو رقم هاتفه...',
+                          hintStyle: TextStyle(fontFamily: 'Cairo', fontSize: 13, color: Colors.grey[400]),
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: context.bgCard,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ══ شرائح الفلترة ══
+                  SliverToBoxAdapter(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          _buildFilterChip('الكل (${allCustomers.length})', 'all'),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'عليهم ديون (${allCustomers.where((c) => c.currentBalance > 0).length})',
+                            'with_debt',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'تجاوزوا السقف (${allCustomers.where((c) => c.isOverLimit).length})',
+                            'over_limit',
+                            highlightColor: Colors.red,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip('بلا ديون', 'zero_debt'),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ══ قائمة بطاقات العملاء ══
+                  if (filtered.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(36),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: context.bgCard,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.person_search_rounded, size: 48, color: Colors.grey[400]),
+                            const SizedBox(height: 12),
+                            Text(
+                              _searchQuery.isNotEmpty
+                                  ? 'لا يوجد عملاء يطابقون بحثك'
+                                  : 'دفتر الديون فارغ حالياً\nاضغط على (إضافة عميل) للبدء في توثيق حسابات الزبائن',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontFamily: 'Cairo', color: Colors.grey, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final customer = filtered[index];
+                          return _buildCustomerCard(context, customer);
+                        },
+                        childCount: filtered.length,
+                      ),
+                    ),
+
+                  const SliverToBoxAdapter(child: SizedBox(height: 90)),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value, {Color? highlightColor}) {
+    final isSelected = _selectedFilter == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) => setState(() => _selectedFilter = value),
+      labelStyle: TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: 12,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        color: isSelected ? Colors.white : (highlightColor ?? Colors.grey[700]),
+      ),
+      selectedColor: highlightColor ?? AppColors.primary,
+      backgroundColor: context.bgCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      showCheckmark: false,
+    );
+  }
+
+  Widget _buildCustomerCard(BuildContext context, LedgerCustomer customer) {
+    final lastDate = customer.lastTransactionAt ?? customer.updatedAt;
+    final dateStr = lastDate != null ? LedgerPdfService.formatArabicDate(lastDate) : '';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: customer.isOverLimit
+              ? const Color(0xFFE74C3C).withValues(alpha: 0.5)
+              : Colors.grey.withValues(alpha: 0.15),
+          width: customer.isOverLimit ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LedgerCustomerDetailScreen(customer: customer),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    // Avatar دائري مع أول حرف من اسم العميل
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: customer.isOverLimit
+                          ? const Color(0xFFE74C3C).withValues(alpha: 0.15)
+                          : AppColors.primary.withValues(alpha: 0.12),
+                      child: Text(
+                        customer.name.isNotEmpty ? customer.name[0] : 'ع',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          color: customer.isOverLimit ? const Color(0xFFC0392B) : AppColors.primary,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  customer.name,
+                                  style: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                              if (customer.isOverLimit) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE74C3C),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'تجاوز السقف',
+                                    style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 9,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (customer.phone.isNotEmpty)
+                            Text(
+                              customer.phone,
+                              style: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey[600]),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${customer.currentBalance.toStringAsFixed(0)} ريال',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                            color: customer.currentBalance > 0
+                                ? (customer.isOverLimit ? const Color(0xFFC0392B) : const Color(0xFFE74C3C))
+                                : const Color(0xFF27AE60),
+                          ),
+                        ),
+                        if (dateStr.isNotEmpty)
+                          Text(
+                            dateStr,
+                            style: TextStyle(fontFamily: 'Cairo', fontSize: 10, color: Colors.grey[400]),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                if (customer.creditLimit > 0) ...[
+                  const SizedBox(height: 10),
+                  CreditLimitIndicator(customer: customer),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\screens\ledger_record_entry_screen.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_adaptive_colors.dart';
+import '../models/ledger_customer.dart';
+import '../models/ledger_item.dart';
+import '../services/ledger_service.dart';
+import '../widgets/barcode_debt_scanner_sheet.dart';
+import '../widgets/credit_limit_indicator.dart';
+
+class LedgerRecordEntryScreen extends StatefulWidget {
+  final LedgerCustomer customer;
+  final String initialType; // 'debt' or 'payment'
+
+  const LedgerRecordEntryScreen({
+    super.key,
+    required this.customer,
+    this.initialType = 'debt',
+  });
+
+  @override
+  State<LedgerRecordEntryScreen> createState() => _LedgerRecordEntryScreenState();
+}
+
+class _LedgerRecordEntryScreenState extends State<LedgerRecordEntryScreen> {
+  late String _type; // 'debt' or 'payment'
+  final List<LedgerItem> _items = [];
+  final _amountController = TextEditingController();
+  final _notesController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _type = widget.initialType;
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  double get _totalAmount {
+    if (_type == 'payment') {
+      return double.tryParse(_amountController.text.trim()) ?? 0.0;
+    }
+    return _items.fold(0.0, (sum, item) => sum + item.subtotal);
+  }
+
+  void _openBarcodeScanner() {
+    BarcodeDebtScannerSheet.show(
+      context,
+      onItemAdded: (item) {
+        setState(() {
+          _items.add(item);
+          _errorMessage = null;
+        });
+      },
+    );
+  }
+
+  void _showAddManualItemDialog() {
+    final nameCtrl = TextEditingController();
+    final priceCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController(text: '1');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إضافة صنف يدوي', style: TextStyle(fontFamily: 'Cairo')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'اسم الصنف أو البيان *',
+                labelStyle: TextStyle(fontFamily: 'Cairo'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: priceCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'سعر الحبة (ريال) *',
+                labelStyle: TextStyle(fontFamily: 'Cairo'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: qtyCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'الكمية *',
+                labelStyle: TextStyle(fontFamily: 'Cairo'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+              final qty = double.tryParse(qtyCtrl.text.trim()) ?? 1.0;
+              if (name.isEmpty || price <= 0 || qty <= 0) return;
+
+              setState(() {
+                _items.add(
+                  LedgerItem(
+                    productId: 'manual_${DateTime.now().millisecondsSinceEpoch}',
+                    name: name,
+                    quantity: qty,
+                    unitLabel: 'حبة',
+                    unitPrice: price,
+                    subtotal: price * qty,
+                  ),
+                );
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text('إضافة', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitTransaction() async {
+    final total = _totalAmount;
+    if (total <= 0) {
+      setState(() => _errorMessage = 'يرجى إضافة أصناف أو تحديد مبلغ صحيح أكبر من الصفر');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      HapticFeedback.mediumImpact();
+      await LedgerService.recordTransaction(
+        customerId: widget.customer.id,
+        type: _type,
+        amount: total,
+        notes: _notesController.text.trim(),
+        items: _type == 'debt' ? _items : null,
+      );
+
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _type == 'debt'
+                  ? '✅ تم تسجيل دين بمبلغ ${total.toStringAsFixed(0)} ريال'
+                  : '✅ تم تسجيل سداد نقدي بمبلغ ${total.toStringAsFixed(0)} ريال',
+              style: const TextStyle(fontFamily: 'Cairo'),
+            ),
+            backgroundColor: const Color(0xFF27AE60),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'حدث خطأ أثناء حفظ القيد: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _totalAmount;
+    final projectedBalance = _type == 'debt'
+        ? widget.customer.currentBalance + total
+        : widget.customer.currentBalance - total;
+    final isProjectedOverLimit = widget.customer.creditLimit > 0 &&
+        _type == 'debt' &&
+        projectedBalance > widget.customer.creditLimit;
+
+    return Scaffold(
+      backgroundColor: context.bgPage,
+      appBar: AppBar(
+        title: Text(
+          _type == 'debt' ? 'تسجيل دين مشتريات' : 'تسجيل سداد نقدي',
+          style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: context.bgHeader,
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // بطاقة بيانات العميل
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: context.bgCard,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        widget.customer.name,
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        'الرصيد الحالي: ${widget.customer.currentBalance.toStringAsFixed(0)} ريال',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFFE74C3C),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  CreditLimitIndicator(customer: widget.customer),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // التبديل بين دين وسداد
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _type = 'debt'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _type == 'debt' ? context.bgCard : Colors.transparent,
+                          borderRadius: BorderRadius.circular(9),
+                          boxShadow: _type == 'debt'
+                              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
+                              : null,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'دين مشتريات (+)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            color: _type == 'debt' ? const Color(0xFFE74C3C) : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _type = 'payment'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _type == 'payment' ? context.bgCard : Colors.transparent,
+                          borderRadius: BorderRadius.circular(9),
+                          boxShadow: _type == 'payment'
+                              ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
+                              : null,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'سداد نقدي (-)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            color: _type == 'payment' ? const Color(0xFF27AE60) : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // محتوى تسجيل الدين (الأصناف والباركود)
+            if (_type == 'debt') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _openBarcodeScanner,
+                      icon: const Icon(Icons.qr_code_scanner_rounded),
+                      label: const Text(
+                        'مسح بالباركود',
+                        style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _showAddManualItemDialog,
+                      icon: const Icon(Icons.edit_note_rounded),
+                      label: const Text(
+                        'إضافة يدوية',
+                        style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // قائمة الأصناف المضافة
+              if (_items.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: context.bgCard,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, size: 40, color: Colors.grey[400]),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'لم تتم إضافة أصناف بعد\nامسح الباركود أو أضف يدوياً لإدراج المنتجات بالحبة',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontFamily: 'Cairo', color: Colors.grey, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: context.bgCard,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  '${item.quantity.toStringAsFixed(0)} ${item.unitLabel} × ${item.unitPrice.toStringAsFixed(0)} ريال',
+                                  style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '${item.subtotal.toStringAsFixed(0)} ريال',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: Color(0xFFE74C3C),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                            onPressed: () => setState(() => _items.removeAt(index)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+            ] else ...[
+              // إدخال مبلغ السداد
+              TextField(
+                controller: _amountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'مبلغ السداد النقدي (ريال) *',
+                  labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                  prefixIcon: const Icon(Icons.money_rounded, color: Color(0xFF27AE60)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
+
+            // ملاحظات القيد
+            TextField(
+              controller: _notesController,
+              decoration: InputDecoration(
+                labelText: 'ملاحظات القيد (اختياري)',
+                labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                hintText: 'اكتب أي ملاحظة لتوثيقها في كشف الحساب...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // تنبيه سقف الدين إذا تم تجاوزه
+            if (isProjectedOverLimit)
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE74C3C).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE74C3C)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFC0392B), size: 28),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '⚠️ تنبيه: سيصبح إجمالي دين العميل (${projectedBalance.toStringAsFixed(0)} ريال)، متجاوزاً السقف المسموح (${widget.customer.creditLimit.toStringAsFixed(0)} ريال).',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF922B21),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // الإجمالي وزر الحفظ
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: context.bgCard,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'إجمالي القيد:',
+                        style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      Text(
+                        '${total.toStringAsFixed(0)} ريال',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                          color: _type == 'debt' ? const Color(0xFFE74C3C) : const Color(0xFF27AE60),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'الرصيد بعد هذه العملية:',
+                        style: TextStyle(fontFamily: 'Cairo', fontSize: 13, color: Colors.grey),
+                      ),
+                      Text(
+                        '${projectedBalance.toStringAsFixed(0)} ريال',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            ElevatedButton(
+              onPressed: _isLoading ? null : _submitTransaction,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _type == 'debt' ? const Color(0xFFE74C3C) : const Color(0xFF27AE60),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : Text(
+                      _type == 'debt' ? 'ترحيل وتأكيد الدين' : 'تأكيد السداد النقدي',
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\services\ledger_pdf_service.dart
+// ==================================================
+
+import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import '../../../../core/services/local_storage.dart';
+import '../models/ledger_customer.dart';
+import '../models/ledger_entry.dart';
+
+class LedgerPdfService {
+  /// تحويل اليوم إلى اللغة العربية
+  static String formatArabicDay(DateTime dt) {
+    switch (dt.weekday) {
+      case DateTime.saturday:
+        return 'السبت';
+      case DateTime.sunday:
+        return 'الأحد';
+      case DateTime.monday:
+        return 'الإثنين';
+      case DateTime.tuesday:
+        return 'الثلاثاء';
+      case DateTime.wednesday:
+        return 'الأربعاء';
+      case DateTime.thursday:
+        return 'الخميس';
+      case DateTime.friday:
+        return 'الجمعة';
+      default:
+        return '';
+    }
+  }
+
+  /// تنسيق التاريخ بصيغة YYYY/MM/DD
+  static String formatArabicDate(DateTime dt) {
+    return '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
+  }
+
+  /// تنسيق الوقت بنظام 12 ساعة (بعد 12 تظهر 01:00 م بدلاً من 13:00)
+  static String formatArabicTime12(DateTime dt) {
+    int hour = dt.hour;
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'م' : 'ص';
+
+    if (hour == 0) {
+      hour = 12;
+    } else if (hour > 12) {
+      hour -= 12;
+    }
+
+    final hourStr = hour.toString().padLeft(2, '0');
+    return '$hourStr:$minute $period';
+  }
+
+  /// تنسيق كامل للتاريخ والوقت: اليوم التاريخ - الوقت
+  static String formatFullDateTime(DateTime dt) {
+    return '${formatArabicDay(dt)} ${formatArabicDate(dt)} - ${formatArabicTime12(dt)}';
+  }
+
+  /// توليد وثيقة كشف الحساب الرسمية بصيغة PDF
+  static Future<Uint8List> generateStatementPdf({
+    required LedgerCustomer customer,
+    required List<LedgerEntry> entries,
+    String? storeName,
+    String? storePhone,
+  }) async {
+    final pdf = pw.Document();
+
+    // تحميل خط Cairo العربي المدمج في المشروع
+    final fontRegularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+    final fontBoldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
+    final ttfRegular = pw.Font.ttf(fontRegularData);
+    final ttfBold = pw.Font.ttf(fontBoldData);
+
+    final merchantName = storeName ?? AppStorage.userName ?? 'متجر البقالة';
+    final merchantPhone = storePhone ?? AppStorage.userPhone ?? '';
+    final now = DateTime.now();
+
+    // حساب المجاميع
+    double totalDebts = 0;
+    double totalPayments = 0;
+    for (final e in entries) {
+      if (e.isVoided) continue;
+      if (e.isDebt) totalDebts += e.amount;
+      if (e.isPayment) totalPayments += e.amount;
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(28),
+        theme: pw.ThemeData.withFont(
+          base: ttfRegular,
+          bold: ttfBold,
+        ),
+        textDirection: pw.TextDirection.rtl,
+        build: (context) => [
+          // ══ Header ══
+          pw.Container(
+            padding: const pw.EdgeInsets.all(16),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.blueGrey50,
+              borderRadius: pw.BorderRadius.circular(10),
+              border: pw.Border.all(color: PdfColors.blueGrey200, width: 0.8),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      merchantName,
+                      style: pw.TextStyle(
+                        font: ttfBold,
+                        fontSize: 18,
+                        color: PdfColors.blueGrey900,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      'سجل حسابات العملاء والديون الآجلة',
+                      style: pw.TextStyle(font: ttfRegular, fontSize: 11, color: PdfColors.grey700),
+                    ),
+                    if (merchantPhone.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'هاتف المتجر: $merchantPhone',
+                        style: pw.TextStyle(font: ttfRegular, fontSize: 10, color: PdfColors.grey700),
+                      ),
+                    ],
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.blue800,
+                        borderRadius: pw.BorderRadius.circular(6),
+                      ),
+                      child: pw.Text(
+                        'كشف حساب تفصيلي',
+                        style: pw.TextStyle(font: ttfBold, fontSize: 12, color: PdfColors.white),
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'تاريخ الاستخراج:',
+                      style: pw.TextStyle(font: ttfBold, fontSize: 9, color: PdfColors.grey700),
+                    ),
+                    pw.Text(
+                      formatFullDateTime(now),
+                      style: pw.TextStyle(font: ttfRegular, fontSize: 9, color: PdfColors.black),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          pw.SizedBox(height: 14),
+
+          // ══ بيانات العميل ══
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.RichText(
+                        text: pw.TextSpan(
+                          children: [
+                            pw.TextSpan(
+                              text: 'اسم العميل: ',
+                              style: pw.TextStyle(font: ttfBold, fontSize: 11, color: PdfColors.grey800),
+                            ),
+                            pw.TextSpan(
+                              text: customer.name,
+                              style: pw.TextStyle(font: ttfBold, fontSize: 12, color: PdfColors.black),
+                            ),
+                          ],
+                        ),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.RichText(
+                        text: pw.TextSpan(
+                          children: [
+                            pw.TextSpan(
+                              text: 'رقم الهاتف: ',
+                              style: pw.TextStyle(font: ttfRegular, fontSize: 10, color: PdfColors.grey700),
+                            ),
+                            pw.TextSpan(
+                              text: customer.phone.isNotEmpty ? customer.phone : 'غير مسجل',
+                              style: pw.TextStyle(font: ttfRegular, fontSize: 10, color: PdfColors.black),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.Container(width: 1, height: 40, color: PdfColors.grey300),
+                pw.SizedBox(width: 14),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.RichText(
+                        text: pw.TextSpan(
+                          children: [
+                            pw.TextSpan(
+                              text: 'سقف الدين المحدد: ',
+                              style: pw.TextStyle(font: ttfRegular, fontSize: 10, color: PdfColors.grey700),
+                            ),
+                            pw.TextSpan(
+                              text: customer.creditLimit > 0
+                                  ? '${customer.creditLimit.toStringAsFixed(0)} ريال'
+                                  : 'مفتوح (بدون سقف)',
+                              style: pw.TextStyle(font: ttfBold, fontSize: 10, color: PdfColors.black),
+                            ),
+                          ],
+                        ),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.RichText(
+                        text: pw.TextSpan(
+                          children: [
+                            pw.TextSpan(
+                              text: 'الرصيد المتبقي للدفع: ',
+                              style: pw.TextStyle(font: ttfBold, fontSize: 11, color: PdfColors.red800),
+                            ),
+                            pw.TextSpan(
+                              text: '${customer.currentBalance.toStringAsFixed(0)} ريال',
+                              style: pw.TextStyle(font: ttfBold, fontSize: 13, color: PdfColors.red900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          pw.SizedBox(height: 14),
+
+          // ══ بطاقات الإحصاءات السريعة ══
+          pw.Row(
+            children: [
+              pw.Expanded(
+                child: _buildSummaryBox(
+                  title: 'إجمالي المشتريات الآجلة',
+                  value: '${totalDebts.toStringAsFixed(0)} ريال',
+                  ttfBold: ttfBold,
+                  ttfRegular: ttfRegular,
+                  color: PdfColors.orange50,
+                  textColor: PdfColors.deepOrange900,
+                ),
+              ),
+              pw.SizedBox(width: 8),
+              pw.Expanded(
+                child: _buildSummaryBox(
+                  title: 'إجمالي السداد النقدي',
+                  value: '${totalPayments.toStringAsFixed(0)} ريال',
+                  ttfBold: ttfBold,
+                  ttfRegular: ttfRegular,
+                  color: PdfColors.green50,
+                  textColor: PdfColors.green900,
+                ),
+              ),
+              pw.SizedBox(width: 8),
+              pw.Expanded(
+                child: _buildSummaryBox(
+                  title: 'المبلغ المتبقي حالياً',
+                  value: '${customer.currentBalance.toStringAsFixed(0)} ريال',
+                  ttfBold: ttfBold,
+                  ttfRegular: ttfRegular,
+                  color: customer.isOverLimit ? PdfColors.red50 : PdfColors.blue50,
+                  textColor: customer.isOverLimit ? PdfColors.red900 : PdfColors.blue900,
+                ),
+              ),
+            ],
+          ),
+
+          pw.SizedBox(height: 16),
+
+          // ══ جدول الحركات التفصيلي ══
+          pw.Text(
+            'سجل الحركات المالية المفصل:',
+            style: pw.TextStyle(font: ttfBold, fontSize: 12, color: PdfColors.blueGrey900),
+          ),
+          pw.SizedBox(height: 6),
+
+          pw.TableHelper.fromTextArray(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            headerStyle: pw.TextStyle(font: ttfBold, fontSize: 9, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+            cellStyle: pw.TextStyle(font: ttfRegular, fontSize: 8.5),
+            cellAlignment: pw.Alignment.center,
+            columnWidths: {
+              0: const pw.FlexColumnWidth(0.6), // #
+              1: const pw.FlexColumnWidth(2.3), // التاريخ والوقت
+              2: const pw.FlexColumnWidth(1.2), // نوع الحركة
+              3: const pw.FlexColumnWidth(3.2), // البيان والأصناف
+              4: const pw.FlexColumnWidth(1.3), // مدين
+              5: const pw.FlexColumnWidth(1.3), // دائن
+              6: const pw.FlexColumnWidth(1.4), // الرصيد بعد الحركة
+            },
+            headers: [
+              '#',
+              'اليوم والتاريخ والوقت',
+              'نوع القيد',
+              'البيان وتفاصيل الأصناف بالحبة',
+              'مدين (+)',
+              'دائن (-)',
+              'الرصيد',
+            ],
+            data: List.generate(entries.length, (index) {
+              final entry = entries[index];
+              final dateStr = entry.createdAt != null
+                  ? formatFullDateTime(entry.createdAt!)
+                  : '-';
+
+              String details = entry.notes;
+              if (entry.items.isNotEmpty) {
+                final itemsDesc = entry.items.map((i) {
+                  return '${i.name} (${i.quantity.toStringAsFixed(0)} حبة × ${i.unitPrice.toStringAsFixed(0)})';
+                }).join(' + ');
+                details = details.isNotEmpty ? '$itemsDesc | $details' : itemsDesc;
+              }
+              if (details.isEmpty) {
+                details = entry.isDebt ? 'مشتريات آجل' : 'دفعة نقدية كاش';
+              }
+
+              if (entry.isVoided) {
+                details = '[ملغي] $details';
+              }
+
+              return [
+                '${index + 1}',
+                dateStr,
+                entry.typeLabel,
+                details,
+                entry.isDebt && !entry.isVoided ? '${entry.amount.toStringAsFixed(0)}' : '-',
+                entry.isPayment && !entry.isVoided ? '${entry.amount.toStringAsFixed(0)}' : '-',
+                entry.isVoided ? 'قيد ملغي' : '${entry.balanceAfter.toStringAsFixed(0)} ريال',
+              ];
+            }),
+          ),
+
+          pw.SizedBox(height: 24),
+
+          // ══ قسم التوقيعات ══
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Text('توقيع العميل / المقر بالدين', style: pw.TextStyle(font: ttfBold, fontSize: 10)),
+                  pw.SizedBox(height: 30),
+                  pw.Container(width: 140, height: 1, color: PdfColors.black),
+                ],
+              ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Text('ختم وتوقيع إدارة المتجر', style: pw.TextStyle(font: ttfBold, fontSize: 10)),
+                  pw.SizedBox(height: 30),
+                  pw.Container(width: 140, height: 1, color: PdfColors.black),
+                ],
+              ),
+            ],
+          ),
+
+          pw.SizedBox(height: 20),
+
+          // ══ Footer ══
+          pw.Divider(color: PdfColors.grey300),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'تم إصدار هذا الكشف عبر نظام وصال الذكي لإدارة التوزيع والتجزئة',
+                style: pw.TextStyle(font: ttfRegular, fontSize: 8, color: PdfColors.grey600),
+              ),
+              pw.Text(
+                'صفحة 1 من 1',
+                style: pw.TextStyle(font: ttfRegular, fontSize: 8, color: PdfColors.grey600),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  static pw.Widget _buildSummaryBox({
+    required String title,
+    required String value,
+    required pw.Font ttfBold,
+    required pw.Font ttfRegular,
+    required PdfColor color,
+    required PdfColor textColor,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      decoration: pw.BoxDecoration(
+        color: color,
+        borderRadius: pw.BorderRadius.circular(6),
+        border: pw.Border.all(color: textColor, width: 0.5),
+      ),
+      child: pw.Column(
+        children: [
+          pw.Text(title, style: pw.TextStyle(font: ttfRegular, fontSize: 8.5, color: PdfColors.grey800)),
+          pw.SizedBox(height: 2),
+          pw.Text(value, style: pw.TextStyle(font: ttfBold, fontSize: 11, color: textColor)),
+        ],
+      ),
+    );
+  }
+
+  /// معاينة أو طباعة كشف الحساب مباشرة
+  static Future<void> printOrShareStatement({
+    required LedgerCustomer customer,
+    required List<LedgerEntry> entries,
+    String? storeName,
+    String? storePhone,
+  }) async {
+    final pdfBytes = await generateStatementPdf(
+      customer: customer,
+      entries: entries,
+      storeName: storeName,
+      storePhone: storePhone,
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdfBytes,
+      name: 'كشف_حساب_${customer.name}_${formatArabicDate(DateTime.now()).replaceAll('/', '-')}',
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\services\ledger_service.dart
+// ==================================================
+
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
+import '../../../../core/services/app_cache.dart';
+import '../../products/services/products_service.dart';
+import '../models/ledger_customer.dart';
+import '../models/ledger_entry.dart';
+import '../models/ledger_item.dart';
+import '../models/ledger_summary.dart';
+
+class LedgerService {
+  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+  static final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+
+  // ذاكرة تخزين مؤقتة محلية لأسعار التجزئة
+  static final Map<String, double> _retailPriceCache = {};
+
+  /// جلب تدفق قائمة العملاء النشطين للتاجر
+  static Stream<List<LedgerCustomer>> streamCustomers(String merchantId) {
+    return _db
+        .collection('merchant_customers')
+        .where('merchant_id', isEqualTo: merchantId)
+        .where('is_deleted', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.docs
+          .map((doc) => LedgerCustomer.fromMap(doc.id, doc.data()))
+          .toList();
+      // ترتيب تنازلي حسب تاريخ آخر حركة أو التعديل
+      list.sort((a, b) {
+        final aTime = a.lastTransactionAt ?? a.updatedAt ?? DateTime(2000);
+        final bTime = b.lastTransactionAt ?? b.updatedAt ?? DateTime(2000);
+        return bTime.compareTo(aTime);
+      });
+      return list;
+    });
+  }
+
+  /// جلب ملخص ديون السوق للتاجر
+  static Stream<LedgerSummary> streamSummary(String merchantId) {
+    return _db
+        .collection('merchant_ledger_summaries')
+        .doc(merchantId)
+        .snapshots()
+        .map((doc) {
+      if (!doc.exists || doc.data() == null) {
+        return LedgerSummary(merchantId: merchantId);
+      }
+      return LedgerSummary.fromMap(merchantId, doc.data()!);
+    });
+  }
+
+  /// جلب تدفق سجل الحركات لعميل محدد
+  static Stream<List<LedgerEntry>> streamCustomerEntries(String merchantId, String customerId) {
+    return _db
+        .collection('merchant_ledger_entries')
+        .where('merchant_id', isEqualTo: merchantId)
+        .where('customer_id', isEqualTo: customerId)
+        .snapshots()
+        .map((snapshot) {
+      final entries = snapshot.docs
+          .map((doc) => LedgerEntry.fromMap(doc.id, doc.data()))
+          .toList();
+      entries.sort((a, b) {
+        final aDate = a.createdAt ?? DateTime(2000);
+        final bDate = b.createdAt ?? DateTime(2000);
+        return bDate.compareTo(aDate);
+      });
+      return entries;
+    });
+  }
+
+  /// تسجيل قيد مالي جديد (دين أو سداد دفعة نقدية) عبر Cloud Function الآمنة
+  static Future<Map<String, dynamic>> recordTransaction({
+    required String customerId,
+    required String type, // 'debt' or 'payment'
+    required double amount,
+    String? notes,
+    List<LedgerItem>? items,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('recordLedgerTransaction');
+      final result = await callable.call({
+        'customerId': customerId,
+        'type': type,
+        'amount': amount,
+        'notes': notes,
+        'items': items?.map((i) => i.toMap()).toList(),
+      });
+      return Map<String, dynamic>.from(result.data as Map);
+    } catch (e) {
+      debugPrint('❌ Error in recordTransaction: $e');
+      rethrow;
+    }
+  }
+
+  /// إلغاء قيد مالي وعكس الحساب ذرياً
+  static Future<Map<String, dynamic>> voidTransaction({
+    required String customerId,
+    required String entryId,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('voidLedgerTransaction');
+      final result = await callable.call({
+        'customerId': customerId,
+        'entryId': entryId,
+      });
+      return Map<String, dynamic>.from(result.data as Map);
+    } catch (e) {
+      debugPrint('❌ Error in voidTransaction: $e');
+      rethrow;
+    }
+  }
+
+  /// حفظ أو تعديل عميل في الدفتر
+  static Future<String> saveCustomer({
+    String? customerId,
+    required String name,
+    String? phone,
+    double creditLimit = 0.0,
+    String? notes,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('saveLedgerCustomer');
+      final result = await callable.call({
+        if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
+        'name': name,
+        'phone': phone ?? '',
+        'creditLimit': creditLimit,
+        'notes': notes ?? '',
+      });
+      final data = Map<String, dynamic>.from(result.data as Map);
+      return data['customerId']?.toString() ?? '';
+    } catch (e) {
+      debugPrint('❌ Error in saveCustomer: $e');
+      rethrow;
+    }
+  }
+
+  /// حذف عميل من الدفتر
+  static Future<void> deleteCustomer(String customerId) async {
+    try {
+      final callable = _functions.httpsCallable('deleteLedgerCustomer');
+      await callable.call({'customerId': customerId});
+    } catch (e) {
+      debugPrint('❌ Error in deleteCustomer: $e');
+      rethrow;
+    }
+  }
+
+  /// مطابقة وتدقيق رصيد العميل
+  static Future<double> reconcileCustomer(String customerId) async {
+    try {
+      final callable = _functions.httpsCallable('reconcileLedgerBalance');
+      final result = await callable.call({'customerId': customerId});
+      final data = Map<String, dynamic>.from(result.data as Map);
+      return (data['balance'] as num?)?.toDouble() ?? 0.0;
+    } catch (e) {
+      debugPrint('❌ Error in reconcileCustomer: $e');
+      rethrow;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // 🏷️ ذاكرة تسعير الحبة للبقالة (Retail Unit Pricing Memory)
+  // ════════════════════════════════════════════════════════════
+
+  /// جلب سعر بيع الحبة المخزن لهذا التاجر
+  static Future<double?> getStoredRetailPrice(String merchantId, String productId) async {
+    if (_retailPriceCache.containsKey(productId)) {
+      return _retailPriceCache[productId];
+    }
+    try {
+      final doc = await _db
+          .collection('profiles')
+          .doc(merchantId)
+          .collection('retail_pricing')
+          .doc(productId)
+          .get();
+      if (doc.exists && doc.data() != null) {
+        final price = (doc.data()!['price'] as num?)?.toDouble();
+        if (price != null && price > 0) {
+          _retailPriceCache[productId] = price;
+          return price;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// حفظ سعر بيع الحبة المخصص للتاجر لاستخدامه دائماً عند مسح الباركود
+  static Future<void> saveRetailPrice({
+    required String merchantId,
+    required String productId,
+    required double price,
+  }) async {
+    if (price <= 0) return;
+    _retailPriceCache[productId] = price;
+    try {
+      await _db
+          .collection('profiles')
+          .doc(merchantId)
+          .collection('retail_pricing')
+          .doc(productId)
+          .set({
+        'price': price,
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('❌ Error saving retail price: $e');
+    }
+  }
+
+  /// البحث عن المنتج بالباركود واحتساب سعر الحبة الافتراضي
+  static ProductModel? findProductByBarcode(String barcode) {
+    final cleanCode = barcode.trim();
+    if (cleanCode.isEmpty) return null;
+
+    final cachedProducts = AppCache.instance.getProducts() ?? [];
+    for (final raw in cachedProducts) {
+      final p = ProductModel.fromMap(raw);
+      // فحص الباركود الرئيسي
+      if (p.barcode != null && p.barcode!.trim() == cleanCode) {
+        return p;
+      }
+      // فحص مصفوفة الباركودات
+      if (p.allBarcodes.any((b) => b.trim() == cleanCode)) {
+        return p;
+      }
+      // فحص وحدات البيع
+      for (final u in p.units) {
+        if (u.barcode != null && u.barcode!.trim() == cleanCode) {
+          return p;
+        }
+      }
+      // فحص المتغيرات
+      for (final v in p.variants) {
+        if (v.barcode != null && v.barcode!.trim() == cleanCode) {
+          return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// احتساب سعر الحبة الافتراضي بناءً على الكرتون أو وحدات البيع
+  static double calculateDefaultPiecePrice(ProductModel product) {
+    // 1. هل توجد وحدة حبة معرفة؟
+    for (final unit in product.units) {
+      if (unit.qty == 1 || unit.label.contains('حبة') || unit.label.contains('قطعة')) {
+        if (unit.price > 0) return unit.price;
+      }
+    }
+    // 2. حساب من سعة الكرتون
+    final capacity = (product.itemsPerCarton != null && product.itemsPerCarton! > 0)
+        ? product.itemsPerCarton!
+        : 1;
+    final pieceWholesale = product.price / capacity;
+    // إضافة هامش ربح تجزئة تقديري (15%) وتقريب لأقرب 50 أو 100 ريال
+    final estimatedRetail = pieceWholesale * 1.15;
+    return double.parse(estimatedRetail.toStringAsFixed(2));
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\widgets\barcode_debt_scanner_sheet.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_adaptive_colors.dart';
+import '../../../../core/services/local_storage.dart';
+import '../../products/services/products_service.dart';
+import '../models/ledger_item.dart';
+import '../services/ledger_service.dart';
+
+class BarcodeDebtScannerSheet extends StatefulWidget {
+  final Function(LedgerItem item) onItemAdded;
+
+  const BarcodeDebtScannerSheet({
+    super.key,
+    required this.onItemAdded,
+  });
+
+  static Future<void> show(BuildContext context, {required Function(LedgerItem item) onItemAdded}) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BarcodeDebtScannerSheet(onItemAdded: onItemAdded),
+    );
+  }
+
+  @override
+  State<BarcodeDebtScannerSheet> createState() => _BarcodeDebtScannerSheetState();
+}
+
+class _BarcodeDebtScannerSheetState extends State<BarcodeDebtScannerSheet> {
+  late final MobileScannerController _scannerController;
+  bool _isTorchOn = false;
+  bool _isProcessing = false;
+
+  // حالة المنتج المفحوص حالياً
+  ProductModel? _matchedProduct;
+  String? _scannedBarcode;
+  double _unitPrice = 0.0;
+  double _quantity = 1.0;
+  bool _isFirstTimePrice = true;
+  bool _saveForFuture = true;
+  final _priceController = TextEditingController();
+  final _customNameController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    _priceController.dispose();
+    _customNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleBarcodeDetected(BarcodeCapture capture) async {
+    if (_isProcessing || _matchedProduct != null) return;
+    final barcode = capture.barcodes.firstOrNull?.rawValue?.trim();
+    if (barcode == null || barcode.isEmpty) return;
+
+    setState(() => _isProcessing = true);
+    HapticFeedback.mediumImpact();
+
+    final merchantId = AppStorage.userId ?? '';
+    final product = LedgerService.findProductByBarcode(barcode);
+
+    if (product != null) {
+      // فحص هل سُجل سعر حبة مسبقاً لهذا التاجر
+      final storedPrice = await LedgerService.getStoredRetailPrice(merchantId, product.id);
+
+      if (storedPrice != null && storedPrice > 0) {
+        _isFirstTimePrice = false;
+        _unitPrice = storedPrice;
+      } else {
+        _isFirstTimePrice = true;
+        _unitPrice = LedgerService.calculateDefaultPiecePrice(product);
+      }
+
+      _matchedProduct = product;
+      _scannedBarcode = barcode;
+      _priceController.text = _unitPrice.toStringAsFixed(0);
+      _quantity = 1.0;
+    } else {
+      // باركود غير موجود في الكتالوج (صنف خارجي)
+      _matchedProduct = null;
+      _scannedBarcode = barcode;
+      _isFirstTimePrice = true;
+      _unitPrice = 0.0;
+      _priceController.text = '';
+      _customNameController.text = '';
+      _quantity = 1.0;
+    }
+
+    if (mounted) {
+      setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _confirmAndAddItem() async {
+    final merchantId = AppStorage.userId ?? '';
+    final parsedPrice = double.tryParse(_priceController.text.trim()) ?? _unitPrice;
+
+    if (parsedPrice <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('يرجى تحديد سعر بيع الحبة أولاً', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final name = _matchedProduct?.name ?? _customNameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('يرجى كتابة اسم الصنف', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // حفظ السعر المستقبلي إذا اختار التاجر ذلك
+    if (_saveForFuture && _matchedProduct != null && merchantId.isNotEmpty) {
+      await LedgerService.saveRetailPrice(
+        merchantId: merchantId,
+        productId: _matchedProduct!.id,
+        price: parsedPrice,
+      );
+    }
+
+    final item = LedgerItem(
+      productId: _matchedProduct?.id ?? 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      name: name,
+      quantity: _quantity,
+      unitLabel: 'حبة',
+      unitPrice: parsedPrice,
+      subtotal: parsedPrice * _quantity,
+      cartonCapacity: _matchedProduct?.itemsPerCarton ?? 1,
+      barcode: _scannedBarcode,
+    );
+
+    widget.onItemAdded(item);
+    HapticFeedback.lightImpact();
+
+    // إعادة الضبط لمسح صنف آخر فورا
+    setState(() {
+      _matchedProduct = null;
+      _scannedBarcode = null;
+      _priceController.clear();
+      _customNameController.clear();
+      _quantity = 1.0;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✅ أُضيف ($name) بسعر ${parsedPrice.toStringAsFixed(0)} للحبة',
+            style: const TextStyle(fontFamily: 'Cairo')),
+        backgroundColor: const Color(0xFF27AE60),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _resetCurrentScan() {
+    setState(() {
+      _matchedProduct = null;
+      _scannedBarcode = null;
+      _priceController.clear();
+      _customNameController.clear();
+      _quantity = 1.0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: context.bgCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // مقبض السحب
+          Container(
+            margin: const EdgeInsets.only(top: 10, bottom: 6),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // العنوان وزر الإغلاق
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'مسح باركود الصنف لدين الدفتر',
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(height: 1),
+
+          // محتوى الشاشة: الكاميرا أو بطاقة الصنف المفحوص
+          Expanded(
+            child: _matchedProduct != null || _scannedBarcode != null
+                ? _buildScannedProductCard(context)
+                : _buildCameraScanner(context),
+          ),
+
+          if (bottomInset > 0) SizedBox(height: bottomInset),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraScanner(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        MobileScanner(
+          controller: _scannerController,
+          onDetect: _handleBarcodeDetected,
+        ),
+
+        // إطار الاستهداف
+        Container(
+          width: 250,
+          height: 160,
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.primary, width: 2.5),
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.black.withValues(alpha: 0.1),
+          ),
+        ),
+
+        // زر الفلاش
+        Positioned(
+          top: 16,
+          right: 16,
+          child: CircleAvatar(
+            backgroundColor: Colors.black.withValues(alpha: 0.6),
+            child: IconButton(
+              icon: Icon(
+                _isTorchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                color: Colors.white,
+              ),
+              onPressed: () {
+                _scannerController.toggleTorch();
+                setState(() => _isTorchOn = !_isTorchOn);
+              },
+            ),
+          ),
+        ),
+
+        // نص إرشادي في الأسفل
+        Positioned(
+          bottom: 24,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'وجّه الكاميرا نحو باركود الصنف (الحبة أو الكرتون)',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                color: Colors.white,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScannedProductCard(BuildContext context) {
+    final isCatalog = _matchedProduct != null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // شارة حالة السعر (أول مرة أو مسجل سابقاً)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _isFirstTimePrice
+                  ? const Color(0xFFF39C12).withValues(alpha: 0.12)
+                  : const Color(0xFF2ECC71).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _isFirstTimePrice ? const Color(0xFFF39C12) : const Color(0xFF2ECC71),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _isFirstTimePrice ? Icons.new_releases_rounded : Icons.verified_rounded,
+                  color: _isFirstTimePrice ? const Color(0xFFE67E22) : const Color(0xFF27AE60),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isFirstTimePrice
+                            ? 'صنف جديد: حدد سعر بيع الحبة لأول مرة'
+                            : 'سعر الحبة المحفوظ لمتجرك جاهز',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: _isFirstTimePrice ? const Color(0xFFD35400) : const Color(0xFF1E8449),
+                        ),
+                      ),
+                      Text(
+                        _isFirstTimePrice
+                            ? 'سيتم حفظ هذا السعر تلقائياً لمرات المسح القادمة'
+                            : 'يمكنك تعديل السعر إذا أردت تحديثه',
+                        style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // تفاصيل الصنف
+          if (isCatalog) ...[
+            Text(
+              _matchedProduct!.name,
+              style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'سعر الجملة للكرتون: ${_matchedProduct!.price.toStringAsFixed(0)} ريال (${_matchedProduct!.itemsPerCarton ?? 1} حبة)',
+              style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey[600]),
+            ),
+          ] else ...[
+            TextField(
+              controller: _customNameController,
+              decoration: InputDecoration(
+                labelText: 'اسم الصنف *',
+                labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                hintText: 'مثال: عصير مانجو، بسكويت...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // تحديد سعر بيع الحبة
+          TextField(
+            controller: _priceController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+            decoration: InputDecoration(
+              labelText: 'سعر بيع الحبة بالتجزئة (ريال) *',
+              labelStyle: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+              prefixIcon: const Icon(Icons.sell_rounded, color: AppColors.primary),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // اختيار الكمية (+ / -)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'الكمية (بالحبة):',
+                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: _quantity > 1 ? () => setState(() => _quantity -= 1) : null,
+                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                    color: Colors.red,
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _quantity.toStringAsFixed(0),
+                      style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => setState(() => _quantity += 1),
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    color: const Color(0xFF27AE60),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // حفظ السعر للمستقبل
+          CheckboxListTile(
+            value: _saveForFuture,
+            onChanged: (val) => setState(() => _saveForFuture = val ?? true),
+            title: const Text(
+              'حفظ هذا السعر كـ سعر افتراضي عند مسح الباركود مستقبلاً',
+              style: TextStyle(fontFamily: 'Cairo', fontSize: 12),
+            ),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            activeColor: AppColors.primary,
+          ),
+
+          const SizedBox(height: 16),
+
+          // أزرار الحفظ أو إعادة المسح
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _resetCurrentScan,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: const Text('مسح غيره', style: TextStyle(fontFamily: 'Cairo')),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  onPressed: _confirmAndAddItem,
+                  icon: const Icon(Icons.add_shopping_cart_rounded),
+                  label: const Text(
+                    'إضافة إلى الدين',
+                    style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF27AE60),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\widgets\cash_payment_dialog.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../../../core/constants/app_adaptive_colors.dart';
+import '../models/ledger_customer.dart';
+import '../services/ledger_service.dart';
+
+class CashPaymentDialog extends StatefulWidget {
+  final LedgerCustomer customer;
+  final VoidCallback? onPaymentSuccess;
+
+  const CashPaymentDialog({
+    super.key,
+    required this.customer,
+    this.onPaymentSuccess,
+  });
+
+  static Future<void> show(
+    BuildContext context, {
+    required LedgerCustomer customer,
+    VoidCallback? onPaymentSuccess,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => CashPaymentDialog(
+        customer: customer,
+        onPaymentSuccess: onPaymentSuccess,
+      ),
+    );
+  }
+
+  @override
+  State<CashPaymentDialog> createState() => _CashPaymentDialogState();
+}
+
+class _CashPaymentDialogState extends State<CashPaymentDialog> {
+  final _amountController = TextEditingController();
+  final _notesController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _setAmount(double amount) {
+    if (amount <= 0) return;
+    _amountController.text = amount.toStringAsFixed(0);
+    setState(() => _errorMessage = null);
+  }
+
+  Future<void> _submitPayment() async {
+    final text = _amountController.text.trim();
+    final amount = double.tryParse(text);
+
+    if (amount == null || amount <= 0) {
+      setState(() => _errorMessage = 'يرجى إدخال مبلغ صحيح أكبر من الصفر');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      HapticFeedback.mediumImpact();
+      await LedgerService.recordTransaction(
+        customerId: widget.customer.id,
+        type: 'payment',
+        amount: amount,
+        notes: _notesController.text.trim().isNotEmpty
+            ? _notesController.text.trim()
+            : 'سداد نقدي (كاش)',
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ تم تسجيل سداد مبلغ ${amount.toStringAsFixed(0)} ريال بنجاح',
+              style: const TextStyle(fontFamily: 'Cairo'),
+            ),
+            backgroundColor: const Color(0xFF27AE60),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        widget.onPaymentSuccess?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'حدث خطأ أثناء تسجيل السداد: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final curBal = widget.customer.currentBalance;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: context.bgCard,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2ECC71).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.payments_rounded,
+                      color: Color(0xFF27AE60),
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'سداد دفعة نقدية (كاش)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          'العميل: ${widget.customer.name}',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // بطاقة الرصيد الحالي
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'إجمالي الدين المستحق:',
+                      style: TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                    ),
+                    Text(
+                      '${curBal.toStringAsFixed(0)} ريال',
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Color(0xFFE74C3C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // أزرار الاختيار السريع
+              if (curBal > 0) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _isLoading ? null : () => _setAmount(curBal),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF27AE60)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text(
+                          'سداد كامل المبلغ',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF27AE60),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: _isLoading ? null : () => _setAmount((curBal / 2).roundToDouble()),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.grey[400]!),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text(
+                          'سداد النصف (50%)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+              ],
+
+              // حقل إدخال المبلغ
+              TextField(
+                controller: _amountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'المبلغ المدفوع (ريال) *',
+                  labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                  prefixIcon: const Icon(Icons.money_rounded, color: Color(0xFF27AE60)),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF27AE60), width: 2),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // حقل الملاحظات
+              TextField(
+                controller: _notesController,
+                decoration: InputDecoration(
+                  labelText: 'ملاحظات السداد (اختياري)',
+                  labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                  hintText: 'مثال: حوالة، نقداً باليد، دفعة جزئية...',
+                  hintStyle: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey[400]),
+                  prefixIcon: const Icon(Icons.notes_rounded, color: Colors.grey),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage!,
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 12,
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // أزرار التحكم
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _isLoading ? null : () => Navigator.pop(context),
+                      child: const Text(
+                        'إلغاء',
+                        style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _submitPayment,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF27AE60),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text(
+                              'تأكيد السداد النقدي',
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+// ==================================================
+// FILE: lib\features\merchant\ledger\widgets\credit_limit_indicator.dart
+// ==================================================
+
+import 'package:flutter/material.dart';
+import '../models/ledger_customer.dart';
+
+class CreditLimitIndicator extends StatelessWidget {
+  final LedgerCustomer customer;
+  final bool showLabel;
+
+  const CreditLimitIndicator({
+    super.key,
+    required this.customer,
+    this.showLabel = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (customer.creditLimit <= 0) {
+      if (!showLabel) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.grey.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const Text(
+          'سقف مفتوح',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 11,
+            color: Colors.grey,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    final ratio = customer.creditUsageRatio;
+    final isOver = customer.isOverLimit;
+    final isWarning = ratio >= 0.8 && !isOver;
+
+    Color color = const Color(0xFF2ECC71); // أخضر طبيعي
+    if (isWarning) color = const Color(0xFFF39C12); // برتقالي تحذيري
+    if (isOver) color = const Color(0xFFE74C3C); // أحمر تجاوز السقف
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showLabel) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                isOver
+                    ? '⚠️ تجاوز السقف المحدد!'
+                    : 'استهلاك السقف: ${(ratio * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              Text(
+                'السقف: ${customer.creditLimit.toStringAsFixed(0)} ريال',
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 11,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+        ],
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: ratio.clamp(0.0, 1.0),
+            backgroundColor: Colors.grey.withValues(alpha: 0.15),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+            minHeight: 6,
+          ),
+        ),
+      ],
     );
   }
 }
