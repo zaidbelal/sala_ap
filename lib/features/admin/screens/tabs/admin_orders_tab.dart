@@ -5,6 +5,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../services/admin_service.dart';
 import '../../widgets/orders/order_card.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 // مزود استماع سحابي مفلتر ومرتب زمنياً في الخادم لضمان جلب أحدث الطلبات
 final adminOrdersLimitProvider =
@@ -96,7 +97,7 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
                   'إدارة الطلبات',
                   style: AppTextStyles.headlineMedium.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1A1A2E),
+                    color: context.textPrimary,
                   ),
                 ),
                 const Spacer(),

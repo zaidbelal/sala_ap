@@ -15,6 +15,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'dart:async';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 String formatFirestoreDate(dynamic value) {
   DateTime? date;
@@ -98,6 +99,7 @@ class ProductsTab extends ConsumerStatefulWidget {
 }
 
 class _ProductsTabState extends ConsumerState<ProductsTab> {
+  final TextEditingController _searchCtrl = TextEditingController();
   String _search = '';
   String? _filterCategoryId;
   String? _filterBrandId;
@@ -108,6 +110,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -168,6 +171,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
             children: [
               Expanded(
                 child: TextField(
+                  controller: _searchCtrl,
                   onChanged: (v) {
                     setState(() => _search = v.trim().toLowerCase());
                     _searchDebounce?.cancel();
@@ -178,15 +182,18 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                   },
                   decoration: InputDecoration(
                     hintText: 'بحث بالاسم أو الباركود...',
-                    hintStyle: const TextStyle(
+                    hintStyle: TextStyle(
                         fontFamily: 'Cairo',
-                        color: Color(0xFFAAAAAA),
+                        color: context.textHint,
                         fontSize: 13),
                     prefixIcon: const Icon(Icons.search_rounded,
                         color: Colors.grey, size: 20),
                     suffixIcon: _search.isNotEmpty
                         ? GestureDetector(
                             onTap: () {
+                              _searchDebounce?.cancel();
+                              _searchCtrl.clear();
+                              FocusScope.of(context).unfocus();
                               setState(() => _search = '');
                               _reloadServerFilter();
                             },
@@ -195,7 +202,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: context.bgCard,
                     contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -1010,13 +1017,21 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
   }
 
   Future<void> _submit(BuildContext sheetCtx, StateSetter setSt) async {
-    setSt(() => _error = null);
+    void showSheetError(String msg) {
+      if (sheetCtx.mounted) {
+        setSt(() => _error = msg);
+      } else if (mounted) {
+        setState(() => _error = msg);
+      }
+    }
+
+    if (sheetCtx.mounted) setSt(() => _error = null);
     if (_nameCtrl.text.trim().isEmpty) {
-      setSt(() => _error = 'اسم المنتج مطلوب');
+      showSheetError('اسم المنتج مطلوب');
       return;
     }
     if (_selectedBrandId == null) {
-      setSt(() => _error = 'اختر الشركة أولاً');
+      showSheetError('اختر الشركة أولاً');
       return;
     }
     final rawPriceText =
@@ -1027,26 +1042,26 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
           _variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
     }
     if (parsedPrice == null || parsedPrice < 0) {
-      setSt(() => _error = 'أدخل سعراً صحيحاً أو أضف حجماً بسعر محدد');
+      showSheetError('أدخل سعراً صحيحاً أو أضف حجماً بسعر محدد');
       return;
     }
     final prodText = ArabicNormalizer.normalizeDigits(_prodCtrl.text)
         .trim()
         .replaceAll('/', '-');
     if (prodText.isNotEmpty && DateTime.tryParse(prodText) == null) {
-      setSt(() => _error = 'صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
+      showSheetError('صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
       return;
     }
     final expText = ArabicNormalizer.normalizeDigits(_expCtrl.text)
         .trim()
         .replaceAll('/', '-');
     if (expText.isNotEmpty && DateTime.tryParse(expText) == null) {
-      setSt(() => _error = 'صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
+      showSheetError('صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
       return;
     }
 
-    setSt(() => _loading = true);
-    setState(() => _loading = true);
+    if (sheetCtx.mounted) setSt(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
     try {
       final imageUrl = _uploadedImageUrl ??
           (_image != null ? await uploadCatalogImage(_image!) : null);
@@ -1100,6 +1115,9 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
         });
       }
     } finally {
+      if (sheetCtx.mounted) {
+        setSt(() => _loading = false);
+      }
       if (mounted) {
         setState(() => _loading = false);
       }

@@ -470,7 +470,6 @@ class AuthService {
       targetContainer.invalidate(realtimeBrandsProvider);
       targetContainer.invalidate(realtimeConfirmedOrdersProvider);
       targetContainer.invalidate(realtimeMyShippedOrdersProvider);
-      targetContainer.invalidate(realtimeAllOrdersProvider);
       targetContainer.invalidate(driverNewOrderCallbackProvider);
     }
   }

@@ -281,6 +281,8 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.primary))
                       : SingleChildScrollView(
+                          clipBehavior: Clip
+                              .none, // ✅ منع تقطيع Canvas خارج نطاق الشاشة عند التحويل لصورة
                           padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
                           child: RepaintBoundary(
                             key: _repaintKey,

@@ -170,10 +170,6 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
         : ref.watch(productsProvider(widget.categoryId));
     final displayName = widget.categoryName ?? widget.brandName ?? 'المنتجات';
 
-    final cart = ref.watch(cartProvider);
-    final cartCount = cart.values.fold(0, (s, i) => s + i.quantity);
-    final cartTotal = cart.values.fold(0.0, (s, i) => s + i.total);
-
     return Scaffold(
       backgroundColor: context.bgPage,
       body: SafeArea(
@@ -243,125 +239,136 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                           ],
                         ),
                       ),
-                      // زر السلة
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const CartScreen()),
-                          );
-                        },
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: context.bgCard,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
+                      // زر السلة معزول بـ Consumer لمنع إعادة بناء قائمة المنتجات عند التعديل
+                      Consumer(
+                        builder: (_, ref, __) {
+                          final cartCount = ref.watch(cartCountProvider);
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const CartScreen()),
+                              );
+                            },
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: context.bgCard,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.08),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: const Icon(Icons.shopping_cart_rounded,
-                                  color: AppColors.primary, size: 22),
-                            ),
-                            if (cartCount > 0)
-                              Positioned(
-                                top: -4,
-                                left: -4,
-                                child: Container(
-                                  padding: const EdgeInsets.all(5),
-                                  decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      shape: BoxShape.circle),
-                                  child: Text(
-                                    '$cartCount',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      fontFamily: 'Cairo',
+                                  child: const Icon(Icons.shopping_cart_rounded,
+                                      color: AppColors.primary, size: 22),
+                                ),
+                                if (cartCount > 0)
+                                  Positioned(
+                                    top: -4,
+                                    left: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle),
+                                      child: Text(
+                                        '$cartCount',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                          ],
-                        ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // ══ 2. شريط السلة العائم السريع ══
-              if (cartCount > 0)
-                SliverToBoxAdapter(
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.primaryGradient,
-                      borderRadius: AppRadius.lgAll,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.shopping_bag_outlined,
-                            color: Colors.white, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$cartCount كرتون بالسلة (${cartTotal.toStringAsFixed(0)} ر.ي)',
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
+              // ══ 2. شريط السلة العائم السريع (معزول بـ Consumer) ══
+              SliverToBoxAdapter(
+                child: Consumer(
+                  builder: (_, ref, __) {
+                    final cartCount = ref.watch(cartCountProvider);
+                    if (cartCount <= 0) return const SizedBox.shrink();
+                    final cartTotal = ref.watch(cartTotalProvider);
+                    return Container(
+                      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: AppRadius.lgAll,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const CartScreen()),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shopping_bag_outlined,
+                              color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$cartCount صنف بالسلة (${cartTotal.toStringAsFixed(0)} ر.ي)',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
                             ),
-                            child: const Text(
-                              'إتمام الطلب ←',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                color: AppColors.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const CartScreen()),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'إتمام الطلب ←',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  color: AppColors.primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-
+              ),
               // ══ 3. حقل البحث وزر الترتيب المتقدم (الأرخص / الأكثر مبيعاً) ══
               SliverToBoxAdapter(
                 child: Padding(

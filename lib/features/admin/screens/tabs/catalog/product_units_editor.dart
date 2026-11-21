@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:wissal/core/utils/arabic_normalizer.dart';
+import '../../../../merchant/barcode/barcode_scanner_screen.dart';
 import 'catalog_helpers.dart';
 import 'products_tab.dart' show DateInputFormatter;
 
@@ -327,19 +328,30 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   Uint8List? _selectedImageBytes;
   bool _removeOldImage = false;
   bool _saving = false;
-
   @override
   void initState() {
     super.initState();
     final ex = widget.existing;
     _labelCtrl = TextEditingController(text: ex?.label ?? '');
     _priceCtrl = TextEditingController(
-        text: ex != null ? ex.price.toStringAsFixed(0) : '');
+        text: ex != null
+            ? (ex.price % 1 == 0
+                ? ex.price.toInt().toString()
+                : ex.price.toString())
+            : '');
     _costCtrl = TextEditingController(
-        text: ex?.costPrice != null ? ex!.costPrice!.toStringAsFixed(0) : '');
+        text: ex?.costPrice != null
+            ? (ex!.costPrice! % 1 == 0
+                ? ex.costPrice!.toInt().toString()
+                : ex.costPrice!.toString())
+            : '');
     _qtyCtrl = TextEditingController(text: ex != null ? '${ex.qty}' : '1');
     _sizeCtrl = TextEditingController(
-        text: ex?.sizeMl != null ? ex!.sizeMl!.toStringAsFixed(0) : '');
+        text: ex?.sizeMl != null
+            ? (ex!.sizeMl! % 1 == 0
+                ? ex.sizeMl!.toInt().toString()
+                : ex.sizeMl!.toString())
+            : '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -380,7 +392,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   Future<void> _saveUnit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final qty = int.tryParse(_qtyCtrl.text.trim()) ?? 0;
+    final qty =
+        int.tryParse(ArabicNormalizer.normalizeDigits(_qtyCtrl.text).trim()) ??
+            0;
     if (qty <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -594,6 +608,92 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                         validator: (v) => (v == null || v.trim().isEmpty)
                             ? 'اسم الكمية مطلوب'
                             : null,
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _priceCtrl,
+                              textDirection: TextDirection.rtl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              inputFormatters: const [
+                                ArabicDigitsInputFormatter()
+                              ],
+                              decoration: _dec('سعر البيع ر.ي *'),
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13),
+                              validator: (v) {
+                                final p = double.tryParse(
+                                    ArabicNormalizer.normalizeDigits(v ?? '')
+                                        .trim());
+                                return (p == null || p <= 0)
+                                    ? 'أدخل سعراً أكبر من صفر'
+                                    : null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _costCtrl,
+                              textDirection: TextDirection.rtl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              inputFormatters: const [
+                                ArabicDigitsInputFormatter()
+                              ],
+                              decoration: _dec('سعر الشراء 🔒'),
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _qtyCtrl,
+                              textDirection: TextDirection.rtl,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: const [
+                                ArabicDigitsInputFormatter(allowDecimal: false)
+                              ],
+                              decoration: _dec('عدد الحبات في الوحدة *'),
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13),
+                              validator: (v) {
+                                final q = int.tryParse(
+                                    ArabicNormalizer.normalizeDigits(v ?? '')
+                                        .trim());
+                                return (q == null || q <= 0)
+                                    ? 'أدخل عدداً صحيحاً'
+                                    : null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _sizeCtrl,
+                              textDirection: TextDirection.rtl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              inputFormatters: const [
+                                ArabicDigitsInputFormatter()
+                              ],
+                              decoration: _dec('الحجم بالمل (اختياري)'),
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 10),
                       Row(
@@ -979,7 +1079,8 @@ class _ProductVariantsEditorState extends State<ProductVariantsEditor> {
                       const SizedBox(height: 4),
                       Text(
                         'مخزون: ${v.stock % 1 == 0 ? v.stock.toInt() : v.stock.toStringAsFixed(2)} كرتون'
-                        '${v.units.isNotEmpty ? " • ${v.units.length} كميات فرعية" : ""}',
+                        '${v.units.isNotEmpty ? " • ${v.units.length} كميات فرعية" : ""}'
+                        '${(v.barcode != null && v.barcode!.isNotEmpty) ? " • 🔖 ${v.barcode}" : ""}',
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 10.5,
@@ -1063,6 +1164,7 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
         TextEditingController(text: ex != null ? '${ex.itemsPerCarton}' : '1');
     _sizeCtrl = TextEditingController(
         text: ex?.sizeText ?? (ex?.sizeMl != null ? '${ex!.sizeMl} مل' : ''));
+    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -1160,7 +1262,8 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
       final expDate = _expDateCtrl.text.trim().isNotEmpty
           ? DateTime.tryParse(_expDateCtrl.text.trim())
           : null;
-
+      final cleanVarBarcode =
+          BarcodeScannerScreen.cleanBarcode(_barcodeCtrl.text);
       final variant = ProductVariant(
         id: widget.existing?.id ??
             DateTime.now().millisecondsSinceEpoch.toString(),
@@ -1172,11 +1275,11 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
         sizeText: customSize.isNotEmpty ? customSize : null,
         sizeMl: numericSize,
         imageUrl: imageUrl,
+        barcode: cleanVarBarcode.isNotEmpty ? cleanVarBarcode : null,
         productionDate: prodDate,
         expiryDate: expDate,
         units: _subUnits,
       );
-
       if (mounted) Navigator.pop(context, variant);
     } catch (e) {
       if (mounted) {
@@ -1416,8 +1519,7 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                         ],
                       ),
                       const SizedBox(height: 8),
-
-                      // الحجم / الوزن
+// الحجم / الوزن
                       TextFormField(
                         controller: _sizeCtrl,
                         textDirection: TextDirection.rtl,
@@ -1425,6 +1527,52 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                             _dec('وصف الحجم أو الوزن (مثال: 1.5 لتر ، 250 مل)'),
                         style:
                             const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // باركود الحجم المنفصل (الكميات داخله تتبع هذا الباركود تلقائياً)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _barcodeCtrl,
+                              textDirection: TextDirection.ltr,
+                              decoration: _dec(
+                                  'باركود الحجم المنفصل (أدخل يدوياً أو امسح بالكاميرا)'),
+                              style: const TextStyle(
+                                  fontFamily: 'Cairo', fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: _saving
+                                ? null
+                                : () async {
+                                    final scanned =
+                                        await BarcodeScannerScreen.scan(
+                                            context);
+                                    if (scanned != null &&
+                                        scanned.isNotEmpty &&
+                                        mounted) {
+                                      setState(
+                                          () => _barcodeCtrl.text = scanned);
+                                    }
+                                  },
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.qr_code_scanner_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
 

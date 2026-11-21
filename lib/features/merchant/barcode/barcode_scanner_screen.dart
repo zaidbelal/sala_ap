@@ -423,6 +423,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         await Future.delayed(const Duration(milliseconds: 280));
         _isProcessingMatch = false;
       } else {
+        product['_scanned_barcode'] = code;
         await _stopCamera();
         if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
           Navigator.of(context).pop(product);
@@ -998,6 +999,12 @@ class BarcodeIndexManager {
     if (product['all_barcodes'] is List) {
       for (final b in product['all_barcodes']) {
         if (b != null) addVar(b.toString());
+      }
+    }
+
+    if (product['variants'] is List) {
+      for (final v in (product['variants'] as List).whereType<Map>()) {
+        if (v['barcode'] != null) addVar(v['barcode'].toString());
       }
     }
   }

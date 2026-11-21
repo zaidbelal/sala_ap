@@ -288,6 +288,8 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
             // ── جسم الفاتورة ──
             Expanded(
               child: SingleChildScrollView(
+                clipBehavior: Clip
+                    .none, // ✅ تصيير كامل الفاتورة الطويلة بدون اقتطاع الجزء السفلي
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
                 child: RepaintBoundary(
                   key: _repaintKey,

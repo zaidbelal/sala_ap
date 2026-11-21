@@ -72,9 +72,8 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final status = d['status'] as String? ?? '';
     final orderNum = d['order_number'] ?? d['invoice_number'] ?? '';
     final paymentMethod = d['payment_method'] as String? ?? 'cash';
-    final isConfirmed =
-        status == 'confirmed' || status == 'preparing' || status == 'pending';
-
+    // ✅ حظر اعتبار الطلب المعلق جاهزاً للاستلام
+    final isConfirmed = status == 'confirmed' || status == 'preparing';
     return Scaffold(
         backgroundColor: context.bgPage,
         appBar: AppBar(
@@ -291,9 +290,9 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
             ],
           ),
         ),
-
-        // ── زر الإجراء الثابت ──
-        bottomNavigationBar: (status == 'delivered' ||
+// ── زر الإجراء الثابت (يختفي أيضاً إذا كان الطلب معلقاً بانتظار موافقة الإدارة) ──
+        bottomNavigationBar: (status == 'pending' ||
+                status == 'delivered' ||
                 status == 'cancelled' ||
                 status == 'rejected' ||
                 status == 'returned' ||

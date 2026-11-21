@@ -24,6 +24,34 @@ class AppCache {
   static const int _maxRamEntries =
       120; // سقف أمان يمنع تجاوز الذاكرة العشوائية
   SharedPreferences? _prefs;
+  String? _docsDirPath;
+
+  Future<String?> _getDocsPath() async {
+    if (kIsWeb) return null;
+    if (_docsDirPath != null) return _docsDirPath;
+    final dir = await getApplicationDocumentsDirectory();
+    _docsDirPath = dir.path;
+    return _docsDirPath;
+  }
+
+  static bool _deepEquals(dynamic a, dynamic b) {
+    if (identical(a, b)) return true;
+    if (a is Map && b is Map) {
+      if (a.length != b.length) return false;
+      for (final key in a.keys) {
+        if (!b.containsKey(key) || !_deepEquals(a[key], b[key])) return false;
+      }
+      return true;
+    }
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (int i = 0; i < a.length; i++) {
+        if (!_deepEquals(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
+  }
 
   void _pruneRamIfNeeded() {
     if (_ram.length <= _maxRamEntries) return;
@@ -140,14 +168,28 @@ class AppCache {
   List<Map<String, dynamic>>? getProducts({String? categoryId}) {
     final key =
         categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
-    return _getList(key);
+    final direct = _getList(key);
+    if (direct != null) return direct;
+    if (categoryId != null && _isFullProductsSeeded) {
+      final all = _getList(_keyProducts);
+      if (all != null && all.isNotEmpty) {
+        return all
+            .where((p) => p['category_id']?.toString() == categoryId)
+            .toList();
+      }
+    }
+    return null;
   }
 
   bool isCategoriesFresh() => _isFresh(_keyCategories, _categoryTtl);
   bool isProductsFresh({String? categoryId}) {
     final key =
         categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
-    return _isFresh(key, _productTtl);
+    if (_ram.containsKey(key)) return _isFresh(key, _productTtl);
+    if (categoryId != null && _isFullProductsSeeded) {
+      return _isFresh(_keyProducts, _productTtl);
+    }
+    return false;
   }
 
   // ══════════════════════════════
@@ -206,41 +248,80 @@ class AppCache {
       final Map<String, Map<String, dynamic>> productMap = {
         for (final p in currentList) p['id'].toString(): p,
       };
-
-      // تحديث أو إضافة الأصناف المحدثة فقط
+      bool hasChanges = false;
       for (final liveItem in liveBatch) {
         final id = liveItem['id']?.toString();
-        if (id != null && id.isNotEmpty) {
-          if (liveItem['is_deleted'] == true ||
-              liveItem['is_active'] == false) {
+        if (id == null || id.isEmpty) continue;
+        final existing = productMap[id];
+        if (liveItem['is_deleted'] == true || liveItem['is_active'] == false) {
+          if (existing != null) {
             productMap.remove(id);
-          } else {
+            hasChanges = true;
+          }
+        } else {
+          if (existing == null || !_deepEquals(existing, liveItem)) {
             productMap[id] = liveItem;
+            hasChanges = true;
           }
         }
       }
+
+      if (!hasChanges) return;
 
       final merged = productMap.values.toList()
         ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
             .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
 
+      // مزامنة كاشات الأقسام المحمّلة في RAM فورياً مع التغييرات الحية
+      final partitionKeys =
+          _ram.keys.where((k) => k.startsWith('${_keyProducts}_')).toList();
+      for (final partKey in partitionKeys) {
+        final catId = partKey.substring('${_keyProducts}_'.length);
+        final currentPart = _getList(partKey);
+        if (currentPart == null) continue;
+        final partMap = <String, Map<String, dynamic>>{
+          for (final p in currentPart) p['id'].toString(): p,
+        };
+        bool partChanged = false;
+        for (final liveItem in liveBatch) {
+          final id = liveItem['id']?.toString();
+          if (id == null || id.isEmpty) continue;
+          final isInvalid = liveItem['is_deleted'] == true ||
+              liveItem['is_active'] == false ||
+              liveItem['category_id']?.toString() != catId;
+          if (isInvalid) {
+            if (partMap.remove(id) != null) partChanged = true;
+          } else {
+            partMap[id] = liveItem;
+            partChanged = true;
+          }
+        }
+        if (partChanged) {
+          final sortedPart = partMap.values.toList()
+            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+          _ram[partKey] = _CacheEntry(
+            data: sortedPart,
+            savedAt: _ram[partKey]!.savedAt,
+          );
+        }
+      }
+
       // حماية وضمان حفظ الكاش الشامل للكتالوجات الكبيرة والصغيرة دون استثناء
       if (currentList.isNotEmpty || merged.isNotEmpty) {
         final existingSavedAt = _ram[_keyProducts]?.savedAt;
-        final preservedSavedAt =
-            (_isFullProductsSeeded && existingSavedAt != null)
-                ? existingSavedAt
-                : DateTime(2000);
+        // ✅ منع تصفير التاريخ إلى عام 2000 واستخدام التاريخ الحالي في حال أول تدفق حي
+        final preservedSavedAt = existingSavedAt ?? DateTime.now();
         _ram[_keyProducts] = _CacheEntry(
           data: merged,
           savedAt: preservedSavedAt,
         );
         _pruneRamIfNeeded();
-        await _saveToDisk(_keyProducts, merged);
-        if (!_isFullProductsSeeded) {
-          await _prefs?.setString(
-              '${_keyProducts}_ts', DateTime(2000).toIso8601String());
-        }
+        await _saveToDisk(
+          _keyProducts,
+          merged,
+          timestampOverride: preservedSavedAt,
+        );
       }
     } finally {
       completer.complete();
@@ -294,9 +375,8 @@ class AppCache {
             }
           } catch (_) {}
         }
-
-        // 🔒 حماية الكاش: إذا كان الكتالوج العام فارغاً، لا نحفظ بيانات قسم فرعي ككتالوج شامل
-        if (all.isNotEmpty) {
+// 🔒 حماية الكاش: لا ندمج في الكاش الشامل إلا إذا كان قد حُمّل بالكامل فعلياً مع الحفاظ على طابعه الزمني
+        if (all.isNotEmpty && _isFullProductsSeeded) {
           final Map<String, Map<String, dynamic>> mergedMap = {
             for (final item in all) item['id'].toString(): item,
           };
@@ -310,12 +390,16 @@ class AppCache {
           }
 
           final mergedList = mergedMap.values.toList();
-          final currentTimestamp = existingRam?.savedAt ?? DateTime.now();
+          final currentTimestamp = existingRam?.savedAt ?? DateTime(2000);
           _ram[_keyProducts] = _CacheEntry(
             data: mergedList,
             savedAt: currentTimestamp,
           );
-          await _saveToDisk(_keyProducts, mergedList);
+          await _saveToDisk(
+            _keyProducts,
+            mergedList,
+            timestampOverride: currentTimestamp,
+          );
         }
       }
     } finally {
@@ -539,17 +623,21 @@ class AppCache {
 
   Future<void> _saveToDisk(
     String key,
-    List<Map<String, dynamic>> data,
-  ) async {
+    List<Map<String, dynamic>> data, {
+    DateTime? timestampOverride,
+  }) async {
     if (kIsWeb) return;
     try {
+      final docsPath = await _getDocsPath();
+      if (docsPath == null) return;
       final encoded = await compute(_isolateSanitizeAndEncodeJson, data);
-      final dir = await getApplicationDocumentsDirectory();
-      final finalFile = File('${dir.path}/$key.json');
-      await finalFile.writeAsString(encoded, flush: true);
+      final tempFile = File('$docsPath/$key.json.tmp');
+      final finalFile = File('$docsPath/$key.json');
+      await tempFile.writeAsString(encoded, flush: true);
+      await tempFile.rename(finalFile.path);
       await _prefs?.setString(
         '${key}_ts',
-        DateTime.now().toIso8601String(),
+        (timestampOverride ?? DateTime.now()).toIso8601String(),
       );
     } catch (e, st) {
       if (kDebugMode) {

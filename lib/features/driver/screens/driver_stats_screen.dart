@@ -18,19 +18,21 @@ final driverStatsProvider =
     final db = FirebaseFirestore.instance;
     final baseQuery =
         db.collection('orders').where('driver_id', isEqualTo: driverId);
+// ✅ تنفيذ متوازٍ لـ count() مع احتساب الملغاة والمرفوضة والمرتجعة بدقة
+    final counts = await Future.wait([
+      baseQuery.count().get(),
+      baseQuery.where('status', isEqualTo: 'delivered').count().get(),
+      baseQuery.where('status', isEqualTo: 'cancelled').count().get(),
+      baseQuery.where('status', isEqualTo: 'rejected').count().get(),
+      baseQuery.where('status', isEqualTo: 'returned').count().get(),
+    ]);
 
-    // ✅ استخدام count() بدلاً من تحميل 500 مستند — دقة لا نهائية بتكلفة صفرية تقريباً
-    final totalSnap = await baseQuery.count().get();
-    final deliveredSnap =
-        await baseQuery.where('status', isEqualTo: 'delivered').count().get();
-    final cancelledSnap =
-        await baseQuery.where('status', isEqualTo: 'cancelled').count().get();
-
-    final total = totalSnap.count ?? 0;
-    final delivered = deliveredSnap.count ?? 0;
-    final cancelled = cancelledSnap.count ?? 0;
+    final total = counts[0].count ?? 0;
+    final delivered = counts[1].count ?? 0;
+    final cancelled = (counts[2].count ?? 0) +
+        (counts[3].count ?? 0) +
+        (counts[4].count ?? 0);
     final pending = (total - delivered - cancelled).clamp(0, total);
-
     // ✅ aggregate(sum) لدقة كاملة على أي عدد من الطلبات
     double totalEarnings = 0.0;
     try {

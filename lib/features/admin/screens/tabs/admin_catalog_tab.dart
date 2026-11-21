@@ -194,7 +194,7 @@ class _AnimatedTabBar extends StatelessWidget {
       height: 52,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFFEEF2F7),
+        color: context.bgInput,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(

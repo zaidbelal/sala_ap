@@ -796,16 +796,15 @@ const webFirebaseOptions = FirebaseOptions(
   authDomain: 'app-sala-b42dd.firebaseapp.com',
   storageBucket: 'app-sala-b42dd.firebasestorage.app',
 );
-// ✅ إعدادات الآيفون مأخوذة مباشرة من ملفك لحل مشكلة عدم الربط في Xcode
+// ✅ إعدادات الآيفون المحدثة المطابقة لـ GoogleService-Info.plist
 const iosFirebaseOptions = FirebaseOptions(
-  apiKey: 'AIzaSyC_O1Uu7f5sCrg5Xy2uP1JNeb_qgBPMqjo',
-  appId: '1:846679653389:ios:362d95f5793128e5902944',
+  apiKey: 'AIzaSyDh3p5a_v-MwC1-vpbW14MRrM4ay7ibFcE',
+  appId: '1:846679653389:ios:5df3584bdbe27e2f902944',
   messagingSenderId: '846679653389',
   projectId: 'app-sala-b42dd',
   storageBucket: 'app-sala-b42dd.firebasestorage.app',
   iosBundleId: 'com.zaidsalaapp.sala',
 );
-
 // تحديد الإعداد المناسب لكل منصة
 FirebaseOptions? get platformFirebaseOptions {
   if (kIsWeb) return webFirebaseOptions;
@@ -957,7 +956,9 @@ void main() async {
   );
   if (isFirebaseReady) {
     RealtimeHub().init(container);
-    _warmUpCache(container);
+    if (AppStorage.isLoggedIn && AppStorage.isActive && AppStorage.isMerchant) {
+      _warmUpCache(container);
+    }
     unawaited(_initializeSystemConfig());
 
     if (!kIsWeb) {
@@ -2548,7 +2549,6 @@ class ProductUnit {
       barcode: m['barcode']?.toString().trim(),
     );
   }
-
   Map<String, dynamic> toMap() => {
         'label': label,
         'qty': qty,
@@ -2556,10 +2556,10 @@ class ProductUnit {
         if (costPrice != null) 'cost_price': costPrice,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
         if (sizeMl != null) 'size_ml': sizeMl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': Timestamp.fromDate(productionDate!),
         if (expiryDate != null) 'expiry_date': Timestamp.fromDate(expiryDate!),
-        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
 
   Map<String, dynamic> toJson() => {
@@ -2569,10 +2569,10 @@ class ProductUnit {
         if (costPrice != null) 'cost_price': costPrice,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
         if (sizeMl != null) 'size_ml': sizeMl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': productionDate!.toIso8601String(),
         if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
-        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
       };
 }
 
@@ -2699,6 +2699,34 @@ class AppCache {
   static const int _maxRamEntries =
       120; // سقف أمان يمنع تجاوز الذاكرة العشوائية
   SharedPreferences? _prefs;
+  String? _docsDirPath;
+
+  Future<String?> _getDocsPath() async {
+    if (kIsWeb) return null;
+    if (_docsDirPath != null) return _docsDirPath;
+    final dir = await getApplicationDocumentsDirectory();
+    _docsDirPath = dir.path;
+    return _docsDirPath;
+  }
+
+  static bool _deepEquals(dynamic a, dynamic b) {
+    if (identical(a, b)) return true;
+    if (a is Map && b is Map) {
+      if (a.length != b.length) return false;
+      for (final key in a.keys) {
+        if (!b.containsKey(key) || !_deepEquals(a[key], b[key])) return false;
+      }
+      return true;
+    }
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (int i = 0; i < a.length; i++) {
+        if (!_deepEquals(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
+  }
 
   void _pruneRamIfNeeded() {
     if (_ram.length <= _maxRamEntries) return;
@@ -2815,14 +2843,28 @@ class AppCache {
   List<Map<String, dynamic>>? getProducts({String? categoryId}) {
     final key =
         categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
-    return _getList(key);
+    final direct = _getList(key);
+    if (direct != null) return direct;
+    if (categoryId != null && _isFullProductsSeeded) {
+      final all = _getList(_keyProducts);
+      if (all != null && all.isNotEmpty) {
+        return all
+            .where((p) => p['category_id']?.toString() == categoryId)
+            .toList();
+      }
+    }
+    return null;
   }
 
   bool isCategoriesFresh() => _isFresh(_keyCategories, _categoryTtl);
   bool isProductsFresh({String? categoryId}) {
     final key =
         categoryId == null ? _keyProducts : '${_keyProducts}_$categoryId';
-    return _isFresh(key, _productTtl);
+    if (_ram.containsKey(key)) return _isFresh(key, _productTtl);
+    if (categoryId != null && _isFullProductsSeeded) {
+      return _isFresh(_keyProducts, _productTtl);
+    }
+    return false;
   }
 
   // ══════════════════════════════
@@ -2881,41 +2923,80 @@ class AppCache {
       final Map<String, Map<String, dynamic>> productMap = {
         for (final p in currentList) p['id'].toString(): p,
       };
-
-      // تحديث أو إضافة الأصناف المحدثة فقط
+      bool hasChanges = false;
       for (final liveItem in liveBatch) {
         final id = liveItem['id']?.toString();
-        if (id != null && id.isNotEmpty) {
-          if (liveItem['is_deleted'] == true ||
-              liveItem['is_active'] == false) {
+        if (id == null || id.isEmpty) continue;
+        final existing = productMap[id];
+        if (liveItem['is_deleted'] == true || liveItem['is_active'] == false) {
+          if (existing != null) {
             productMap.remove(id);
-          } else {
+            hasChanges = true;
+          }
+        } else {
+          if (existing == null || !_deepEquals(existing, liveItem)) {
             productMap[id] = liveItem;
+            hasChanges = true;
           }
         }
       }
+
+      if (!hasChanges) return;
 
       final merged = productMap.values.toList()
         ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
             .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
 
+      // مزامنة كاشات الأقسام المحمّلة في RAM فورياً مع التغييرات الحية
+      final partitionKeys =
+          _ram.keys.where((k) => k.startsWith('${_keyProducts}_')).toList();
+      for (final partKey in partitionKeys) {
+        final catId = partKey.substring('${_keyProducts}_'.length);
+        final currentPart = _getList(partKey);
+        if (currentPart == null) continue;
+        final partMap = <String, Map<String, dynamic>>{
+          for (final p in currentPart) p['id'].toString(): p,
+        };
+        bool partChanged = false;
+        for (final liveItem in liveBatch) {
+          final id = liveItem['id']?.toString();
+          if (id == null || id.isEmpty) continue;
+          final isInvalid = liveItem['is_deleted'] == true ||
+              liveItem['is_active'] == false ||
+              liveItem['category_id']?.toString() != catId;
+          if (isInvalid) {
+            if (partMap.remove(id) != null) partChanged = true;
+          } else {
+            partMap[id] = liveItem;
+            partChanged = true;
+          }
+        }
+        if (partChanged) {
+          final sortedPart = partMap.values.toList()
+            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+          _ram[partKey] = _CacheEntry(
+            data: sortedPart,
+            savedAt: _ram[partKey]!.savedAt,
+          );
+        }
+      }
+
       // حماية وضمان حفظ الكاش الشامل للكتالوجات الكبيرة والصغيرة دون استثناء
       if (currentList.isNotEmpty || merged.isNotEmpty) {
         final existingSavedAt = _ram[_keyProducts]?.savedAt;
-        final preservedSavedAt =
-            (_isFullProductsSeeded && existingSavedAt != null)
-                ? existingSavedAt
-                : DateTime(2000);
+        // ✅ منع تصفير التاريخ إلى عام 2000 واستخدام التاريخ الحالي في حال أول تدفق حي
+        final preservedSavedAt = existingSavedAt ?? DateTime.now();
         _ram[_keyProducts] = _CacheEntry(
           data: merged,
           savedAt: preservedSavedAt,
         );
         _pruneRamIfNeeded();
-        await _saveToDisk(_keyProducts, merged);
-        if (!_isFullProductsSeeded) {
-          await _prefs?.setString(
-              '${_keyProducts}_ts', DateTime(2000).toIso8601String());
-        }
+        await _saveToDisk(
+          _keyProducts,
+          merged,
+          timestampOverride: preservedSavedAt,
+        );
       }
     } finally {
       completer.complete();
@@ -2969,9 +3050,8 @@ class AppCache {
             }
           } catch (_) {}
         }
-
-        // 🔒 حماية الكاش: إذا كان الكتالوج العام فارغاً، لا نحفظ بيانات قسم فرعي ككتالوج شامل
-        if (all.isNotEmpty) {
+// 🔒 حماية الكاش: لا ندمج في الكاش الشامل إلا إذا كان قد حُمّل بالكامل فعلياً مع الحفاظ على طابعه الزمني
+        if (all.isNotEmpty && _isFullProductsSeeded) {
           final Map<String, Map<String, dynamic>> mergedMap = {
             for (final item in all) item['id'].toString(): item,
           };
@@ -2985,12 +3065,16 @@ class AppCache {
           }
 
           final mergedList = mergedMap.values.toList();
-          final currentTimestamp = existingRam?.savedAt ?? DateTime.now();
+          final currentTimestamp = existingRam?.savedAt ?? DateTime(2000);
           _ram[_keyProducts] = _CacheEntry(
             data: mergedList,
             savedAt: currentTimestamp,
           );
-          await _saveToDisk(_keyProducts, mergedList);
+          await _saveToDisk(
+            _keyProducts,
+            mergedList,
+            timestampOverride: currentTimestamp,
+          );
         }
       }
     } finally {
@@ -3214,17 +3298,21 @@ class AppCache {
 
   Future<void> _saveToDisk(
     String key,
-    List<Map<String, dynamic>> data,
-  ) async {
+    List<Map<String, dynamic>> data, {
+    DateTime? timestampOverride,
+  }) async {
     if (kIsWeb) return;
     try {
+      final docsPath = await _getDocsPath();
+      if (docsPath == null) return;
       final encoded = await compute(_isolateSanitizeAndEncodeJson, data);
-      final dir = await getApplicationDocumentsDirectory();
-      final finalFile = File('${dir.path}/$key.json');
-      await finalFile.writeAsString(encoded, flush: true);
+      final tempFile = File('$docsPath/$key.json.tmp');
+      final finalFile = File('$docsPath/$key.json');
+      await tempFile.writeAsString(encoded, flush: true);
+      await tempFile.rename(finalFile.path);
       await _prefs?.setString(
         '${key}_ts',
-        DateTime.now().toIso8601String(),
+        (timestampOverride ?? DateTime.now()).toIso8601String(),
       );
     } catch (e, st) {
       if (kDebugMode) {
@@ -3497,7 +3585,6 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       timer = Timer(const Duration(minutes: 10), () => link.close());
     });
     ref.onResume(() => timer?.cancel());
-
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeCategoriesProvider,
@@ -3505,14 +3592,12 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
         // 🔒 حظر الكتابة فوق الكاش بالمصفوفات الفارغة الناتجة عن تسجيل الخروج
         if (!_isDisposed && next.isNotEmpty) {
           state = AsyncData(next);
-          unawaited(AppCache.instance.setCategories(next));
         }
       },
     );
     // ① RealtimeHub — صفر قراءات Firestore إضافية
     final live = ref.read(realtimeCategoriesProvider);
     if (live.isNotEmpty) {
-      unawaited(AppCache.instance.setCategories(live));
       return live;
     }
 
@@ -3529,20 +3614,6 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     return _retry(
       _fetchAndCache,
       tag: 'categories',
-    );
-  }
-
-  void listenRealtime() {
-    // 🔒 إغلاق الاشتراك السابق لمنع تراكم مستمعين في الذاكرة
-    _realtimeSub?.close();
-    _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
-      realtimeCategoriesProvider,
-      (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          state = AsyncData(next);
-          unawaited(AppCache.instance.setCategories(next));
-        }
-      },
     );
   }
 
@@ -3571,7 +3642,7 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     final snap = await _db
         .collection('categories')
         .limit(200)
-        .get(const GetOptions(source: Source.server));
+        .get(const GetOptions(source: Source.serverAndCache));
     final list = snap.docs
         .where((d) =>
             d.data()['is_deleted'] != true && d.data()['is_active'] != false)
@@ -3616,51 +3687,46 @@ class ProductsNotifier
       timer = Timer(const Duration(minutes: 10), () => link.close());
     });
     ref.onResume(() => timer?.cancel());
-// تفعيل الاشتراك اللحظي تلقائياً سواءً للكتالوج العام أو للأقسام المخصصة
+// تفعيل الاشتراك اللحظي تلقائياً للكتالوج العام والأقسام دون إعادة كتابة الكاش
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeProductsProvider,
       (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          final liveBatch = arg == null
-              ? next
-              : next.where((p) => p['category_id']?.toString() == arg).toList();
+        if (next.isEmpty || _isDisposed) return;
 
-          final currentList = state.valueOrNull ??
-              AppCache.instance.getProducts(categoryId: arg) ??
-              [];
-          final Map<String, Map<String, dynamic>> productMap = {
-            for (final p in currentList) p['id'].toString(): p,
-          };
+        final currentList = state.valueOrNull ??
+            AppCache.instance.getProducts(categoryId: arg) ??
+            [];
+        final Map<String, Map<String, dynamic>> productMap = {
+          for (final p in currentList) p['id'].toString(): p,
+        };
 
-          for (final liveItem in liveBatch) {
-            final id = liveItem['id']?.toString();
-            if (id != null && id.isNotEmpty) {
-              if (liveItem['is_deleted'] == true ||
-                  liveItem['is_active'] == false) {
-                productMap.remove(id);
-              } else {
-                productMap[id] = liveItem;
-              }
-            }
-          }
+        bool touched = false;
+        for (final liveItem in next) {
+          final id = liveItem['id']?.toString();
+          if (id == null || id.isEmpty) continue;
 
-          final merged = productMap.values.toList()
-            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
-                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+          final belongsToScope =
+              arg == null || liveItem['category_id']?.toString() == arg;
+          final isHidden =
+              liveItem['is_deleted'] == true || liveItem['is_active'] == false;
 
-          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
-          if (arg == null) {
-            unawaited(AppCache.instance.mergeProducts(liveBatch));
-            final allProducts = AppCache.instance.getProducts() ?? merged;
-            state = AsyncData(allProducts);
-            _precache(allProducts);
+          if (isHidden || !belongsToScope) {
+            if (productMap.remove(id) != null) touched = true;
           } else {
-            state = AsyncData(merged);
-            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
-            _precache(merged);
+            productMap[id] = liveItem;
+            touched = true;
           }
         }
+
+        if (!touched) return;
+
+        final merged = productMap.values.toList()
+          ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+              .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+        state = AsyncData(merged);
+        _precache(merged);
       },
     );
     return _load(categoryId: arg);
@@ -3680,55 +3746,6 @@ class ProductsNotifier
     return _retry(
       () => _fetchAndCache(categoryId: categoryId),
       tag: 'products-${categoryId ?? "all"}',
-    );
-  }
-
-  void listenRealtime() {
-    _realtimeSub?.close();
-    _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
-      realtimeProductsProvider,
-      (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          final liveBatch = arg == null
-              ? next
-              : next.where((p) => p['category_id']?.toString() == arg).toList();
-
-          final currentList = state.valueOrNull ??
-              AppCache.instance.getProducts(categoryId: arg) ??
-              [];
-          final Map<String, Map<String, dynamic>> productMap = {
-            for (final p in currentList) p['id'].toString(): p,
-          };
-
-          for (final liveItem in liveBatch) {
-            final id = liveItem['id']?.toString();
-            if (id != null && id.isNotEmpty) {
-              if (liveItem['is_deleted'] == true ||
-                  liveItem['is_active'] == false) {
-                productMap.remove(id);
-              } else {
-                productMap[id] = liveItem;
-              }
-            }
-          }
-
-          final merged = productMap.values.toList()
-            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
-                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
-
-          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
-          if (arg == null) {
-            unawaited(AppCache.instance.mergeProducts(liveBatch));
-            final allProducts = AppCache.instance.getProducts() ?? merged;
-            state = AsyncData(allProducts);
-            _precache(allProducts);
-          } else {
-            state = AsyncData(merged);
-            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
-            _precache(merged);
-          }
-        }
-      },
     );
   }
 
@@ -4968,7 +4985,6 @@ class PrefetchService {
 // ==================================================
 
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5028,12 +5044,6 @@ final realtimeCategoriesProvider =
 final realtimeBrandsProvider =
     StateNotifierProvider<_BrandsNotifier, List<Map<String, dynamic>>>(
   (ref) => _BrandsNotifier(),
-);
-
-// ══ Admin — كل الطلبات لحظياً ══
-final realtimeAllOrdersProvider =
-    StateNotifierProvider<_AllOrdersNotifier, List<Map<String, dynamic>>>(
-  (ref) => _AllOrdersNotifier(),
 );
 
 // ══ Driver — الطلبات المؤكدة غير المسندة ══
@@ -5113,6 +5123,7 @@ class RealtimeHub {
 
   StreamSubscription? _profileSub;
   StreamSubscription? _notificationsSub;
+  StreamSubscription? _broadcastSub;
   StreamSubscription? _categoriesSub;
   StreamSubscription? _brandsSub;
   StreamSubscription? _productsSub;
@@ -5129,10 +5140,6 @@ class RealtimeHub {
 
     _container?.read(realtimeStatusProvider.notifier).state =
         RealtimeStatus.connected;
-
-    _watchCategories();
-    _watchBrands();
-    _watchProducts();
 
     final userId = AppStorage.userId ?? '';
     if (userId.isNotEmpty) {
@@ -5182,9 +5189,18 @@ class RealtimeHub {
     }
 
     final normalizedRole = role.toLowerCase().trim();
+    bool isCatalogReady() {
+      final needsCatalog = normalizedRole == 'merchant' && AppStorage.isActive;
+      return !needsCatalog ||
+          (_categoriesSub != null &&
+              _brandsSub != null &&
+              _productsSub != null);
+    }
+
     if (_activeUserId == userId &&
         _activeUserRole == normalizedRole &&
         _userSubs.isNotEmpty &&
+        isCatalogReady() &&
         _initialized) {
       return;
     }
@@ -5201,10 +5217,10 @@ class RealtimeHub {
       if (_activeUserId == userId &&
           _activeUserRole == normalizedRole &&
           _userSubs.isNotEmpty &&
+          isCatalogReady() &&
           _initialized) {
         return;
       }
-
       _initialized = true;
       _setConnected();
       _startHeartbeat();
@@ -5234,9 +5250,13 @@ class RealtimeHub {
   }
 
   void _startUserChannels(String userId, {required String role}) {
-    if (_categoriesSub == null) _watchCategories();
-    if (_brandsSub == null) _watchBrands();
-    if (_productsSub == null) _watchProducts();
+    if (role == 'merchant' && AppStorage.isActive) {
+      if (_categoriesSub == null) _watchCategories();
+      if (_brandsSub == null) _watchBrands();
+      if (_productsSub == null) _watchProducts();
+    } else {
+      unawaited(_stopCatalogChannels());
+    }
 
     _profileSub?.cancel();
     if (_profileSub != null) {
@@ -5268,7 +5288,6 @@ class RealtimeHub {
             container.invalidate(merchantOrdersProvider);
             container.invalidate(realtimeConfirmedOrdersProvider);
             container.invalidate(realtimeMyShippedOrdersProvider);
-            container.invalidate(realtimeAllOrdersProvider);
             container.invalidate(driverNewOrderCallbackProvider);
           } catch (_) {}
         }
@@ -5486,25 +5505,36 @@ class RealtimeHub {
         return;
       }
     }, onError: (_) {});
-
-    // تم إلغاء إضافة _profileSub إلى _userSubs لتجنب الإلغاء المزدوج والتعليق البرمجي
+// تم إلغاء إضافة _profileSub إلى _userSubs لتجنب الإلغاء المزدوج والتعليق البرمجي
     _watchNotifications(userId);
     if (role == 'admin' ||
         role == 'super_admin' ||
         role == 'accountant' ||
         role == 'warehouse_manager') {
-      _watchAllOrders();
+      // AdminOrdersTab يدير اشتراكه اللحظي المفلتر عبر adminOrdersRealtimeProvider
     } else if (role == 'driver') {
       _watchConfirmedOrders();
       _watchMyShippedOrders(userId);
-    } else {
+    } else if (role == 'merchant') {
       _watchOrders(userId);
     }
+  }
+
+  Future<void> _stopCatalogChannels() async {
+    await Future.wait([
+      _categoriesSub?.cancel() ?? Future.value(),
+      _brandsSub?.cancel() ?? Future.value(),
+      _productsSub?.cancel() ?? Future.value(),
+    ]);
+    _categoriesSub = null;
+    _brandsSub = null;
+    _productsSub = null;
   }
 
   Future<void> _stopUserChannels() async {
     await _notificationsSub?.cancel();
     _notificationsSub = null;
+    await _stopCatalogChannels();
 
     final subscriptions = List<StreamSubscription>.from(_userSubs);
     _userSubs.clear();
@@ -5515,12 +5545,10 @@ class RealtimeHub {
 
     _container?.read(merchantOrdersProvider.notifier).clear();
     _container?.read(realtimeNotifsProvider.notifier).clear();
-    _container?.read(realtimeAllOrdersProvider.notifier).clear();
+
     _container?.read(realtimeConfirmedOrdersProvider.notifier).clear();
     _container?.read(realtimeMyShippedOrdersProvider.notifier).clear();
-
-    if (_categoriesSub == null) _watchCategories();
-    if (_brandsSub == null) _watchBrands();
+    _container?.read(realtimeProductsProvider.notifier).clear();
   }
 
   void _watchOrders(String merchantId) {
@@ -5541,9 +5569,6 @@ class RealtimeHub {
   void _watchNotifications(String userId) {
     if (userId.isEmpty) return;
 
-    bool isFirstLoad = true;
-    final Set<String> knownNotifIds = {};
-
     _notificationsSub?.cancel();
     if (_notificationsSub != null) {
       _userSubs.remove(_notificationsSub);
@@ -5557,31 +5582,9 @@ class RealtimeHub {
         .snapshots()
         .listen(
       (snap) {
-        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
-          ..sort((a, b) => AppDateParser.parse(b['created_at'])
-              .compareTo(AppDateParser.parse(a['created_at'])));
+        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
         _container?.read(realtimeNotifsProvider.notifier).update(data);
         _setConnected();
-        if (knownNotifIds.length > 500) {
-          knownNotifIds.clear();
-          for (final d in snap.docs) {
-            knownNotifIds.add(d.id);
-          }
-        } else if (!isFirstLoad) {
-          for (final change in snap.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final id = change.doc.id;
-              if (!knownNotifIds.contains(id)) {
-                knownNotifIds.add(id);
-              }
-            }
-          }
-        } else {
-          isFirstLoad = false;
-          for (final d in snap.docs) {
-            knownNotifIds.add(d.id);
-          }
-        }
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchNotifications error: $e');
@@ -5594,6 +5597,13 @@ class RealtimeHub {
     _userSubs.add(sub);
 
     if (AppStorage.isMerchant) {
+      // ✅ إلغاء اشتراك البث القديم دائماً قبل إنشاء اشتراك جديد لمنع تسريب الذاكرة وتضاعف الاستجابة
+      _broadcastSub?.cancel();
+      if (_broadcastSub != null) {
+        _userSubs.remove(_broadcastSub);
+        _broadcastSub = null;
+      }
+
       final broadcastSub = _db
           .collection('broadcast_notifications')
           .orderBy('created_at', descending: true)
@@ -5631,12 +5641,14 @@ class RealtimeHub {
         }).toList();
         _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
       }, onError: (_) {});
+      _broadcastSub = broadcastSub;
       _userSubs.add(broadcastSub);
     }
   }
 
   void _watchProducts() {
     _productsSub?.cancel();
+    bool isInitialSnapshot = true;
     _productsSub = _db
         .collection('products')
         .orderBy('updated_at', descending: true)
@@ -5644,10 +5656,27 @@ class RealtimeHub {
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snap) {
-        final allChanges =
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-        unawaited(AppCache.instance.mergeProducts(allChanges));
-        _container?.read(realtimeProductsProvider.notifier).update(allChanges);
+        final List<Map<String, dynamic>> batch;
+        if (isInitialSnapshot) {
+          isInitialSnapshot = false;
+          batch = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        } else {
+          batch = snap.docChanges.map((change) {
+            if (change.type == DocumentChangeType.removed) {
+              return <String, dynamic>{
+                'id': change.doc.id,
+                'is_deleted': true,
+              };
+            }
+            return <String, dynamic>{
+              'id': change.doc.id,
+              ...?change.doc.data(),
+            };
+          }).toList();
+        }
+        if (batch.isEmpty) return;
+        unawaited(AppCache.instance.mergeProducts(batch));
+        _container?.read(realtimeProductsProvider.notifier).update(batch);
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
@@ -5711,21 +5740,7 @@ class RealtimeHub {
     );
   }
 
-  void _watchAllOrders() {
-    final sub = _db
-        .collection('orders')
-        .orderBy('created_at', descending: true)
-        .limit(50)
-        .snapshots()
-        .listen((snap) {
-      final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-      _container?.read(realtimeAllOrdersProvider.notifier).update(data);
-    }, onError: (_) {});
-    _userSubs.add(sub);
-  }
-
   void _watchConfirmedOrders() {
-    final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'preparing'];
 
     // استخدام الفهرس المركب (status ASC, created_at DESC) لضمان وصول أحدث الطلبات غير المسندة أولاً
@@ -5737,30 +5752,15 @@ class RealtimeHub {
         .snapshots()
         .listen(
       (snap) {
-        final unassignedDocs = snap.docs.where((d) {
-          final driverId = d.data()['driver_id']?.toString().trim();
-          return driverId == null || driverId.isEmpty;
-        }).toList();
-
-        final data = unassignedDocs
+        final data = snap.docs
+            .where((d) {
+              final driverId = d.data()['driver_id']?.toString().trim();
+              return driverId == null || driverId.isEmpty;
+            })
             .map((d) => {'id': d.id, ...d.data()})
-            .toList()
-          ..sort((a, b) => AppDateParser.parse(b['created_at'])
-              .compareTo(AppDateParser.parse(a['created_at'])));
+            .toList();
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
-        final currentIds = LinkedHashSet<String>.from(
-          unassignedDocs.map((doc) => doc.id),
-        );
-
-        for (final id in currentIds) {
-          seenIds
-            ..remove(id)
-            ..add(id);
-        }
-        while (seenIds.length > 500) {
-          seenIds.remove(seenIds.first);
-        }
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchConfirmedOrders error: $e');
@@ -5838,16 +5838,16 @@ class RealtimeHub {
     _reconnectTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
     await _categoriesSub?.cancel();
     _categoriesSub = null;
     await _brandsSub?.cancel();
     _brandsSub = null;
+    await _productsSub?.cancel();
+    _productsSub = null;
     await _notificationsSub?.cancel();
     _notificationsSub = null;
     await _profileSub?.cancel();
     _profileSub = null; // 🔒 منع تسريب مؤشر الملف الشخصي في الذاكرة
-
     final subscriptions = List<StreamSubscription>.from(_userSubs);
     _userSubs.clear();
 
@@ -5879,6 +5879,7 @@ class RealtimeHub {
     final subsToCancel = <StreamSubscription?>[
       _profileSub,
       _notificationsSub,
+      _broadcastSub,
       _categoriesSub,
       _brandsSub,
       _productsSub,
@@ -5887,6 +5888,7 @@ class RealtimeHub {
 
     _profileSub = null;
     _notificationsSub = null;
+    _broadcastSub = null;
     _categoriesSub = null;
     _brandsSub = null;
     _productsSub = null;
@@ -5901,7 +5903,7 @@ class RealtimeHub {
       try {
         container.read(merchantOrdersProvider.notifier).clear();
         container.read(realtimeNotifsProvider.notifier).clear();
-        container.read(realtimeAllOrdersProvider.notifier).clear();
+
         container.read(realtimeConfirmedOrdersProvider.notifier).clear();
         container.read(realtimeMyShippedOrdersProvider.notifier).clear();
         container.read(driverNewOrderCallbackProvider.notifier).state = null;
@@ -6228,20 +6230,11 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
 
   void update(List<Map<String, dynamic>> data) {
     if (!mounted) return;
-    if (state.length <= RealtimeHub._productsPageSize) {
-      state = data;
-    } else {
-      final activeIncomingIds = data.map((e) => e['id'].toString()).toSet();
-      final mergedMap = <String, Map<String, dynamic>>{
-        for (final item in state)
-          if (!activeIncomingIds.contains(item['id'].toString()))
-            item['id'].toString(): item,
-      };
-      for (final item in data) {
-        mergedMap[item['id'].toString()] = item;
-      }
-      state = mergedMap.values.toList();
-    }
+    state = data;
+  }
+
+  void clear() {
+    if (mounted) state = [];
   }
 }
 
@@ -6320,17 +6313,6 @@ class _BrandsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
 
   void update(List<Map<String, dynamic>> data) {
     if (mounted) state = data;
-  }
-}
-
-class _AllOrdersNotifier extends StateNotifier<List<Map<String, dynamic>>> {
-  _AllOrdersNotifier() : super([]);
-  void update(List<Map<String, dynamic>> data) {
-    if (mounted) state = data;
-  }
-
-  void clear() {
-    if (mounted) state = [];
   }
 }
 
@@ -7959,7 +7941,8 @@ class _SanaaPlacesEngine {
 
     // 2. تجربة دالة فايربيز السحابية (searchPlaces)
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable(
+      final callable =
+          FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
         'searchPlaces',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 4)),
       );
@@ -8679,7 +8662,7 @@ class _AnimatedTabBar extends StatelessWidget {
       height: 52,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFFEEF2F7),
+        color: context.bgInput,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -12745,6 +12728,7 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../services/admin_service.dart';
 import '../../widgets/orders/order_card.dart';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 // مزود استماع سحابي مفلتر ومرتب زمنياً في الخادم لضمان جلب أحدث الطلبات
 final adminOrdersLimitProvider =
@@ -12836,7 +12820,7 @@ class _AdminOrdersTabState extends ConsumerState<AdminOrdersTab>
                   'إدارة الطلبات',
                   style: AppTextStyles.headlineMedium.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1A1A2E),
+                    color: context.textPrimary,
                   ),
                 ),
                 const Spacer(),
@@ -16259,6 +16243,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:wissal/core/services/image_precache_service.dart';
 import 'package:wissal/core/utils/arabic_normalizer.dart';
 import 'dart:async';
+import 'package:wissal/core/constants/app_adaptive_colors.dart';
 
 String formatFirestoreDate(dynamic value) {
   DateTime? date;
@@ -16342,6 +16327,7 @@ class ProductsTab extends ConsumerStatefulWidget {
 }
 
 class _ProductsTabState extends ConsumerState<ProductsTab> {
+  final TextEditingController _searchCtrl = TextEditingController();
   String _search = '';
   String? _filterCategoryId;
   String? _filterBrandId;
@@ -16352,6 +16338,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -16412,6 +16399,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
             children: [
               Expanded(
                 child: TextField(
+                  controller: _searchCtrl,
                   onChanged: (v) {
                     setState(() => _search = v.trim().toLowerCase());
                     _searchDebounce?.cancel();
@@ -16422,15 +16410,18 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                   },
                   decoration: InputDecoration(
                     hintText: 'بحث بالاسم أو الباركود...',
-                    hintStyle: const TextStyle(
+                    hintStyle: TextStyle(
                         fontFamily: 'Cairo',
-                        color: Color(0xFFAAAAAA),
+                        color: context.textHint,
                         fontSize: 13),
                     prefixIcon: const Icon(Icons.search_rounded,
                         color: Colors.grey, size: 20),
                     suffixIcon: _search.isNotEmpty
                         ? GestureDetector(
                             onTap: () {
+                              _searchDebounce?.cancel();
+                              _searchCtrl.clear();
+                              FocusScope.of(context).unfocus();
                               setState(() => _search = '');
                               _reloadServerFilter();
                             },
@@ -16439,7 +16430,7 @@ class _ProductsTabState extends ConsumerState<ProductsTab> {
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: context.bgCard,
                     contentPadding: const EdgeInsets.symmetric(vertical: 10),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -17254,13 +17245,21 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
   }
 
   Future<void> _submit(BuildContext sheetCtx, StateSetter setSt) async {
-    setSt(() => _error = null);
+    void showSheetError(String msg) {
+      if (sheetCtx.mounted) {
+        setSt(() => _error = msg);
+      } else if (mounted) {
+        setState(() => _error = msg);
+      }
+    }
+
+    if (sheetCtx.mounted) setSt(() => _error = null);
     if (_nameCtrl.text.trim().isEmpty) {
-      setSt(() => _error = 'اسم المنتج مطلوب');
+      showSheetError('اسم المنتج مطلوب');
       return;
     }
     if (_selectedBrandId == null) {
-      setSt(() => _error = 'اختر الشركة أولاً');
+      showSheetError('اختر الشركة أولاً');
       return;
     }
     final rawPriceText =
@@ -17271,26 +17270,26 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
           _variants.map((v) => v.price).reduce((a, b) => a < b ? a : b);
     }
     if (parsedPrice == null || parsedPrice < 0) {
-      setSt(() => _error = 'أدخل سعراً صحيحاً أو أضف حجماً بسعر محدد');
+      showSheetError('أدخل سعراً صحيحاً أو أضف حجماً بسعر محدد');
       return;
     }
     final prodText = ArabicNormalizer.normalizeDigits(_prodCtrl.text)
         .trim()
         .replaceAll('/', '-');
     if (prodText.isNotEmpty && DateTime.tryParse(prodText) == null) {
-      setSt(() => _error = 'صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
+      showSheetError('صيغة تاريخ الإنتاج غير صحيحة (مثال: 2026-05-15)');
       return;
     }
     final expText = ArabicNormalizer.normalizeDigits(_expCtrl.text)
         .trim()
         .replaceAll('/', '-');
     if (expText.isNotEmpty && DateTime.tryParse(expText) == null) {
-      setSt(() => _error = 'صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
+      showSheetError('صيغة تاريخ الانتهاء غير صحيحة (مثال: 2027-05-15)');
       return;
     }
 
-    setSt(() => _loading = true);
-    setState(() => _loading = true);
+    if (sheetCtx.mounted) setSt(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
     try {
       final imageUrl = _uploadedImageUrl ??
           (_image != null ? await uploadCatalogImage(_image!) : null);
@@ -17344,6 +17343,9 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
         });
       }
     } finally {
+      if (sheetCtx.mounted) {
+        setSt(() => _loading = false);
+      }
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -17714,7 +17716,7 @@ class _AddProductBarState extends ConsumerState<AddProductBar> {
                                   child: CatalogSmallField(
                                     ctrl: _barcodeCtrl,
                                     hint:
-                                        'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
+                                        'الباركود الموحد للمنتج (أدخل يدوياً أو امسح بالكاميرا)',
                                     type: TextInputType.text,
                                   ),
                                 ),
@@ -18398,7 +18400,7 @@ class _ProductEditSheetState extends ConsumerState<_ProductEditSheet> {
                               child: CatalogEditField(
                                 ctrl: barcodeCtrl,
                                 hint:
-                                    'الباركود الدولي (أدخل يدوياً أو امسح بالكاميرا)',
+                                    'الباركود الموحد للمنتج (أدخل يدوياً أو امسح بالكاميرا)',
                                 icon: Icons.qr_code_2_rounded,
                                 type: TextInputType.text,
                               ),
@@ -19262,28 +19264,36 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   late final TextEditingController _costCtrl;
   late final TextEditingController _qtyCtrl;
   late final TextEditingController _sizeCtrl;
-  late final TextEditingController _barcodeCtrl;
   late final TextEditingController _prodDateCtrl;
   late final TextEditingController _expDateCtrl;
-
   XFile? _selectedImage;
   Uint8List? _selectedImageBytes;
   bool _removeOldImage = false;
   bool _saving = false;
-
   @override
   void initState() {
     super.initState();
     final ex = widget.existing;
     _labelCtrl = TextEditingController(text: ex?.label ?? '');
     _priceCtrl = TextEditingController(
-        text: ex != null ? ex.price.toStringAsFixed(0) : '');
+        text: ex != null
+            ? (ex.price % 1 == 0
+                ? ex.price.toInt().toString()
+                : ex.price.toString())
+            : '');
     _costCtrl = TextEditingController(
-        text: ex?.costPrice != null ? ex!.costPrice!.toStringAsFixed(0) : '');
+        text: ex?.costPrice != null
+            ? (ex!.costPrice! % 1 == 0
+                ? ex.costPrice!.toInt().toString()
+                : ex.costPrice!.toString())
+            : '');
     _qtyCtrl = TextEditingController(text: ex != null ? '${ex.qty}' : '1');
     _sizeCtrl = TextEditingController(
-        text: ex?.sizeMl != null ? ex!.sizeMl!.toStringAsFixed(0) : '');
-    _barcodeCtrl = TextEditingController(text: ex?.barcode ?? '');
+        text: ex?.sizeMl != null
+            ? (ex!.sizeMl! % 1 == 0
+                ? ex.sizeMl!.toInt().toString()
+                : ex.sizeMl!.toString())
+            : '');
     _prodDateCtrl = TextEditingController(
         text: ex?.productionDate != null ? _fmtDate(ex!.productionDate!) : '');
     _expDateCtrl = TextEditingController(
@@ -19297,7 +19307,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
     _costCtrl.dispose();
     _qtyCtrl.dispose();
     _sizeCtrl.dispose();
-    _barcodeCtrl.dispose();
     _prodDateCtrl.dispose();
     _expDateCtrl.dispose();
     super.dispose();
@@ -19325,7 +19334,9 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
   Future<void> _saveUnit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final qty = int.tryParse(_qtyCtrl.text.trim()) ?? 0;
+    final qty =
+        int.tryParse(ArabicNormalizer.normalizeDigits(_qtyCtrl.text).trim()) ??
+            0;
     if (qty <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -19395,9 +19406,6 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
           expiryDate: _expDateCtrl.text.trim().isEmpty
               ? null
               : DateTime.tryParse(_expDateCtrl.text.trim()),
-          barcode: _barcodeCtrl.text.trim().isEmpty
-              ? null
-              : _barcodeCtrl.text.trim(),
         ),
       );
     } catch (e) {
@@ -19563,8 +19571,8 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                                 final p = double.tryParse(
                                     ArabicNormalizer.normalizeDigits(v ?? '')
                                         .trim());
-                                return (p == null || p < 0)
-                                    ? 'أدخل سعراً صحيحاً'
+                                return (p == null || p <= 0)
+                                    ? 'أدخل سعراً أكبر من صفر'
                                     : null;
                               },
                             ),
@@ -19598,7 +19606,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                               inputFormatters: const [
                                 ArabicDigitsInputFormatter(allowDecimal: false)
                               ],
-                              decoration: _dec('عدد الحبات الأساسية *'),
+                              decoration: _dec('عدد الحبات في الوحدة *'),
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
                               validator: (v) {
@@ -19606,7 +19614,7 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                                     ArabicNormalizer.normalizeDigits(v ?? '')
                                         .trim());
                                 return (q == null || q <= 0)
-                                    ? 'أدخل عدد الحبات'
+                                    ? 'أدخل عدداً صحيحاً'
                                     : null;
                               },
                             ),
@@ -19619,44 +19627,12 @@ class _UnitEditModalSheetState extends State<_UnitEditModalSheet> {
                               keyboardType:
                                   const TextInputType.numberWithOptions(
                                       decimal: true),
-                              decoration: _dec('الحجم بالمل'),
+                              inputFormatters: const [
+                                ArabicDigitsInputFormatter()
+                              ],
+                              decoration: _dec('الحجم بالمل (اختياري)'),
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _barcodeCtrl,
-                              textDirection: TextDirection.ltr,
-                              decoration:
-                                  _dec('باركود الوحدة (أدخل يدوياً أو امسحه)'),
-                              style: const TextStyle(
-                                  fontFamily: 'Cairo', fontSize: 13),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () async {
-                              final scanned =
-                                  await BarcodeScannerScreen.scan(context);
-                              if (scanned != null && scanned.isNotEmpty) {
-                                setState(() => _barcodeCtrl.text = scanned);
-                              }
-                            },
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.qr_code_scanner_rounded,
-                                  color: Colors.white, size: 22),
                             ),
                           ),
                         ],
@@ -20045,7 +20021,8 @@ class _ProductVariantsEditorState extends State<ProductVariantsEditor> {
                       const SizedBox(height: 4),
                       Text(
                         'مخزون: ${v.stock % 1 == 0 ? v.stock.toInt() : v.stock.toStringAsFixed(2)} كرتون'
-                        '${v.units.isNotEmpty ? " • ${v.units.length} كميات فرعية" : ""}',
+                        '${v.units.isNotEmpty ? " • ${v.units.length} كميات فرعية" : ""}'
+                        '${(v.barcode != null && v.barcode!.isNotEmpty) ? " • 🔖 ${v.barcode}" : ""}',
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 10.5,
@@ -20227,7 +20204,8 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
       final expDate = _expDateCtrl.text.trim().isNotEmpty
           ? DateTime.tryParse(_expDateCtrl.text.trim())
           : null;
-
+      final cleanVarBarcode =
+          BarcodeScannerScreen.cleanBarcode(_barcodeCtrl.text);
       final variant = ProductVariant(
         id: widget.existing?.id ??
             DateTime.now().millisecondsSinceEpoch.toString(),
@@ -20239,14 +20217,11 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
         sizeText: customSize.isNotEmpty ? customSize : null,
         sizeMl: numericSize,
         imageUrl: imageUrl,
-        barcode: _barcodeCtrl.text.trim().isNotEmpty
-            ? _barcodeCtrl.text.trim()
-            : null,
+        barcode: cleanVarBarcode.isNotEmpty ? cleanVarBarcode : null,
         productionDate: prodDate,
         expiryDate: expDate,
         units: _subUnits,
       );
-
       if (mounted) Navigator.pop(context, variant);
     } catch (e) {
       if (mounted) {
@@ -20486,8 +20461,7 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                         ],
                       ),
                       const SizedBox(height: 8),
-
-                      // الحجم والباركود
+// الحجم / الوزن
                       TextFormField(
                         controller: _sizeCtrl,
                         textDirection: TextDirection.rtl,
@@ -20498,26 +20472,34 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                       ),
                       const SizedBox(height: 8),
 
+                      // باركود الحجم المنفصل (الكميات داخله تتبع هذا الباركود تلقائياً)
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
                               controller: _barcodeCtrl,
                               textDirection: TextDirection.ltr,
-                              decoration: _dec('باركود كرتون هذا الحجم'),
+                              decoration: _dec(
+                                  'باركود الحجم المنفصل (أدخل يدوياً أو امسح بالكاميرا)'),
                               style: const TextStyle(
                                   fontFamily: 'Cairo', fontSize: 13),
                             ),
                           ),
                           const SizedBox(width: 8),
                           GestureDetector(
-                            onTap: () async {
-                              final scanned =
-                                  await BarcodeScannerScreen.scan(context);
-                              if (scanned != null && scanned.isNotEmpty) {
-                                setState(() => _barcodeCtrl.text = scanned);
-                              }
-                            },
+                            onTap: _saving
+                                ? null
+                                : () async {
+                                    final scanned =
+                                        await BarcodeScannerScreen.scan(
+                                            context);
+                                    if (scanned != null &&
+                                        scanned.isNotEmpty &&
+                                        mounted) {
+                                      setState(
+                                          () => _barcodeCtrl.text = scanned);
+                                    }
+                                  },
                             child: Container(
                               width: 44,
                               height: 44,
@@ -20525,8 +20507,11 @@ class _VariantEditModalSheetState extends State<_VariantEditModalSheet> {
                                 color: Colors.deepPurple,
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(Icons.qr_code_scanner_rounded,
-                                  color: Colors.white, size: 22),
+                              child: const Icon(
+                                Icons.qr_code_scanner_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
                             ),
                           ),
                         ],
@@ -24959,14 +24944,15 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
 
     if (value.length > 1) {
       final digits = value.replaceAll(RegExp(r'\D'), '');
+      final startIndex = digits.length >= _length ? 0 : index;
 
       for (int i = 0; i < _length && i < digits.length; i++) {
-        if (index + i < _length) {
-          _controllers[index + i].text = digits[i];
+        if (startIndex + i < _length) {
+          _controllers[startIndex + i].text = digits[i];
         }
       }
 
-      final next = (index + digits.length - 1).clamp(0, _length - 1);
+      final next = (startIndex + digits.length - 1).clamp(0, _length - 1);
       _focusNodes[next].requestFocus();
       setState(() {});
       if (_isComplete) {
@@ -25639,10 +25625,11 @@ class _OtpBoxState extends State<_OtpBox> {
               focusNode: widget.focusNode,
               textAlign: TextAlign.center,
               keyboardType: TextInputType.number,
-              maxLength: 1,
+              autofillHints: const [AutofillHints.oneTimeCode],
               showCursor: false,
               textDirection: TextDirection.ltr,
               inputFormatters: [
+                LengthLimitingTextInputFormatter(6),
                 TextInputFormatter.withFunction((oldVal, newVal) {
                   final t = ArabicNormalizer.normalizeDigits(newVal.text)
                       .replaceAll(RegExp(r'[^0-9]'), '');
@@ -26200,7 +26187,6 @@ class AuthService {
       targetContainer.invalidate(realtimeBrandsProvider);
       targetContainer.invalidate(realtimeConfirmedOrdersProvider);
       targetContainer.invalidate(realtimeMyShippedOrdersProvider);
-      targetContainer.invalidate(realtimeAllOrdersProvider);
       targetContainer.invalidate(driverNewOrderCallbackProvider);
     }
   }
@@ -29860,9 +29846,8 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
     final status = d['status'] as String? ?? '';
     final orderNum = d['order_number'] ?? d['invoice_number'] ?? '';
     final paymentMethod = d['payment_method'] as String? ?? 'cash';
-    final isConfirmed =
-        status == 'confirmed' || status == 'preparing' || status == 'pending';
-
+    // ✅ حظر اعتبار الطلب المعلق جاهزاً للاستلام
+    final isConfirmed = status == 'confirmed' || status == 'preparing';
     return Scaffold(
         backgroundColor: context.bgPage,
         appBar: AppBar(
@@ -30079,9 +30064,9 @@ class _DriverOrderDetailScreenState extends State<DriverOrderDetailScreen> {
             ],
           ),
         ),
-
-        // ── زر الإجراء الثابت ──
-        bottomNavigationBar: (status == 'delivered' ||
+// ── زر الإجراء الثابت (يختفي أيضاً إذا كان الطلب معلقاً بانتظار موافقة الإدارة) ──
+        bottomNavigationBar: (status == 'pending' ||
+                status == 'delivered' ||
                 status == 'cancelled' ||
                 status == 'rejected' ||
                 status == 'returned' ||
@@ -30604,19 +30589,21 @@ final driverStatsProvider =
     final db = FirebaseFirestore.instance;
     final baseQuery =
         db.collection('orders').where('driver_id', isEqualTo: driverId);
+// ✅ تنفيذ متوازٍ لـ count() مع احتساب الملغاة والمرفوضة والمرتجعة بدقة
+    final counts = await Future.wait([
+      baseQuery.count().get(),
+      baseQuery.where('status', isEqualTo: 'delivered').count().get(),
+      baseQuery.where('status', isEqualTo: 'cancelled').count().get(),
+      baseQuery.where('status', isEqualTo: 'rejected').count().get(),
+      baseQuery.where('status', isEqualTo: 'returned').count().get(),
+    ]);
 
-    // ✅ استخدام count() بدلاً من تحميل 500 مستند — دقة لا نهائية بتكلفة صفرية تقريباً
-    final totalSnap = await baseQuery.count().get();
-    final deliveredSnap =
-        await baseQuery.where('status', isEqualTo: 'delivered').count().get();
-    final cancelledSnap =
-        await baseQuery.where('status', isEqualTo: 'cancelled').count().get();
-
-    final total = totalSnap.count ?? 0;
-    final delivered = deliveredSnap.count ?? 0;
-    final cancelled = cancelledSnap.count ?? 0;
+    final total = counts[0].count ?? 0;
+    final delivered = counts[1].count ?? 0;
+    final cancelled = (counts[2].count ?? 0) +
+        (counts[3].count ?? 0) +
+        (counts[4].count ?? 0);
     final pending = (total - delivered - cancelled).clamp(0, total);
-
     // ✅ aggregate(sum) لدقة كاملة على أي عدد من الطلبات
     double totalEarnings = 0.0;
     try {
@@ -32014,7 +32001,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
     if (!mounted) return;
 
     if (result.status == _LookupStatus.found && result.product != null) {
-      final product = _attachMatchedMeta(result.product!, code);
+      final product = Map<String, dynamic>.from(result.product!);
       SupermarketSoundHelper.playSupermarketBeep();
       _unmatchedCodesCooldown.clear();
 
@@ -32033,6 +32020,7 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         await Future.delayed(const Duration(milliseconds: 280));
         _isProcessingMatch = false;
       } else {
+        product['_scanned_barcode'] = code;
         await _stopCamera();
         if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
           Navigator.of(context).pop(product);
@@ -32066,46 +32054,6 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen>
         setState(() => _statusBannerText = null);
       }
     });
-  }
-
-  Map<String, dynamic> _attachMatchedMeta(
-      Map<String, dynamic> raw, String scannedCode) {
-    final cleanScanned = BarcodeScannerScreen.cleanBarcode(scannedCode);
-    final variantsToMatch = BarcodeTools.variants(cleanScanned).toSet();
-    final copy = Map<String, dynamic>.from(raw);
-
-    bool matchesCode(dynamic val) {
-      if (val == null) return false;
-      final c = BarcodeScannerScreen.cleanBarcode(val.toString());
-      return c.isNotEmpty && variantsToMatch.contains(c);
-    }
-
-    if (raw['units'] is List) {
-      for (final u in (raw['units'] as List).whereType<Map>()) {
-        if (matchesCode(u['barcode'])) {
-          copy['_matched_unit_label'] = u['label']?.toString();
-          return copy;
-        }
-      }
-    }
-    if (raw['variants'] is List) {
-      for (final v in (raw['variants'] as List).whereType<Map>()) {
-        if (matchesCode(v['barcode'])) {
-          copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
-          return copy;
-        }
-        if (v['units'] is List) {
-          for (final u in (v['units'] as List).whereType<Map>()) {
-            if (matchesCode(u['barcode'])) {
-              copy['_matched_variant_id'] = (v['id'] ?? v['label'])?.toString();
-              copy['_matched_unit_label'] = u['label']?.toString();
-              return copy;
-            }
-          }
-        }
-      }
-    }
-    return copy;
   }
 
   Future<_LookupResult> _lookup(String code) async {
@@ -32651,26 +32599,9 @@ class BarcodeIndexManager {
       }
     }
 
-    if (product['units'] is List) {
-      for (final u in product['units']) {
-        if (u is Map && u['barcode'] != null) {
-          addVar(u['barcode'].toString());
-        }
-      }
-    }
-
     if (product['variants'] is List) {
-      for (final v in product['variants']) {
-        if (v is Map) {
-          if (v['barcode'] != null) addVar(v['barcode'].toString());
-          if (v['units'] is List) {
-            for (final u in v['units']) {
-              if (u is Map && u['barcode'] != null) {
-                addVar(u['barcode'].toString());
-              }
-            }
-          }
-        }
+      for (final v in (product['variants'] as List).whereType<Map>()) {
+        if (v['barcode'] != null) addVar(v['barcode'].toString());
       }
     }
   }
@@ -33363,16 +33294,16 @@ class CartItem {
   }
 
   String get displayName {
-    final buffer = StringBuffer(product.name);
-    if (selectedVariant != null && selectedVariant!.label.trim().isNotEmpty) {
-      buffer.write(' (${selectedVariant!.label.trim()})');
-    }
-    if (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty) {
-      buffer.write(' - ${selectedUnit!.label.trim()}');
-    } else {
-      buffer.write(' - كرتون');
-    }
-    return buffer.toString();
+    final isCustomVariant = selectedVariant != null &&
+        selectedVariant!.id != 'base_default' &&
+        selectedVariant!.label.trim().isNotEmpty;
+    final baseTitle =
+        isCustomVariant ? selectedVariant!.label.trim() : product.name;
+    final unitName =
+        (selectedUnit != null && selectedUnit!.label.trim().isNotEmpty)
+            ? selectedUnit!.label.trim()
+            : 'كرتون';
+    return '$baseTitle - $unitName';
   }
 
   double get unitPrice =>
@@ -33621,7 +33552,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     super.dispose();
   }
 
-  void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
+  bool changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
     final oldKey = oldItem.cartKey;
     final probeItem = CartItem(
       product: oldItem.product,
@@ -33630,22 +33561,18 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       selectedVariant: oldItem.selectedVariant,
     );
     final newKey = probeItem.cartKey;
-    if (oldKey == newKey) return;
+    if (oldKey == newKey) return true;
 
     final maxTotalForTarget = _maxUnitsAllowedFor(
       probeItem,
       ignoreKeys: {oldKey, newKey},
     );
+    if (maxTotalForTarget <= 0) {
+      return false;
+    }
+
     final newState = Map<String, CartItem>.from(state);
     newState.remove(oldKey);
-
-    if (maxTotalForTarget <= 0) {
-      if (!newState.containsKey(newKey)) {
-        state = newState;
-        _save();
-      }
-      return;
-    }
 
     if (newState.containsKey(newKey)) {
       final existing = newState[newKey]!;
@@ -33660,6 +33587,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     }
     state = newState;
     _save();
+    return true;
   }
 
   int _maxUnitsAllowedFor(
@@ -36010,8 +35938,9 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        activeVariant != null
-                            ? '${resolvedProduct.name} (${activeVariant.label}) - $currentLabel'
+                        (activeVariant != null &&
+                                activeVariant.id != 'base_default')
+                            ? '${activeVariant.label} - $currentLabel'
                             : '${resolvedProduct.name} - $currentLabel',
                         style: TextStyle(
                           fontFamily: 'Cairo',
@@ -36252,7 +36181,23 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                             onSelected: (selected) {
                               if (selected && !isSelected) {
                                 HapticFeedback.selectionClick();
-                                notifier.changeItemUnit(item, unit);
+                                final changed =
+                                    notifier.changeItemUnit(item, unit);
+                                if (!changed && context.mounted) {
+                                  ScaffoldMessenger.of(context)
+                                    ..clearSnackBars()
+                                    ..showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'عذراً، المخزون المتاح لا يكفي للتحويل إلى (${unit.label})',
+                                          style: const TextStyle(
+                                              fontFamily: 'Cairo'),
+                                        ),
+                                        backgroundColor: Colors.orange,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                }
                               }
                             },
                           ),
@@ -36779,9 +36724,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
       context: context,
       builder: (_) => _QuickAddQtyDialog(
         initialQty: _qty,
-        productName: _selectedVariant != null
-            ? '${widget.product.name} - ${_selectedVariant!.label}'
-            : widget.product.name,
+        productName:
+            (_selectedVariant != null && _selectedVariant!.id != 'base_default')
+                ? _selectedVariant!.label
+                : widget.product.name,
         unitLabel: _selectedUnit?.label ?? 'كرتون',
       ),
     );
@@ -36913,7 +36859,10 @@ class _ProductTileState extends ConsumerState<_ProductTile> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.product.name,
+                  (_selectedVariant != null &&
+                          _selectedVariant!.id != 'base_default')
+                      ? _selectedVariant!.label
+                      : widget.product.name,
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 13,
@@ -38651,12 +38600,17 @@ class _StatCard extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: color),
           const SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
-                  color: color)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(value,
+                maxLines: 1,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: color)),
+          ),
           Text(label,
               style: TextStyle(
                   fontFamily: 'Cairo',
@@ -38842,7 +38796,7 @@ class _ReturnInvoiceCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'فاتورة إرجاع #$displayReturnId',
+                          'فاتورة إرجاع',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -38871,38 +38825,48 @@ class _ReturnInvoiceCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '#$displayReturnId',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: context.textSecondary,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${returnItem.productName} • ${returnItem.quantity} ${returnItem.unitLabel}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isRejected
-                                  ? Colors.red
-                                  : const Color(0xFFEA580C)),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    '${returnItem.productName} • ${returnItem.quantity} ${returnItem.unitLabel}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color:
+                            isRejected ? Colors.red : const Color(0xFFEA580C)),
                   ),
                   if (isRejected &&
                       returnItem.rejectionReason != null &&
                       returnItem.rejectionReason!.trim().isNotEmpty) ...[
                     const SizedBox(height: 3),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.info_outline_rounded,
-                            size: 13, color: Colors.red),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(Icons.info_outline_rounded,
+                              size: 13, color: Colors.red),
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             'سبب الرفض: ${returnItem.rejectionReason}',
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontFamily: 'Cairo',
@@ -38915,22 +38879,29 @@ class _ReturnInvoiceCard extends StatelessWidget {
                       ],
                     ),
                   ],
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       Icon(Icons.access_time_rounded,
                           size: 12, color: context.iconSecondary),
-                      const SizedBox(width: 3),
-                      Text('$time • $date',
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '$time • $date',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontFamily: 'Cairo',
                               fontSize: 11,
-                              color: context.textSecondary)),
-                      const Spacer(),
+                              color: context.textSecondary),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         isRejected
                             ? 'مرفوض'
                             : '-${returnItem.refundAmount.toStringAsFixed(0)} ر.ي',
+                        textDirection: TextDirection.rtl,
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 14,
@@ -39042,7 +39013,7 @@ class _OrderCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'فاتورة طلب #$shortOrderId',
+                          'فاتورة طلب',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -39072,6 +39043,19 @@ class _OrderCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '#$shortOrderId',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: context.textSecondary,
+                    ),
                   ),
                   if (order.storeName != null &&
                       order.storeName!.isNotEmpty) ...[
@@ -39197,6 +39181,7 @@ import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
+import '../../../../../core/models/product_unit.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/screens/products_screen.dart';
 import '../../../products/widgets/product_details_sheet.dart';
@@ -39482,39 +39467,34 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                                     findProductMode: true),
                               ),
                             );
-
                             if (matchedProductMap != null && context.mounted) {
                               final productModel =
                                   ProductModel.fromMap(matchedProductMap);
-                              final matchedVariantId =
-                                  matchedProductMap['_matched_variant_id']
-                                      ?.toString();
-                              final matchedUnitLabel =
-                                  matchedProductMap['_matched_unit_label']
-                                      ?.toString();
-                              final initialVariant = matchedVariantId != null
-                                  ? productModel.variants
-                                      .where((v) =>
-                                          v.id == matchedVariantId ||
-                                          v.label == matchedVariantId)
-                                      .firstOrNull
-                                  : null;
-                              final unitPool = initialVariant != null
-                                  ? initialVariant.units
-                                  : productModel.units;
-                              final initialUnit = matchedUnitLabel != null
-                                  ? unitPool
-                                      .where((u) => u.label == matchedUnitLabel)
-                                      .firstOrNull
-                                  : null;
+                              final scannedCode =
+                                  matchedProductMap['_scanned_barcode']
+                                      ?.toString()
+                                      .trim();
+                              ProductVariant? matchedVariant;
+                              if (scannedCode != null &&
+                                  scannedCode.isNotEmpty &&
+                                  productModel.hasVariants) {
+                                final scannedVars =
+                                    BarcodeTools.variants(scannedCode).toSet();
+                                matchedVariant =
+                                    productModel.allVariantsWithBase.where((v) {
+                                  final vb = v.barcode?.trim() ?? '';
+                                  if (vb.isEmpty) return false;
+                                  return BarcodeTools.variants(vb)
+                                      .any(scannedVars.contains);
+                                }).firstOrNull;
+                              }
                               showModalBottomSheet(
                                 context: context,
                                 isScrollControlled: true,
                                 backgroundColor: Colors.transparent,
                                 builder: (_) => ProductDetailsSheet(
                                   product: productModel,
-                                  initialVariant: initialVariant,
-                                  initialUnit: initialUnit,
+                                  initialVariant: matchedVariant,
                                 ),
                               );
                             }
@@ -39789,7 +39769,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
   bool _hasMoreOrders = true;
   bool _isLoadingMoreOrders = false;
   String? _orderLoadError;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? ordersStream;
 
   static const _tabs = [
     (label: 'الكل', icon: Icons.list_alt_rounded),
@@ -39798,8 +39777,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     (label: 'مرفوضة', icon: Icons.cancel_rounded),
     (label: 'مرتجعات', icon: Icons.assignment_return_rounded),
   ];
-
-  bool historyTriggered = false;
   @override
   void initState() {
     super.initState();
@@ -40166,95 +40143,6 @@ class _TappableCardState extends State<_TappableCard> {
     return OrderCard(
       order: widget.order,
       onTap: widget.onTap,
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// Skeleton Card
-// ══════════════════════════════════════════════════════════
-class _OrderSkeletonCard extends StatefulWidget {
-  const _OrderSkeletonCard();
-
-  @override
-  State<_OrderSkeletonCard> createState() => _OrderSkeletonCardState();
-}
-
-class _OrderSkeletonCardState extends State<_OrderSkeletonCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-    _anim = Tween(begin: 0.4, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Widget _box(double w, double h, {double radius = 8}) {
-    return FadeTransition(
-      opacity: _anim,
-      child: Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: context.borderColor,
-          borderRadius: BorderRadius.circular(radius),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: context.shadowColor.withValues(alpha: 0.05),
-              blurRadius: 8),
-        ],
-      ),
-      child: Row(
-        children: [
-          _box(48, 48, radius: 12),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _box(double.infinity, 14),
-                const SizedBox(height: 8),
-                _box(120, 11),
-                const SizedBox(height: 8),
-                _box(80, 11),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _box(60, 16),
-              const SizedBox(height: 8),
-              _box(40, 24, radius: 12),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
@@ -41550,6 +41438,8 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                           child: CircularProgressIndicator(
                               color: AppColors.primary))
                       : SingleChildScrollView(
+                          clipBehavior: Clip
+                              .none, // ✅ منع تقطيع Canvas خارج نطاق الشاشة عند التحويل لصورة
                           padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
                           child: RepaintBoundary(
                             key: _repaintKey,
@@ -42489,6 +42379,8 @@ class _ReturnInvoiceScreenState extends State<ReturnInvoiceScreen> {
             // ── جسم الفاتورة ──
             Expanded(
               child: SingleChildScrollView(
+                clipBehavior: Clip
+                    .none, // ✅ تصيير كامل الفاتورة الطويلة بدون اقتطاع الجزء السفلي
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
                 child: RepaintBoundary(
                   key: _repaintKey,
@@ -46800,6 +46692,7 @@ class OrdersService {
         .collection('orders')
         .where('driver_id', isEqualTo: driverId)
         .where('status', isEqualTo: 'delivered')
+        .orderBy('created_at', descending: true)
         .limit(100)
         .get(const GetOptions(source: Source.serverAndCache));
     final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
@@ -47130,10 +47023,6 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
         : ref.watch(productsProvider(widget.categoryId));
     final displayName = widget.categoryName ?? widget.brandName ?? 'المنتجات';
 
-    final cart = ref.watch(cartProvider);
-    final cartCount = cart.values.fold(0, (s, i) => s + i.quantity);
-    final cartTotal = cart.values.fold(0.0, (s, i) => s + i.total);
-
     return Scaffold(
       backgroundColor: context.bgPage,
       body: SafeArea(
@@ -47203,125 +47092,136 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                           ],
                         ),
                       ),
-                      // زر السلة
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const CartScreen()),
-                          );
-                        },
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: context.bgCard,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
+                      // زر السلة معزول بـ Consumer لمنع إعادة بناء قائمة المنتجات عند التعديل
+                      Consumer(
+                        builder: (_, ref, __) {
+                          final cartCount = ref.watch(cartCountProvider);
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const CartScreen()),
+                              );
+                            },
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: context.bgCard,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.08),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                              child: const Icon(Icons.shopping_cart_rounded,
-                                  color: AppColors.primary, size: 22),
-                            ),
-                            if (cartCount > 0)
-                              Positioned(
-                                top: -4,
-                                left: -4,
-                                child: Container(
-                                  padding: const EdgeInsets.all(5),
-                                  decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      shape: BoxShape.circle),
-                                  child: Text(
-                                    '$cartCount',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      fontFamily: 'Cairo',
+                                  child: const Icon(Icons.shopping_cart_rounded,
+                                      color: AppColors.primary, size: 22),
+                                ),
+                                if (cartCount > 0)
+                                  Positioned(
+                                    top: -4,
+                                    left: -4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle),
+                                      child: Text(
+                                        '$cartCount',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                          ],
-                        ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // ══ 2. شريط السلة العائم السريع ══
-              if (cartCount > 0)
-                SliverToBoxAdapter(
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: AppColors.primaryGradient,
-                      borderRadius: AppRadius.lgAll,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.shopping_bag_outlined,
-                            color: Colors.white, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$cartCount كرتون بالسلة (${cartTotal.toStringAsFixed(0)} ر.ي)',
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
+              // ══ 2. شريط السلة العائم السريع (معزول بـ Consumer) ══
+              SliverToBoxAdapter(
+                child: Consumer(
+                  builder: (_, ref, __) {
+                    final cartCount = ref.watch(cartCountProvider);
+                    if (cartCount <= 0) return const SizedBox.shrink();
+                    final cartTotal = ref.watch(cartTotalProvider);
+                    return Container(
+                      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: AppRadius.lgAll,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        const Spacer(),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const CartScreen()),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.shopping_bag_outlined,
+                              color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$cartCount صنف بالسلة (${cartTotal.toStringAsFixed(0)} ر.ي)',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
                               color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
                             ),
-                            child: const Text(
-                              'إتمام الطلب ←',
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                color: AppColors.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const CartScreen()),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Text(
+                                'إتمام الطلب ←',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  color: AppColors.primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-
+              ),
               // ══ 3. حقل البحث وزر الترتيب المتقدم (الأرخص / الأكثر مبيعاً) ══
               SliverToBoxAdapter(
                 child: Padding(
@@ -48071,7 +47971,7 @@ class ProductModel {
     final imageUrl = m['image_url'] as String?;
     final barcode = m['barcode']?.toString().trim();
 
-    // حجب أسعار التكلفة تماماً عن هواتف التجار وتأمين الوحدات
+// حجب أسعار التكلفة تماماً عن هواتف التجار، وتوريث باركود المنتج للكميات التابعة له
     final sanitizedUnits = units
         .map((u) => ProductUnit(
               label: u.label,
@@ -48082,7 +47982,7 @@ class ProductModel {
               sizeMl: u.sizeMl,
               productionDate: u.productionDate,
               expiryDate: u.expiryDate,
-              barcode: u.barcode,
+              barcode: barcode,
             ))
         .toList();
 
@@ -48126,6 +48026,10 @@ class ProductModel {
     final sanitizedVariants = rawVariants is List
         ? rawVariants.whereType<Map>().map((rawV) {
             final v = ProductVariant.fromMap(Map<String, dynamic>.from(rawV));
+            final String? variantBarcode =
+                (v.barcode != null && v.barcode!.isNotEmpty) ? v.barcode : null;
+            final String? effectiveVarBarcode = variantBarcode ?? barcode;
+
             List<ProductUnit> vUnits = v.units
                 .map((u) => ProductUnit(
                       label: u.label,
@@ -48136,11 +48040,11 @@ class ProductModel {
                       sizeMl: u.sizeMl,
                       productionDate: u.productionDate,
                       expiryDate: u.expiryDate,
-                      barcode: u.barcode,
+                      barcode: effectiveVarBarcode,
                     ))
                 .toList();
 
-            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم في حال لم تُحدد له وحدات خاصة
+            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم مع ربطها بباركود الحجم نفسه
             final hasCustomSubUnits =
                 vUnits.any((u) => u.label.trim() != 'كرتون');
             if (!hasCustomSubUnits && sanitizedUnits.length > 1) {
@@ -48156,11 +48060,12 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? pUnit.sizeMl,
                     productionDate: v.productionDate ?? pUnit.productionDate,
                     expiryDate: v.expiryDate ?? pUnit.expiryDate,
-                    barcode: v.barcode ?? pUnit.barcode,
+                    barcode: effectiveVarBarcode,
                   );
                 }
                 final double scaledPrice =
-                    (pUnit.price * ratio).roundToDouble();
+                    double.parse((pUnit.price * ratio).toStringAsFixed(6))
+                        .roundToDouble();
                 return ProductUnit(
                   label: pUnit.label,
                   qty: pUnit.qty,
@@ -48170,7 +48075,7 @@ class ProductModel {
                   sizeMl: v.sizeMl ?? pUnit.sizeMl,
                   productionDate: v.productionDate ?? pUnit.productionDate,
                   expiryDate: v.expiryDate ?? pUnit.expiryDate,
-                  barcode: null,
+                  barcode: effectiveVarBarcode,
                 );
               }).toList();
             } else {
@@ -48187,7 +48092,7 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? sizeMl,
                     productionDate: v.productionDate,
                     expiryDate: v.expiryDate,
-                    barcode: v.barcode,
+                    barcode: effectiveVarBarcode,
                   ),
                 );
               }
@@ -48203,14 +48108,13 @@ class ProductModel {
               sizeText: v.sizeText,
               sizeMl: v.sizeMl,
               imageUrl: v.imageUrl ?? imageUrl,
-              barcode: v.barcode,
+              barcode: variantBarcode,
               productionDate: v.productionDate,
               expiryDate: v.expiryDate,
               units: vUnits,
             );
           }).toList()
         : <ProductVariant>[];
-
     return ProductModel(
       id: m['id']?.toString() ?? '',
       name: (m['name'] as String?)?.trim() ?? '',
@@ -48606,7 +48510,7 @@ class _ProductCardState extends ConsumerState<ProductCard> {
         );
 
     final title = !isBaseVariant
-        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        ? '${v.label} - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
 
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -48647,9 +48551,10 @@ class _ProductCardState extends ConsumerState<ProductCard> {
       builder: (ctx) => _ManualQtyDialog(
         initialQty: _qty,
         unitLabel: _currentUnitLabel,
-        productName: _activeVariant != null
-            ? '${widget.product.name} (${_activeVariant!.label})'
-            : widget.product.name,
+        productName:
+            (_activeVariant != null && _activeVariant!.id != 'base_default')
+                ? _activeVariant!.label
+                : widget.product.name,
       ),
     );
 
@@ -48705,7 +48610,9 @@ class _ProductCardState extends ConsumerState<ProductCard> {
             GestureDetector(
               onTap: _openSheet,
               child: Text(
-                widget.product.name,
+                (v != null && v.id != 'base_default')
+                    ? v.label
+                    : widget.product.name,
                 style: TextStyle(
                   fontFamily: 'Cairo',
                   fontSize: 15.5,
@@ -49288,7 +49195,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
       }
       _pageController = PageController(initialPage: _variantIndex);
       for (var i = 0; i < allVars.length; i++) {
-        final units = allVars[i].units;
+        final units = allVars[i].units.isNotEmpty
+            ? allVars[i].units
+            : widget.product.units;
         _variantUnits[i] = (i == _variantIndex && widget.initialUnit != null)
             ? (units
                     .where((u) =>
@@ -49429,7 +49338,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
           variant: effectiveVariant,
         );
     final title = !isBaseVariant
-        ? '${widget.product.name} (${v.label}) - $_currentUnitLabel'
+        ? '${v.label} - $_currentUnitLabel'
         : '${widget.product.name} - $_currentUnitLabel';
     Navigator.pop(context);
 
@@ -49664,7 +49573,11 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final hasImage = currentImage != null && currentImage.isNotEmpty;
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
     final units = (v != null && v.units.isNotEmpty) ? v.units : product.units;
-    final currentBarcode = pageUnit?.barcode ?? v?.barcode ?? product.barcode;
+    final currentBarcode = (v?.barcode != null && v!.barcode!.trim().isNotEmpty)
+        ? v.barcode!.trim()
+        : (pageUnit?.barcode != null && pageUnit!.barcode!.trim().isNotEmpty)
+            ? pageUnit.barcode!.trim()
+            : product.barcode;
     final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??
         v?.productionDate ??
@@ -49674,8 +49587,9 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
         DateTime.tryParse(product.expiryDate ?? '');
     final isExpiringSoon = currentExpiry != null &&
         currentExpiry.isBefore(DateTime.now().add(const Duration(days: 30)));
-    final titleText = v != null
-        ? '${product.name} (${v.label}) - $pageUnitLabel'
+    final isCustomVariant = v != null && v.id != 'base_default';
+    final titleText = isCustomVariant
+        ? '${v.label} - $pageUnitLabel'
         : '${product.name} - $pageUnitLabel';
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -49846,7 +49760,7 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
                 if (currentBarcode != null && currentBarcode.isNotEmpty) ...[
                   _InfoTile(
                     icon: Icons.qr_code_2_rounded,
-                    label: 'الباركود الدولي',
+                    label: 'الباركود الموحد',
                     value: currentBarcode,
                     valueColor: AppColors.primary,
                   ),

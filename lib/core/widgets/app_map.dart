@@ -744,7 +744,8 @@ class _SanaaPlacesEngine {
 
     // 2. تجربة دالة فايربيز السحابية (searchPlaces)
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable(
+      final callable =
+          FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
         'searchPlaces',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 4)),
       );

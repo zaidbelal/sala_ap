@@ -152,7 +152,6 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
       timer = Timer(const Duration(minutes: 10), () => link.close());
     });
     ref.onResume(() => timer?.cancel());
-
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeCategoriesProvider,
@@ -160,14 +159,12 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
         // 🔒 حظر الكتابة فوق الكاش بالمصفوفات الفارغة الناتجة عن تسجيل الخروج
         if (!_isDisposed && next.isNotEmpty) {
           state = AsyncData(next);
-          unawaited(AppCache.instance.setCategories(next));
         }
       },
     );
     // ① RealtimeHub — صفر قراءات Firestore إضافية
     final live = ref.read(realtimeCategoriesProvider);
     if (live.isNotEmpty) {
-      unawaited(AppCache.instance.setCategories(live));
       return live;
     }
 
@@ -184,20 +181,6 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     return _retry(
       _fetchAndCache,
       tag: 'categories',
-    );
-  }
-
-  void listenRealtime() {
-    // 🔒 إغلاق الاشتراك السابق لمنع تراكم مستمعين في الذاكرة
-    _realtimeSub?.close();
-    _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
-      realtimeCategoriesProvider,
-      (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          state = AsyncData(next);
-          unawaited(AppCache.instance.setCategories(next));
-        }
-      },
     );
   }
 
@@ -226,7 +209,7 @@ class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
     final snap = await _db
         .collection('categories')
         .limit(200)
-        .get(const GetOptions(source: Source.server));
+        .get(const GetOptions(source: Source.serverAndCache));
     final list = snap.docs
         .where((d) =>
             d.data()['is_deleted'] != true && d.data()['is_active'] != false)
@@ -271,51 +254,46 @@ class ProductsNotifier
       timer = Timer(const Duration(minutes: 10), () => link.close());
     });
     ref.onResume(() => timer?.cancel());
-// تفعيل الاشتراك اللحظي تلقائياً سواءً للكتالوج العام أو للأقسام المخصصة
+// تفعيل الاشتراك اللحظي تلقائياً للكتالوج العام والأقسام دون إعادة كتابة الكاش
     _realtimeSub?.close();
     _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
       realtimeProductsProvider,
       (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          final liveBatch = arg == null
-              ? next
-              : next.where((p) => p['category_id']?.toString() == arg).toList();
+        if (next.isEmpty || _isDisposed) return;
 
-          final currentList = state.valueOrNull ??
-              AppCache.instance.getProducts(categoryId: arg) ??
-              [];
-          final Map<String, Map<String, dynamic>> productMap = {
-            for (final p in currentList) p['id'].toString(): p,
-          };
+        final currentList = state.valueOrNull ??
+            AppCache.instance.getProducts(categoryId: arg) ??
+            [];
+        final Map<String, Map<String, dynamic>> productMap = {
+          for (final p in currentList) p['id'].toString(): p,
+        };
 
-          for (final liveItem in liveBatch) {
-            final id = liveItem['id']?.toString();
-            if (id != null && id.isNotEmpty) {
-              if (liveItem['is_deleted'] == true ||
-                  liveItem['is_active'] == false) {
-                productMap.remove(id);
-              } else {
-                productMap[id] = liveItem;
-              }
-            }
-          }
+        bool touched = false;
+        for (final liveItem in next) {
+          final id = liveItem['id']?.toString();
+          if (id == null || id.isEmpty) continue;
 
-          final merged = productMap.values.toList()
-            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
-                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+          final belongsToScope =
+              arg == null || liveItem['category_id']?.toString() == arg;
+          final isHidden =
+              liveItem['is_deleted'] == true || liveItem['is_active'] == false;
 
-          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
-          if (arg == null) {
-            unawaited(AppCache.instance.mergeProducts(liveBatch));
-            final allProducts = AppCache.instance.getProducts() ?? merged;
-            state = AsyncData(allProducts);
-            _precache(allProducts);
+          if (isHidden || !belongsToScope) {
+            if (productMap.remove(id) != null) touched = true;
           } else {
-            state = AsyncData(merged);
-            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
-            _precache(merged);
+            productMap[id] = liveItem;
+            touched = true;
           }
         }
+
+        if (!touched) return;
+
+        final merged = productMap.values.toList()
+          ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
+              .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
+
+        state = AsyncData(merged);
+        _precache(merged);
       },
     );
     return _load(categoryId: arg);
@@ -335,55 +313,6 @@ class ProductsNotifier
     return _retry(
       () => _fetchAndCache(categoryId: categoryId),
       tag: 'products-${categoryId ?? "all"}',
-    );
-  }
-
-  void listenRealtime() {
-    _realtimeSub?.close();
-    _realtimeSub = ref.listen<List<Map<String, dynamic>>>(
-      realtimeProductsProvider,
-      (_, next) {
-        if (next.isNotEmpty && !_isDisposed) {
-          final liveBatch = arg == null
-              ? next
-              : next.where((p) => p['category_id']?.toString() == arg).toList();
-
-          final currentList = state.valueOrNull ??
-              AppCache.instance.getProducts(categoryId: arg) ??
-              [];
-          final Map<String, Map<String, dynamic>> productMap = {
-            for (final p in currentList) p['id'].toString(): p,
-          };
-
-          for (final liveItem in liveBatch) {
-            final id = liveItem['id']?.toString();
-            if (id != null && id.isNotEmpty) {
-              if (liveItem['is_deleted'] == true ||
-                  liveItem['is_active'] == false) {
-                productMap.remove(id);
-              } else {
-                productMap[id] = liveItem;
-              }
-            }
-          }
-
-          final merged = productMap.values.toList()
-            ..sort((a, b) => ((a['sort_order'] as num?)?.toInt() ?? 999)
-                .compareTo((b['sort_order'] as num?)?.toInt() ?? 999));
-
-          // 🚀 دمج ذري دائم يمنع استبدال كامل الكتالوج المخزن بالقرص بدفعة الـ 100 اللحظية
-          if (arg == null) {
-            unawaited(AppCache.instance.mergeProducts(liveBatch));
-            final allProducts = AppCache.instance.getProducts() ?? merged;
-            state = AsyncData(allProducts);
-            _precache(allProducts);
-          } else {
-            state = AsyncData(merged);
-            unawaited(AppCache.instance.setProducts(merged, categoryId: arg));
-            _precache(merged);
-          }
-        }
-      },
     );
   }
 

@@ -151,7 +151,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     super.dispose();
   }
 
-  void changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
+  bool changeItemUnit(CartItem oldItem, ProductUnit newUnit) {
     final oldKey = oldItem.cartKey;
     final probeItem = CartItem(
       product: oldItem.product,
@@ -160,22 +160,18 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
       selectedVariant: oldItem.selectedVariant,
     );
     final newKey = probeItem.cartKey;
-    if (oldKey == newKey) return;
+    if (oldKey == newKey) return true;
 
     final maxTotalForTarget = _maxUnitsAllowedFor(
       probeItem,
       ignoreKeys: {oldKey, newKey},
     );
+    if (maxTotalForTarget <= 0) {
+      return false;
+    }
+
     final newState = Map<String, CartItem>.from(state);
     newState.remove(oldKey);
-
-    if (maxTotalForTarget <= 0) {
-      if (!newState.containsKey(newKey)) {
-        state = newState;
-        _save();
-      }
-      return;
-    }
 
     if (newState.containsKey(newKey)) {
       final existing = newState[newKey]!;
@@ -190,6 +186,7 @@ class CartNotifier extends StateNotifier<Map<String, CartItem>> {
     }
     state = newState;
     _save();
+    return true;
   }
 
   int _maxUnitsAllowedFor(

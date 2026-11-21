@@ -448,7 +448,11 @@ class _ProductDetailsSheetState extends ConsumerState<ProductDetailsSheet> {
     final hasImage = currentImage != null && currentImage.isNotEmpty;
     final currentPrice = pageUnit?.price ?? v?.price ?? product.price;
     final units = (v != null && v.units.isNotEmpty) ? v.units : product.units;
-    final currentBarcode = product.barcode;
+    final currentBarcode = (v?.barcode != null && v!.barcode!.trim().isNotEmpty)
+        ? v.barcode!.trim()
+        : (pageUnit?.barcode != null && pageUnit!.barcode!.trim().isNotEmpty)
+            ? pageUnit.barcode!.trim()
+            : product.barcode;
     final currentStock = v?.stock ?? product.baseStock;
     final currentProduction = pageUnit?.productionDate ??
         v?.productionDate ??

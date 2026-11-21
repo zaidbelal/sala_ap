@@ -4,7 +4,6 @@ const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const {
-  AggregateField,
   FieldPath,
   FieldValue,
   Timestamp,
@@ -12,7 +11,6 @@ const {
 } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { getStorage } = require("firebase-admin/storage");
-const { isDeepStrictEqual } = require("node:util");
 const crypto = require("crypto");
  
 initializeApp();
@@ -390,20 +388,24 @@ class OrderCalculator {
           (Array.isArray(productFinancials.units) ? productFinancials.units : []).map((u) => [String(u.label).trim(), u])
         );
       }
-
-      const unitLabel = String(item.unit_label || "كرتون").trim();
+const unitLabel = String(item.unit_label || "كرتون").trim();
       const isCarton = (unitLabel === "كرتون");
-    const rawVariantUnits = Array.isArray(selectedVariant?.units) ? selectedVariant.units : [];
+      const rawVariantUnits = Array.isArray(selectedVariant?.units) ? selectedVariant.units : [];
       const rawProductUnits = Array.isArray(product.units) ? product.units : [];
-      const availableUnits = rawVariantUnits.length > 0 ? rawVariantUnits : rawProductUnits;
+      
+      // ✅ تطابق تام 100% مع تطبيق فلاتر: إذا لم يكن للحجم وحدات فرعية مخصصة، تورث وحدات المنتج الأساسي
+      const hasCustomVariantSubUnits = rawVariantUnits.some((u) => String(u.label || "").trim() !== "كرتون");
+      const availableUnits = hasCustomVariantSubUnits ? rawVariantUnits : (rawProductUnits.length > 0 ? rawProductUnits : rawVariantUnits);
       let selectedUnit = availableUnits.find((u) => String(u.label || "").trim() === unitLabel);
 
       let unitQty = 1;
       if (selectedUnit) {
-        // احتساب السعر التناسبي للوحدة في حال توريثها من المنتج الأساسي للحجم
-        if (selectedVariant && rawVariantUnits.length === 0 && Number(product.price) > 0) {
+        // احتساب السعر التناسبي للوحدة الموروثة للحجم بدقة مطابقة لفلاتر
+        if (selectedVariant && !hasCustomVariantSubUnits && Number(product.price) > 0) {
           const ratio = Number(selectedVariant.price) / Number(product.price);
-          unitPrice = isCarton ? Number(selectedVariant.price) : Number((Number(selectedUnit.price) * ratio).toFixed(2));
+          unitPrice = isCarton
+            ? Number(selectedVariant.price)
+            : Math.round(Number((Number(selectedUnit.price) * ratio).toFixed(6)));
         } else {
           unitPrice = Number(selectedUnit.price);
         }
@@ -643,14 +645,15 @@ exports.requestOtp = onCall(
       throw new HttpsError("invalid-argument", "نوع الطلب غير صحيح");
     }
 
-    // 🔒 التحقق المسبق الصارم: منع إرسال أي رسالة مدفوعة إلا للأرقام المؤهلة فعلياً
+  // 🔒 التحقق المسبق الصارم: جلب المطابقات واستبعاد السجلات المرحّلة/المحذوفة أولاً
     const profileSnap = await db.collection("profiles")
       .where("phone_number", "==", phone)
-      .limit(1)
+      .limit(5)
       .get();
-    
-    const userExists = !profileSnap.empty;
-    const userData = userExists ? profileSnap.docs[0].data() : null;
+
+    const matchedDoc = profileSnap.docs.find((d) => d.data()?.is_deleted !== true) || profileSnap.docs[0] || null;
+    const userExists = Boolean(matchedDoc);
+    const userData = matchedDoc ? matchedDoc.data() : null;
 
 if (purpose === "login") {
       if (!userExists || userData?.is_deleted === true) {
@@ -670,25 +673,25 @@ if (purpose === "login") {
         throw new HttpsError("already-exists", "هذا الرقم مسجل بالفعل، يرجى الضغط على 'تسجيل الدخول'");
       }
     }
-    const otpRef = db.collection("otp_codes").doc(phone);
+  const otpRef = db.collection("otp_codes").doc(phone);
     const code = generateCode();
     const codeHash = hashCode(code);
 
-    const reserved = await db.runTransaction(async (tx) => {
+    const reserveStatus = await db.runTransaction(async (tx) => {
       const existing = await tx.get(otpRef);
       const data = existing.data() || {};
       const lastSentAt = existing.exists ? (data.lastSentAt?.toMillis?.() ?? 0) : 0;
-      
+
       // كبح التكرار: دقيقة كاملة بين كل طلب لنفس الرقم
-      if (Date.now() - lastSentAt < RESEND_COOLDOWN_MS) return false;
+      if (Date.now() - lastSentAt < RESEND_COOLDOWN_MS) return "cooldown";
 
       // سقف أمان ساعي: منع طلب أكثر من 5 رموز لنفس الرقم خلال ساعة واحدة
       const hourlyRequests = Number(data.hourlyRequests || 0);
       const hourStart = data.hourStart?.toMillis?.() ?? 0;
       const isNewHour = Date.now() - hourStart > 3600 * 1000;
-      
+
       if (!isNewHour && hourlyRequests >= 5) {
-        return false;
+        return "hourly_limit";
       }
 
       tx.set(otpRef, {
@@ -701,11 +704,14 @@ if (purpose === "login") {
         lastSentAt: FieldValue.serverTimestamp(),
         expiresAt: Timestamp.fromMillis(Date.now() + OTP_TTL_MS),
       });
-      return true;
+      return "reserved";
     });
 
-    if (!reserved) {
-      return { success: true, message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق" };
+    if (reserveStatus === "cooldown") {
+      throw new HttpsError("resource-exhausted", "يرجى الانتظار دقيقة كاملة قبل طلب رمز تحقق جديد");
+    }
+    if (reserveStatus === "hourly_limit") {
+      throw new HttpsError("resource-exhausted", "تجاوزت الحد المسموح (5 رموز في الساعة)، يرجى المحاولة لاحقاً");
     }
 try {
       await sendWhatsAppMessage({
@@ -835,14 +841,17 @@ const candidateBuf = Buffer.from(hashCode(code), "hex");
 
     let uid;
     let role = "merchant";
-  if (purpose === "login") {
-      const profileSnap = await db.collection("profiles").where("phone_number", "==", phone).limit(1).get();
-      if (profileSnap.empty) {
+if (purpose === "login") {
+      const profileSnap = await db.collection("profiles").where("phone_number", "==", phone).limit(5).get();
+      const userDoc = profileSnap.docs.find((d) => d.data()?.is_deleted !== true);
+      if (!userDoc) {
         return { verified: false, message: "تعذر التحقق من الرمز، أعد إرساله وحاول مجدداً" };
       }
-      const userDoc = profileSnap.docs[0];
       const userData = userDoc.data();
 
+      if (userData.is_deleted === true) {
+        return { verified: false, message: "هذا الحساب محذوف، يرجى إنشاء حساب جديد" };
+      }
       if (userData.is_banned === true) {
         return { verified: false, message: "تم حظر هذا الحساب، يرجى التواصل مع الإدارة" };
       }
@@ -860,23 +869,25 @@ const candidateBuf = Buffer.from(hashCode(code), "hex");
   }   else {
       const existingProfile = await db.collection("profiles")
         .where("phone_number", "==", phone)
-        .limit(1)
+        .limit(5)
         .get();
 
-      if (!existingProfile.empty) {
-        const existingData = existingProfile.docs[0].data() || {};
-        if (existingData.is_banned === true || (existingData.is_deleted !== true && existingData.account_status !== "otp_verified")) {
+      const activeExistingDoc = existingProfile.docs.find((d) => d.data()?.is_deleted !== true);
+      if (activeExistingDoc) {
+        const existingData = activeExistingDoc.data() || {};
+        if (existingData.is_banned === true || existingData.account_status !== "otp_verified") {
           return {
             verified: false,
             message: "رقم الهاتف مسجل مسبقاً، يرجى تسجيل الدخول",
           };
         }
-        uid = existingProfile.docs[0].id;
+        uid = activeExistingDoc.id;
         await db.collection("profiles").doc(uid).set({
           phone_number: phone,
           role: "merchant",
           is_active: false,
           is_banned: false,
+          is_deleted: false,
           account_status: "otp_verified",
           updated_at: FieldValue.serverTimestamp(),
         }, { merge: true });
@@ -1095,13 +1106,7 @@ exports.searchPlaces = onCall(
     }
   }
 );
-exports.checkPhoneNumber = onCall(
-  { region: "us-central1", cors: true },
-  async () => ({
-    success: true,
-    message: "إذا كان الرقم مؤهلاً، فسيتم إرسال رمز التحقق",
-  }),
-);
+
 
 // ─── إنشاء ملف التاجر الجديد عند إكمال التسجيل (معالجة سحابية آمنة 100%) ───
 exports.migrateFinancialFields = onCall(
@@ -1321,9 +1326,10 @@ exports.syncPhoneAuthProfile = onCall(
         updated_at: FieldValue.serverTimestamp(),
       });
 
-      tx.update(sourceDoc.ref, {
+    tx.update(sourceDoc.ref, {
         is_deleted: true,
         is_active: false,
+        phone_number: FieldValue.delete(),
         migrated_to: uid,
         updated_at: FieldValue.serverTimestamp(),
       });
@@ -1389,13 +1395,16 @@ exports.createUserProfile = onCall(
     try {
       const profileRef = db.collection("profiles").doc(uid);
       await db.runTransaction(async (tx) => {
-        const [existingDoc, phoneMatches] = await Promise.all([
+    const [existingDoc, phoneMatches] = await Promise.all([
           tx.get(profileRef),
           tx.get(db.collection("profiles")
             .where("phone_number", "==", cleanPhone)
-            .limit(1)),
+            .limit(5)),
         ]);
-        if (!phoneMatches.empty && phoneMatches.docs[0].id !== uid) {
+        const conflictingDoc = phoneMatches.docs.find(
+          (d) => d.id !== uid && d.data()?.is_deleted !== true
+        );
+        if (conflictingDoc) {
           throw new HttpsError("already-exists", "رقم الهاتف هذا مسجل مسبقاً لحساب آخر");
         }
 if (existingDoc.exists) {
@@ -2809,7 +2818,7 @@ const orderRef = db.collection("orders").doc(cleanOrderId);
     const financialRef = db.collection("order_financials").doc(cleanOrderId);
     const requiresStockRestore = cleanStatus === "cancelled" || cleanStatus === "rejected" || cleanStatus === "returned";
 
-    return await db.runTransaction(async (tx) => {
+   const txResult = await db.runTransaction(async (tx) => {
       // 🔒 قراءة متزامنة ومعزولة 100% داخل المعاملة الذرية لمنع استرجاع المخزون المزدوج
       const [orderSnap, financialSnap, itemsSnap] = await Promise.all([
         tx.get(orderRef),
@@ -3156,6 +3165,7 @@ const cleanMainBarcode = Normalizer.barcode(data.barcode);
           expiry_date: Normalizer.toSafeTimestamp(u.expiry_date),
         })).filter((u) => u.label.length > 0 && u.price >= 0)
       : [];
+const variantBaseTs = Date.now();
 const parsedVariants = rawVariants.map((v, idx) => {
       const vUnits = Array.isArray(v.units)
         ? v.units.map((u) => ({
@@ -3171,7 +3181,7 @@ const parsedVariants = rawVariants.map((v, idx) => {
         : [];
 
       return {
-        id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+        id: String(v.id || `v_${idx}_${variantBaseTs}`).trim(),
         label: String(v.label || "").trim(),
         price: Math.max(0, Number(v.price) || 0),
         stock: Math.max(0, Number(v.stock) || 0),
@@ -3187,7 +3197,7 @@ const parsedVariants = rawVariants.map((v, idx) => {
     }).filter((v) => v.label.length > 0);
 
     const variantFinancials = rawVariants.map((v, idx) => ({
-      id: String(v.id || `v_${idx}_${Date.now()}`).trim(),
+      id: String(v.id || `v_${idx}_${variantBaseTs}`).trim(),
       label: String(v.label || "").trim(),
       cost_price: Math.max(0, Number(v.cost_price) || 0),
       units: Array.isArray(v.units)
@@ -3558,7 +3568,13 @@ exports.adminUpdateProduct = onCall(
       );
       let newStock = Number(existing.stock) || 0;
 
-      if (safeUpdates.base_stock !== undefined || safeUpdates.variants !== undefined) {
+   if (safeUpdates.base_stock !== undefined || safeUpdates.variants !== undefined) {
+        if (safeUpdates.base_stock === undefined && existing.base_stock === undefined) {
+          safeUpdates.base_stock = nextBaseStock;
+          if (safeUpdates.has_base_stock === undefined && nextBaseStock > 0) {
+            safeUpdates.has_base_stock = true;
+          }
+        }
         newStock = Number((nextBaseStock + totalVariantStock).toFixed(4));
         safeUpdates.stock = newStock;
       }

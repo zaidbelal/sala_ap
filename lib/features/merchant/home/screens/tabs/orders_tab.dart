@@ -28,7 +28,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
   bool _hasMoreOrders = true;
   bool _isLoadingMoreOrders = false;
   String? _orderLoadError;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? ordersStream;
 
   static const _tabs = [
     (label: 'الكل', icon: Icons.list_alt_rounded),
@@ -37,8 +36,6 @@ class _OrdersTabState extends ConsumerState<OrdersTab>
     (label: 'مرفوضة', icon: Icons.cancel_rounded),
     (label: 'مرتجعات', icon: Icons.assignment_return_rounded),
   ];
-
-  bool historyTriggered = false;
   @override
   void initState() {
     super.initState();
@@ -405,95 +402,6 @@ class _TappableCardState extends State<_TappableCard> {
     return OrderCard(
       order: widget.order,
       onTap: widget.onTap,
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-// Skeleton Card
-// ══════════════════════════════════════════════════════════
-class _OrderSkeletonCard extends StatefulWidget {
-  const _OrderSkeletonCard();
-
-  @override
-  State<_OrderSkeletonCard> createState() => _OrderSkeletonCardState();
-}
-
-class _OrderSkeletonCardState extends State<_OrderSkeletonCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-    _anim = Tween(begin: 0.4, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Widget _box(double w, double h, {double radius = 8}) {
-    return FadeTransition(
-      opacity: _anim,
-      child: Container(
-        width: w,
-        height: h,
-        decoration: BoxDecoration(
-          color: context.borderColor,
-          borderRadius: BorderRadius.circular(radius),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.bgCard,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: context.shadowColor.withValues(alpha: 0.05),
-              blurRadius: 8),
-        ],
-      ),
-      child: Row(
-        children: [
-          _box(48, 48, radius: 12),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _box(double.infinity, 14),
-                const SizedBox(height: 8),
-                _box(120, 11),
-                const SizedBox(height: 8),
-                _box(80, 11),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _box(60, 16),
-              const SizedBox(height: 8),
-              _box(40, 24, radius: 12),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

@@ -145,7 +145,7 @@ class ProductModel {
     final imageUrl = m['image_url'] as String?;
     final barcode = m['barcode']?.toString().trim();
 
-    // حجب أسعار التكلفة تماماً عن هواتف التجار وتأمين الوحدات
+// حجب أسعار التكلفة تماماً عن هواتف التجار، وتوريث باركود المنتج للكميات التابعة له
     final sanitizedUnits = units
         .map((u) => ProductUnit(
               label: u.label,
@@ -156,7 +156,7 @@ class ProductModel {
               sizeMl: u.sizeMl,
               productionDate: u.productionDate,
               expiryDate: u.expiryDate,
-              barcode: null,
+              barcode: barcode,
             ))
         .toList();
 
@@ -200,6 +200,10 @@ class ProductModel {
     final sanitizedVariants = rawVariants is List
         ? rawVariants.whereType<Map>().map((rawV) {
             final v = ProductVariant.fromMap(Map<String, dynamic>.from(rawV));
+            final String? variantBarcode =
+                (v.barcode != null && v.barcode!.isNotEmpty) ? v.barcode : null;
+            final String? effectiveVarBarcode = variantBarcode ?? barcode;
+
             List<ProductUnit> vUnits = v.units
                 .map((u) => ProductUnit(
                       label: u.label,
@@ -210,11 +214,11 @@ class ProductModel {
                       sizeMl: u.sizeMl,
                       productionDate: u.productionDate,
                       expiryDate: u.expiryDate,
-                      barcode: null,
+                      barcode: effectiveVarBarcode,
                     ))
                 .toList();
 
-            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم في حال لم تُحدد له وحدات خاصة
+            // 🌟 توريث كافة كميات ووحدات المنتج الأساسي للحجم مع ربطها بباركود الحجم نفسه
             final hasCustomSubUnits =
                 vUnits.any((u) => u.label.trim() != 'كرتون');
             if (!hasCustomSubUnits && sanitizedUnits.length > 1) {
@@ -230,11 +234,12 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? pUnit.sizeMl,
                     productionDate: v.productionDate ?? pUnit.productionDate,
                     expiryDate: v.expiryDate ?? pUnit.expiryDate,
-                    barcode: null,
+                    barcode: effectiveVarBarcode,
                   );
                 }
                 final double scaledPrice =
-                    (pUnit.price * ratio).roundToDouble();
+                    double.parse((pUnit.price * ratio).toStringAsFixed(6))
+                        .roundToDouble();
                 return ProductUnit(
                   label: pUnit.label,
                   qty: pUnit.qty,
@@ -244,7 +249,7 @@ class ProductModel {
                   sizeMl: v.sizeMl ?? pUnit.sizeMl,
                   productionDate: v.productionDate ?? pUnit.productionDate,
                   expiryDate: v.expiryDate ?? pUnit.expiryDate,
-                  barcode: null,
+                  barcode: effectiveVarBarcode,
                 );
               }).toList();
             } else {
@@ -261,7 +266,7 @@ class ProductModel {
                     sizeMl: v.sizeMl ?? sizeMl,
                     productionDate: v.productionDate,
                     expiryDate: v.expiryDate,
-                    barcode: null,
+                    barcode: effectiveVarBarcode,
                   ),
                 );
               }
@@ -277,14 +282,13 @@ class ProductModel {
               sizeText: v.sizeText,
               sizeMl: v.sizeMl,
               imageUrl: v.imageUrl ?? imageUrl,
-              barcode: null,
+              barcode: variantBarcode,
               productionDate: v.productionDate,
               expiryDate: v.expiryDate,
               units: vUnits,
             );
           }).toList()
         : <ProductVariant>[];
-
     return ProductModel(
       id: m['id']?.toString() ?? '',
       name: (m['name'] as String?)?.trim() ?? '',

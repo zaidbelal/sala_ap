@@ -16,6 +16,7 @@ import '../../widgets/merchant_search_bar.dart';
 import '../../../widgets/search_results_view.dart';
 import '../../../notifications/notifications_screen.dart';
 import '../../../barcode/barcode_scanner_screen.dart';
+import '../../../../../core/models/product_unit.dart';
 import '../../../products/services/products_service.dart';
 import '../../../products/screens/products_screen.dart';
 import '../../../products/widgets/product_details_sheet.dart';
@@ -304,12 +305,31 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                             if (matchedProductMap != null && context.mounted) {
                               final productModel =
                                   ProductModel.fromMap(matchedProductMap);
+                              final scannedCode =
+                                  matchedProductMap['_scanned_barcode']
+                                      ?.toString()
+                                      .trim();
+                              ProductVariant? matchedVariant;
+                              if (scannedCode != null &&
+                                  scannedCode.isNotEmpty &&
+                                  productModel.hasVariants) {
+                                final scannedVars =
+                                    BarcodeTools.variants(scannedCode).toSet();
+                                matchedVariant =
+                                    productModel.allVariantsWithBase.where((v) {
+                                  final vb = v.barcode?.trim() ?? '';
+                                  if (vb.isEmpty) return false;
+                                  return BarcodeTools.variants(vb)
+                                      .any(scannedVars.contains);
+                                }).firstOrNull;
+                              }
                               showModalBottomSheet(
                                 context: context,
                                 isScrollControlled: true,
                                 backgroundColor: Colors.transparent,
                                 builder: (_) => ProductDetailsSheet(
                                   product: productModel,
+                                  initialVariant: matchedVariant,
                                 ),
                               );
                             }

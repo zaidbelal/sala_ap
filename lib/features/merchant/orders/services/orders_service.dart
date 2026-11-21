@@ -193,6 +193,7 @@ class OrdersService {
         .collection('orders')
         .where('driver_id', isEqualTo: driverId)
         .where('status', isEqualTo: 'delivered')
+        .orderBy('created_at', descending: true)
         .limit(100)
         .get(const GetOptions(source: Source.serverAndCache));
     final docs = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();

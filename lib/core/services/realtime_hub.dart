@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -59,12 +58,6 @@ final realtimeCategoriesProvider =
 final realtimeBrandsProvider =
     StateNotifierProvider<_BrandsNotifier, List<Map<String, dynamic>>>(
   (ref) => _BrandsNotifier(),
-);
-
-// ══ Admin — كل الطلبات لحظياً ══
-final realtimeAllOrdersProvider =
-    StateNotifierProvider<_AllOrdersNotifier, List<Map<String, dynamic>>>(
-  (ref) => _AllOrdersNotifier(),
 );
 
 // ══ Driver — الطلبات المؤكدة غير المسندة ══
@@ -144,6 +137,7 @@ class RealtimeHub {
 
   StreamSubscription? _profileSub;
   StreamSubscription? _notificationsSub;
+  StreamSubscription? _broadcastSub;
   StreamSubscription? _categoriesSub;
   StreamSubscription? _brandsSub;
   StreamSubscription? _productsSub;
@@ -160,10 +154,6 @@ class RealtimeHub {
 
     _container?.read(realtimeStatusProvider.notifier).state =
         RealtimeStatus.connected;
-
-    _watchCategories();
-    _watchBrands();
-    _watchProducts();
 
     final userId = AppStorage.userId ?? '';
     if (userId.isNotEmpty) {
@@ -213,9 +203,18 @@ class RealtimeHub {
     }
 
     final normalizedRole = role.toLowerCase().trim();
+    bool isCatalogReady() {
+      final needsCatalog = normalizedRole == 'merchant' && AppStorage.isActive;
+      return !needsCatalog ||
+          (_categoriesSub != null &&
+              _brandsSub != null &&
+              _productsSub != null);
+    }
+
     if (_activeUserId == userId &&
         _activeUserRole == normalizedRole &&
         _userSubs.isNotEmpty &&
+        isCatalogReady() &&
         _initialized) {
       return;
     }
@@ -232,10 +231,10 @@ class RealtimeHub {
       if (_activeUserId == userId &&
           _activeUserRole == normalizedRole &&
           _userSubs.isNotEmpty &&
+          isCatalogReady() &&
           _initialized) {
         return;
       }
-
       _initialized = true;
       _setConnected();
       _startHeartbeat();
@@ -265,9 +264,13 @@ class RealtimeHub {
   }
 
   void _startUserChannels(String userId, {required String role}) {
-    if (_categoriesSub == null) _watchCategories();
-    if (_brandsSub == null) _watchBrands();
-    if (_productsSub == null) _watchProducts();
+    if (role == 'merchant' && AppStorage.isActive) {
+      if (_categoriesSub == null) _watchCategories();
+      if (_brandsSub == null) _watchBrands();
+      if (_productsSub == null) _watchProducts();
+    } else {
+      unawaited(_stopCatalogChannels());
+    }
 
     _profileSub?.cancel();
     if (_profileSub != null) {
@@ -299,7 +302,6 @@ class RealtimeHub {
             container.invalidate(merchantOrdersProvider);
             container.invalidate(realtimeConfirmedOrdersProvider);
             container.invalidate(realtimeMyShippedOrdersProvider);
-            container.invalidate(realtimeAllOrdersProvider);
             container.invalidate(driverNewOrderCallbackProvider);
           } catch (_) {}
         }
@@ -517,25 +519,36 @@ class RealtimeHub {
         return;
       }
     }, onError: (_) {});
-
-    // تم إلغاء إضافة _profileSub إلى _userSubs لتجنب الإلغاء المزدوج والتعليق البرمجي
+// تم إلغاء إضافة _profileSub إلى _userSubs لتجنب الإلغاء المزدوج والتعليق البرمجي
     _watchNotifications(userId);
     if (role == 'admin' ||
         role == 'super_admin' ||
         role == 'accountant' ||
         role == 'warehouse_manager') {
-      _watchAllOrders();
+      // AdminOrdersTab يدير اشتراكه اللحظي المفلتر عبر adminOrdersRealtimeProvider
     } else if (role == 'driver') {
       _watchConfirmedOrders();
       _watchMyShippedOrders(userId);
-    } else {
+    } else if (role == 'merchant') {
       _watchOrders(userId);
     }
+  }
+
+  Future<void> _stopCatalogChannels() async {
+    await Future.wait([
+      _categoriesSub?.cancel() ?? Future.value(),
+      _brandsSub?.cancel() ?? Future.value(),
+      _productsSub?.cancel() ?? Future.value(),
+    ]);
+    _categoriesSub = null;
+    _brandsSub = null;
+    _productsSub = null;
   }
 
   Future<void> _stopUserChannels() async {
     await _notificationsSub?.cancel();
     _notificationsSub = null;
+    await _stopCatalogChannels();
 
     final subscriptions = List<StreamSubscription>.from(_userSubs);
     _userSubs.clear();
@@ -546,12 +559,10 @@ class RealtimeHub {
 
     _container?.read(merchantOrdersProvider.notifier).clear();
     _container?.read(realtimeNotifsProvider.notifier).clear();
-    _container?.read(realtimeAllOrdersProvider.notifier).clear();
+
     _container?.read(realtimeConfirmedOrdersProvider.notifier).clear();
     _container?.read(realtimeMyShippedOrdersProvider.notifier).clear();
-
-    if (_categoriesSub == null) _watchCategories();
-    if (_brandsSub == null) _watchBrands();
+    _container?.read(realtimeProductsProvider.notifier).clear();
   }
 
   void _watchOrders(String merchantId) {
@@ -572,9 +583,6 @@ class RealtimeHub {
   void _watchNotifications(String userId) {
     if (userId.isEmpty) return;
 
-    bool isFirstLoad = true;
-    final Set<String> knownNotifIds = {};
-
     _notificationsSub?.cancel();
     if (_notificationsSub != null) {
       _userSubs.remove(_notificationsSub);
@@ -588,31 +596,9 @@ class RealtimeHub {
         .snapshots()
         .listen(
       (snap) {
-        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList()
-          ..sort((a, b) => AppDateParser.parse(b['created_at'])
-              .compareTo(AppDateParser.parse(a['created_at'])));
+        final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
         _container?.read(realtimeNotifsProvider.notifier).update(data);
         _setConnected();
-        if (knownNotifIds.length > 500) {
-          knownNotifIds.clear();
-          for (final d in snap.docs) {
-            knownNotifIds.add(d.id);
-          }
-        } else if (!isFirstLoad) {
-          for (final change in snap.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final id = change.doc.id;
-              if (!knownNotifIds.contains(id)) {
-                knownNotifIds.add(id);
-              }
-            }
-          }
-        } else {
-          isFirstLoad = false;
-          for (final d in snap.docs) {
-            knownNotifIds.add(d.id);
-          }
-        }
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchNotifications error: $e');
@@ -625,6 +611,13 @@ class RealtimeHub {
     _userSubs.add(sub);
 
     if (AppStorage.isMerchant) {
+      // ✅ إلغاء اشتراك البث القديم دائماً قبل إنشاء اشتراك جديد لمنع تسريب الذاكرة وتضاعف الاستجابة
+      _broadcastSub?.cancel();
+      if (_broadcastSub != null) {
+        _userSubs.remove(_broadcastSub);
+        _broadcastSub = null;
+      }
+
       final broadcastSub = _db
           .collection('broadcast_notifications')
           .orderBy('created_at', descending: true)
@@ -662,12 +655,14 @@ class RealtimeHub {
         }).toList();
         _container?.read(realtimeNotifsProvider.notifier).update(broadcastData);
       }, onError: (_) {});
+      _broadcastSub = broadcastSub;
       _userSubs.add(broadcastSub);
     }
   }
 
   void _watchProducts() {
     _productsSub?.cancel();
+    bool isInitialSnapshot = true;
     _productsSub = _db
         .collection('products')
         .orderBy('updated_at', descending: true)
@@ -675,10 +670,27 @@ class RealtimeHub {
         .snapshots(includeMetadataChanges: false)
         .listen(
       (snap) {
-        final allChanges =
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-        unawaited(AppCache.instance.mergeProducts(allChanges));
-        _container?.read(realtimeProductsProvider.notifier).update(allChanges);
+        final List<Map<String, dynamic>> batch;
+        if (isInitialSnapshot) {
+          isInitialSnapshot = false;
+          batch = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        } else {
+          batch = snap.docChanges.map((change) {
+            if (change.type == DocumentChangeType.removed) {
+              return <String, dynamic>{
+                'id': change.doc.id,
+                'is_deleted': true,
+              };
+            }
+            return <String, dynamic>{
+              'id': change.doc.id,
+              ...?change.doc.data(),
+            };
+          }).toList();
+        }
+        if (batch.isEmpty) return;
+        unawaited(AppCache.instance.mergeProducts(batch));
+        _container?.read(realtimeProductsProvider.notifier).update(batch);
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchProducts error: $e');
@@ -742,21 +754,7 @@ class RealtimeHub {
     );
   }
 
-  void _watchAllOrders() {
-    final sub = _db
-        .collection('orders')
-        .orderBy('created_at', descending: true)
-        .limit(50)
-        .snapshots()
-        .listen((snap) {
-      final data = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-      _container?.read(realtimeAllOrdersProvider.notifier).update(data);
-    }, onError: (_) {});
-    _userSubs.add(sub);
-  }
-
   void _watchConfirmedOrders() {
-    final seenIds = LinkedHashSet<String>();
     const targetStatuses = ['confirmed', 'preparing'];
 
     // استخدام الفهرس المركب (status ASC, created_at DESC) لضمان وصول أحدث الطلبات غير المسندة أولاً
@@ -768,30 +766,15 @@ class RealtimeHub {
         .snapshots()
         .listen(
       (snap) {
-        final unassignedDocs = snap.docs.where((d) {
-          final driverId = d.data()['driver_id']?.toString().trim();
-          return driverId == null || driverId.isEmpty;
-        }).toList();
-
-        final data = unassignedDocs
+        final data = snap.docs
+            .where((d) {
+              final driverId = d.data()['driver_id']?.toString().trim();
+              return driverId == null || driverId.isEmpty;
+            })
             .map((d) => {'id': d.id, ...d.data()})
-            .toList()
-          ..sort((a, b) => AppDateParser.parse(b['created_at'])
-              .compareTo(AppDateParser.parse(a['created_at'])));
+            .toList();
         _container?.read(realtimeConfirmedOrdersProvider.notifier).update(data);
         _setConnected();
-        final currentIds = LinkedHashSet<String>.from(
-          unassignedDocs.map((doc) => doc.id),
-        );
-
-        for (final id in currentIds) {
-          seenIds
-            ..remove(id)
-            ..add(id);
-        }
-        while (seenIds.length > 500) {
-          seenIds.remove(seenIds.first);
-        }
       },
       onError: (e) {
         if (kDebugMode) debugPrint('❌ _watchConfirmedOrders error: $e');
@@ -869,16 +852,16 @@ class RealtimeHub {
     _reconnectTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
     await _categoriesSub?.cancel();
     _categoriesSub = null;
     await _brandsSub?.cancel();
     _brandsSub = null;
+    await _productsSub?.cancel();
+    _productsSub = null;
     await _notificationsSub?.cancel();
     _notificationsSub = null;
     await _profileSub?.cancel();
     _profileSub = null; // 🔒 منع تسريب مؤشر الملف الشخصي في الذاكرة
-
     final subscriptions = List<StreamSubscription>.from(_userSubs);
     _userSubs.clear();
 
@@ -910,6 +893,7 @@ class RealtimeHub {
     final subsToCancel = <StreamSubscription?>[
       _profileSub,
       _notificationsSub,
+      _broadcastSub,
       _categoriesSub,
       _brandsSub,
       _productsSub,
@@ -918,6 +902,7 @@ class RealtimeHub {
 
     _profileSub = null;
     _notificationsSub = null;
+    _broadcastSub = null;
     _categoriesSub = null;
     _brandsSub = null;
     _productsSub = null;
@@ -932,7 +917,7 @@ class RealtimeHub {
       try {
         container.read(merchantOrdersProvider.notifier).clear();
         container.read(realtimeNotifsProvider.notifier).clear();
-        container.read(realtimeAllOrdersProvider.notifier).clear();
+
         container.read(realtimeConfirmedOrdersProvider.notifier).clear();
         container.read(realtimeMyShippedOrdersProvider.notifier).clear();
         container.read(driverNewOrderCallbackProvider.notifier).state = null;
@@ -1259,20 +1244,11 @@ class _ProductsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
 
   void update(List<Map<String, dynamic>> data) {
     if (!mounted) return;
-    if (state.length <= RealtimeHub._productsPageSize) {
-      state = data;
-    } else {
-      final activeIncomingIds = data.map((e) => e['id'].toString()).toSet();
-      final mergedMap = <String, Map<String, dynamic>>{
-        for (final item in state)
-          if (!activeIncomingIds.contains(item['id'].toString()))
-            item['id'].toString(): item,
-      };
-      for (final item in data) {
-        mergedMap[item['id'].toString()] = item;
-      }
-      state = mergedMap.values.toList();
-    }
+    state = data;
+  }
+
+  void clear() {
+    if (mounted) state = [];
   }
 }
 
@@ -1351,17 +1327,6 @@ class _BrandsNotifier extends StateNotifier<List<Map<String, dynamic>>> {
 
   void update(List<Map<String, dynamic>> data) {
     if (mounted) state = data;
-  }
-}
-
-class _AllOrdersNotifier extends StateNotifier<List<Map<String, dynamic>>> {
-  _AllOrdersNotifier() : super([]);
-  void update(List<Map<String, dynamic>> data) {
-    if (mounted) state = data;
-  }
-
-  void clear() {
-    if (mounted) state = [];
   }
 }
 

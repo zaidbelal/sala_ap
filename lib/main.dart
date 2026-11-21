@@ -189,7 +189,9 @@ void main() async {
   );
   if (isFirebaseReady) {
     RealtimeHub().init(container);
-    _warmUpCache(container);
+    if (AppStorage.isLoggedIn && AppStorage.isActive && AppStorage.isMerchant) {
+      _warmUpCache(container);
+    }
     unawaited(_initializeSystemConfig());
 
     if (!kIsWeb) {

@@ -120,14 +120,15 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
 
     if (value.length > 1) {
       final digits = value.replaceAll(RegExp(r'\D'), '');
+      final startIndex = digits.length >= _length ? 0 : index;
 
       for (int i = 0; i < _length && i < digits.length; i++) {
-        if (index + i < _length) {
-          _controllers[index + i].text = digits[i];
+        if (startIndex + i < _length) {
+          _controllers[startIndex + i].text = digits[i];
         }
       }
 
-      final next = (index + digits.length - 1).clamp(0, _length - 1);
+      final next = (startIndex + digits.length - 1).clamp(0, _length - 1);
       _focusNodes[next].requestFocus();
       setState(() {});
       if (_isComplete) {
@@ -800,10 +801,11 @@ class _OtpBoxState extends State<_OtpBox> {
               focusNode: widget.focusNode,
               textAlign: TextAlign.center,
               keyboardType: TextInputType.number,
-              maxLength: 1,
+              autofillHints: const [AutofillHints.oneTimeCode],
               showCursor: false,
               textDirection: TextDirection.ltr,
               inputFormatters: [
+                LengthLimitingTextInputFormatter(6),
                 TextInputFormatter.withFunction((oldVal, newVal) {
                   final t = ArabicNormalizer.normalizeDigits(newVal.text)
                       .replaceAll(RegExp(r'[^0-9]'), '');

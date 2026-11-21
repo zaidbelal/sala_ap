@@ -58,6 +58,7 @@ class ProductUnit {
         if (costPrice != null) 'cost_price': costPrice,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
         if (sizeMl != null) 'size_ml': sizeMl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': Timestamp.fromDate(productionDate!),
         if (expiryDate != null) 'expiry_date': Timestamp.fromDate(expiryDate!),
@@ -70,6 +71,7 @@ class ProductUnit {
         if (costPrice != null) 'cost_price': costPrice,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
         if (sizeMl != null) 'size_ml': sizeMl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': productionDate!.toIso8601String(),
         if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
@@ -160,6 +162,7 @@ class ProductVariant {
         if (sizeText != null && sizeText!.isNotEmpty) 'size_text': sizeText,
         if (sizeMl != null) 'size_ml': sizeMl,
         if (imageUrl != null && imageUrl!.isNotEmpty) 'image_url': imageUrl,
+        if (barcode != null && barcode!.isNotEmpty) 'barcode': barcode,
         if (productionDate != null)
           'production_date': productionDate!.toIso8601String(),
         if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),

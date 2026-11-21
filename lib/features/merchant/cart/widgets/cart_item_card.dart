@@ -451,7 +451,23 @@ class _CartItemCardState extends ConsumerState<CartItemCard> {
                             onSelected: (selected) {
                               if (selected && !isSelected) {
                                 HapticFeedback.selectionClick();
-                                notifier.changeItemUnit(item, unit);
+                                final changed =
+                                    notifier.changeItemUnit(item, unit);
+                                if (!changed && context.mounted) {
+                                  ScaffoldMessenger.of(context)
+                                    ..clearSnackBars()
+                                    ..showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'عذراً، المخزون المتاح لا يكفي للتحويل إلى (${unit.label})',
+                                          style: const TextStyle(
+                                              fontFamily: 'Cairo'),
+                                        ),
+                                        backgroundColor: Colors.orange,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                }
                               }
                             },
                           ),
